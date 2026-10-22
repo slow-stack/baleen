@@ -2785,6 +2785,14 @@ D:/nodejs/node.exe "D:/Program Files/DeepSeek Harness/resources/runtime/primary-
 ```
 （`link:` 目录登记方式与 study-desk 一致，见 study-desk 的 `install.mjs` / profile `package.json` 的 `dependencies` + `dsh.profile.bundles`。**依赖 `yaml` 若被 24h `minimumReleaseAge` 拒**，按既有做法把它加进 `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude`，版本号写精确。）
 
+装完**先不重启**，用免费的装配检查确认 bundle 进得去（Task 0 实测过：`--dump-config` 只打印不启动）：
+
+```bash
+D="/d/Program Files/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd"
+"$D" --profile desktop --dump-config 2>&1 | grep -n -A3 "dsh-baleen"
+```
+Expected: 能看到 `name: dsh-baleen`（或 `file://...` 形态）那一条。看不到就是登记没生效，先修装配再重启，别用重启去试错。
+
 - [ ] **Step 3: 重启 DSH（由用户操作或明确批准后执行）**
 
 用界面退出再启动，**不要**用 `ELECTRON_RUN_AS_NODE=1` 拉 GUI 进程。启动后：
