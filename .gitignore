@@ -1,0 +1,15 @@
+node_modules/
+dist/
+tmp/
+out/
+*.log
+.DS_Store
+
+# 本机开发用的热挂载副本，绝不提交（带本机绝对路径）
+cordis.patch.yml.local
+
+# 凭据与本地库永远不进仓库
+credentials/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
