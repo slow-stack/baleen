@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS runs (
   per_source_json TEXT,
   candidates INTEGER NOT NULL DEFAULT 0,
   judged INTEGER NOT NULL DEFAULT 0,
+  gaps_json TEXT,
   model_run_id TEXT,
   error TEXT
 );

@@ -20,6 +20,19 @@ const insRow = (db, over) => db.prepare(`INSERT INTO items (
   @thumb, @duration_sec, @stats_json, @tags_json, @locale, @body_text, @body_state, @match_json, @prefilter_score, @status)`
 ).run(row(over))
 
+test('旧库补列是幂等的：先建无 gaps_json 的 runs，migrate 后能写能读', () => {
+  const { db } = openStore(':memory:')
+  db.exec('CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, started_at INTEGER, finished_at INTEGER, trigger TEXT, status TEXT, candidates INTEGER DEFAULT 0, judged INTEGER DEFAULT 0, model_run_id TEXT, error TEXT, per_source_json TEXT)')
+  assert.equal(db.prepare('PRAGMA table_info(runs)').all().some(r => r.name === 'gaps_json'), false)
+  migrate(db)
+  assert.equal(db.prepare('PRAGMA table_info(runs)').all().some(r => r.name === 'gaps_json'), true)
+  migrate(db)   // 再跑一次不能报"列已存在"
+  const id = createRun(db, 'manual', () => 1000)
+  finishRun(db, id, { status: 'done', gaps: { by_reason: { stale: 3 }, kept_with_flag: { burned_in: 1 }, total_dropped: 3 } }, () => 2000)
+  assert.deepEqual(JSON.parse(db.prepare('SELECT gaps_json FROM runs WHERE id=?').get(id).gaps_json).by_reason, { stale: 3 })
+  db.close()
+})
+
 test('游标按源存取，可覆盖，缺源返回 null', () => {
   const db = dbOf()
   assert.equal(getCursor(db, 's1'), null)

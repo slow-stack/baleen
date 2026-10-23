@@ -111,6 +111,7 @@ test('POST /run 走一次调度；没有源时也是 done，且没有网络请�
   assert.equal(body.skipped, false)
   assert.equal(body.status, 'done')
   assert.equal(body.state.last_run.status, 'done')
+  assert.equal(body.state.gaps.total_dropped, 0)     // gaps 必须落库并回传，「今天」靠它写诚实的那行
 })
 
 test('拿不到 webServer 时不抛，只记一条错误日志', async () => {

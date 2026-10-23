@@ -69,6 +69,8 @@ export function apply(ctx, config = {}) {
   function state() {
     const { pref, errors } = getPref()
     const prev = lastRun(db)
+    let gaps = null
+    try { gaps = prev?.gaps_json ? JSON.parse(prev.gaps_json) : null } catch { gaps = null }
     return {
       home: '<HOME>',
       counts: counts(db),
@@ -76,6 +78,7 @@ export function apply(ctx, config = {}) {
         id: prev.id, status: prev.status, at: prev.started_at, finished_at: prev.finished_at,
         candidates: prev.candidates, judged: prev.judged
       } : null,
+      gaps,
       sources: listSources(db).map(s => ({
         id: s.id, type: s.type, url: s.url, enabled: !!s.enabled, interval_min: s.interval_min,
         ok: !s.last_error_class, error_class: s.last_error_class ?? null, cursor: getCursor(db, s.id)
