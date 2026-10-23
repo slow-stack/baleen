@@ -208,6 +208,11 @@ limits:
   min_duration_sec: 90          # 短视频默认不进判断
   skip_kinds: []
 
+# 必须命中主题（或属于关注 feed）才成为候选。默认 true。
+# 关掉它 = "启用一个源 = 它的全部内容都进候选"，实测那样 80 条里 56 条进候选、
+# 其中大量一条主题都没命中——那就不再是"按我的偏好找"了。
+require_theme_hit: true
+
 tuning:                         # 只有两个按钮会写这里
   source_delta: {}              # source_id -> ±delta（限幅 ±0.5）
 
@@ -233,7 +238,7 @@ charter: |                      # 判断那一轮的人设与准则，插件读�
 2. **计划**：读偏好，为每个启用源生成 job，带该源上次成功游标 `since`。
 3. **抓取**：并发上限 4；单 job 超时 20s；失败重试 1 次。
 4. **归一与去重**：填 `kind`/`body_state`，按 `(source_id, external_id)` upsert；已判过的跳过。
-5. **预筛（本地，不调模型）**：命中 `redlines`/`never`、超 `max_age_days`、时长 < `min_duration_sec`、`body_state=missing` → `archived` 并写原因。输出候选清单并按得分排序。
+5. **预筛（本地，不调模型）**：命中 `redlines`/`never`、超 `max_age_days`、时长 < `min_duration_sec`、`body_state=missing`、以及**一条主题都没命中且不是关注 feed**（`no-match`，受 `require_theme_hit` 控制）→ `archived` 并写原因。丢弃原因是固定集合 `theme-reject` `no-body` `stale` `too-short` `skip-kind` `below-score` `no-match`，面板与汇报直接按它出统计。输出候选清单并按得分排序。
 6. **判断**：起 headless 会话，注入章程 + 候选（上限 `max_per_run`）+ 只读工具；逐条读 `body_text`/字幕后写报告；宿主解析 `###` 与 `**档位**` 行回写 `verdict_tier`/`verdict_why`。
 7. **汇报**：报告落 `out/<日期>-<runId>.md` + 入 `digests`；面板「汇报」显示历史、「今天」显示最新一份摘要与卡片；`system-prompt/assemble` 注入一句当日结论。
 8. **收尾**：更新各源游标；`runs.status` → `done` / `partial`（有源失败）/ `failed`（会话起不来）。

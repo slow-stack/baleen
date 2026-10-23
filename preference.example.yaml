@@ -1,0 +1,83 @@
+version: 1
+
+# ── 主题组：命中即进候选，never 命中直接判死 ──────────────────
+themes:
+  - group: AI 工具与生态
+    must: []
+    any: [DSH, DeepSeek Harness, 插件, MCP, 智能体, agent, 上下文工程]
+    never: [盘点合集, 十款工具, 效率翻倍]
+    weight: 1.0
+  - group: 前端与设计
+    any: [前端, 设计系统, 交互, UI, CSS, React, Vue]
+    never: [培训班招生]
+    weight: 0.7
+  - group: 公共管理（考研）
+    any: [公共管理, 数字治理, 政策过程, 治理, 公共服务]
+    never: [考公机构, 押题]
+    weight: 0.8
+
+# ── 关注的源（feed URL 也算关注）──────────────────────────
+follow:
+  feeds:
+    - https://newsletter.pragmaticengineer.com/feed
+    - https://blog.cloudflare.com/rss/
+
+sources:
+  - id: pragmatic-engineer
+    type: rss
+    url: https://newsletter.pragmaticengineer.com/feed
+    label: Pragmatic Engineer（Substack）
+    enabled: true
+    interval_min: 720
+    weight: 0.9
+  - id: cloudflare
+    type: rss
+    url: https://blog.cloudflare.com/rss/
+    label: Cloudflare Blog
+    enabled: true
+    interval_min: 720
+    weight: 0.6
+  - id: medium-addy
+    type: rss
+    url: https://medium.com/feed/@addyosmani
+    label: Addy Osmani（Medium）
+    enabled: true
+    interval_min: 720
+    weight: 0.6
+  - id: sspai
+    type: rss
+    url: https://sspai.com/feed
+    label: 少数派
+    enabled: true
+    interval_min: 360
+    weight: 0.7
+  - id: hn-frontpage
+    type: rss
+    url: https://hnrss.org/frontpage
+    label: Hacker News 首页
+    enabled: true
+    interval_min: 180
+    weight: 0.4
+
+schedule:
+  windows: ["07:00-09:00", "12:30-13:30"]
+  off_peak_only: true
+  max_per_run: 25
+  max_per_day: 60
+
+# 必须命中主题（或是关注的 feed）才进候选；改成 false 就退回「整个源都进候选」的宽松模式
+require_theme_hit: true
+
+limits:
+  max_age_days: 14
+  min_duration_sec: 90
+  skip_kinds: []
+
+tuning:
+  source_delta: {}
+
+redlines: [广告代理, 引流私聊, 付费课程推销, 内推群]
+
+charter: |
+  你在替一个不在电脑前的人挑东西。判据是正文里有没有可核验的信息，
+  不是标题有多吓人。拿不准就按"跳过"处理；空也是一种结果，如实写。

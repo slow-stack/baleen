@@ -64,6 +64,35 @@ Usage: dsh [--profile] <name> [options] [app-args...]
 2. **`--dump-config` 是免费的验收工具**：M1 装完插件后，不用重启 DSH 就能先看我们的 bundle 有没有被装配进去。已把它加进 Task 11 的装载前检查。
 3. `dsh plugin --profile <name> add <package>` 与 `link:` 的安装路径在 help 里确认存在；本机三个 profile 各有一份独立 `node_modules`，**桌面版要装进 `desktop`**（这条与既有记忆一致）。
 
+## V6 · feed 真实覆盖率 → **已测（5 个公开源 / 80 条 / 2026-10-23）**
+
+跑法：`cp preference.example.yaml <BALEEN_HOME>/preference.yaml` 后
+`BALEEN_HOME=D:/tmp/baleen-live node tools/live-ingest.mjs --reset`（不经 DSH、假 ctx、独立临时家目录，不碰 `~/.dsh/baleen`）。
+
+| 源 | 类型 | 抓回 | full | summary_only | 结果 |
+|---|---|---|---|---|---|
+| Cloudflare Blog | RSS2 | 20 | 20 | 0 | 在 `follow.feeds` 里 → 全部进候选 |
+| Pragmatic Engineer | Substack | 20 | 17 | 3 | 14 条 `stale`（feed 里含三个月前的旧文），6 条候选 |
+| Medium·Addy Osmani | RSS2 | 10 | 10 | 0 | 10 条全部 `stale`（该作者更新慢），超龄判定生效 |
+| 少数派 | RSS2 | 10 | 0 | 10 | 中文源只给 `description` → 全部 `summary_only` |
+| HN frontpage | RSS2 | 20 | 0 | 20 | 只有一行摘要，正常 |
+
+不可达的候选（探活记录）：simonwillison.net/atom.xml → 404；ruanyifeng.com/blog/atom.xml → 403；martinfowler.com/feed.atom → TLS 吊销列表离线（本机网络约束）。
+
+结论三条：
+
+1. **Substack 与 Medium 都能拿到 `content:encoded` 全文**，不需要绕付费墙；Medium 这轮没触发付费墙样本，要在她自己的订阅上复测。
+2. **中文源与聚合源默认只有摘要**，所以文章区的"仅摘要"徽章是常态而不是错误态，面板文案不能把它写成异常。
+3. `max_age_days` 目前是全局值，对更新慢的源会整源清空（Medium 那 10 条全灭）。已记入 M5 设置页需求：**按源覆盖 `max_age_days`**。
+
+同一轮真数据还暴露三个产品级缺陷（英文关键词子串匹配造出假命中理由、来源权重让 `below-score` 形同虚设、启动时不镜像偏好）。修法与改前/改后数字（56 候选 → 26 候选 / 54 丢弃）见实现计划对应小节。
+
+## profile 改动：故意没做
+
+DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `cordis.patch.yml` / `package.json` 正是本机那次"配置被清空"的前置条件**（应用在运行中会自己重写该文件），所以 link 安装与重启留到应用退出之后：由她退出，agent 再装并用 `--dump-config` 校验。
+
+备份与基线已就位：`cordis.patch.yml.bak-before-baleen-1792753753`、`package.json.bak-before-baleen-1792753753`；patch 40 条 / 54866 B、依赖 36、bundles 47。
+
 ## 还没测的项
 
 | 项 | 状态 | 阻塞在哪 |
@@ -71,7 +100,6 @@ Usage: dsh [--profile] <name> [options] [app-args...]
 | V3 小红书 MCP 代码审查 | 未开始 | 属于 M4，且要装第三方带登录态的代码，需你批准 |
 | V4 `settings.section` 在桌面版是否出现 | 未开始 | 需要真的装插件 + 重启，属于 Task 11 |
 | V5 B 站内嵌播放器 | 未开始 | 需要面板存在，属于 M2/M4 |
-| V6 feed 真实覆盖率 | 未开始 | 需要你的真实订阅清单 |
 | V7（新增）宿主 `timer` 能否替代自建调度 | 未开始 | M3 前评估，不影响 M1 |
 
 ## 隐私与脱敏说明

@@ -2919,6 +2919,18 @@ git tag m1-ingest -m "M1：定时摄取入库跑通（RSS），失败不推进�
 
 执行中发现的两个测试自己的错（都已改测试而不是改实现）：`prefilter` 那条把 `total_dropped` 算成 3（正确是 4，带 `keep` 标记的不算丢弃）；fixture 里一个标题被我写成双重转义 `&amp;amp;`，与真实 feed 的形状不符。
 
+## 真实抓取暴露的三个产品级缺陷（Task 11 前半段，全部改了实现）
+
+拿 5 个可达的公开 feed（Cloudflare / Substack·Pragmatic Engineer / Medium·Addy Osmani / 少数派 / HN）跑了一轮真摄取，80 条。真数据立刻打出三个单元测试打不出来的问题：
+
+1. **英文关键词用子串匹配，命中理由是假的。** `UI` 命中 "b**ui**lding"、`agent` 命中 "man**agement**"，于是"What's the ROI of software engineers' spending"被标成"命中 MCP / agent / UI"、得分 2.89。已改为**纯 ASCII 关键词走词边界、中文走子串**（中文没有词边界，只能子串），并有测试专门钉住这两个反例。这条最要命：理由可信是这个产品唯一的硬承诺，假理由比不理由更糟。
+2. **来源权重让 `below-score` 形同虚设。** `prefilter_score = 主题分 + follow + 源权重 + tuning`，只要源启用，权重自己就够过闸——第一轮 80 条里 56 条进候选，其中相当多一条主题都没命中。新增 `no-match` 原因与 `require_theme_hit`（默认 true）：没命中任何主题且不是关注 feed 就不进候选。改完同一批数据是 **26 条候选 / 54 条丢弃**，其中 `no-match` 30、`stale` 24；关注源（Cloudflare）仍然 20 条全进——这正确表达"订阅即信任"。
+3. **启动时不镜像偏好。** 面板要等第一轮跑完才看得到源列表，"配置了但还没到点"看起来像"没配置"。改为 `apply()` 里就 `syncSources`，并加了测试。
+
+顺带确认的行为（都符合设计）：`body_state` 在真实 feed 上的分布是 Cloudflare/Medium 全文、Substack 17 全文 + 3 仅摘要、少数派与 HN 全部仅摘要——**文章区的默认形态是摘要**，所以面板上"仅摘要"徽章不是异常态而是常态；Medium 那 10 条全部 `stale`（该作者更新慢，feed 里都是三个月前的），这也说明 `max_age_days` 对低频源要能按源单独设，记进 M5 的设置页需求。
+
+`tools/live-ingest.mjs` 留在仓库里：不经 DSH、用假 ctx 直接跑一轮，`BALEEN_HOME` 指到临时目录就能反复试真数据而不动 `~/.dsh/baleen`。
+
 ## 累计验收
 
 - `npm test`：88 个测试全绿（store 5 / preference 8 / feed 8 / pool 7 / adapters-rss 6 / normalize 8 / dedup 10 / store-queries 8 / prefilter 11 / runner 9）。

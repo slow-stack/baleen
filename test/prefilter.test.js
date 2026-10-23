@@ -10,7 +10,28 @@ const d = (over = {}) => ({
 })
 
 test('丢弃原因固定可枚举，面板和汇报都能直接按它出统计', () => {
-  assert.deepEqual(REASONS, ['theme-reject', 'no-body', 'stale', 'too-short', 'skip-kind', 'below-score'])
+  assert.deepEqual(REASONS, ['theme-reject', 'no-body', 'stale', 'too-short', 'skip-kind', 'below-score', 'no-match'])
+})
+
+test('没命中任何主题又不是关注的源 → no-match（默认严格，这才是"按我的偏好"）', () => {
+  const bare = d({ match_json: '{"rejected":false,"hitKeywords":[],"followed":false}' })
+  assert.deepEqual(gate(bare, pref, () => 2000), { pass: false, reason: 'no-match', detail: '没命中主题，也不是关注的源' })
+  const hit = gate(d({ match_json: '{"rejected":false,"hitKeywords":["MCP"],"followed":false}' }), pref, () => 2000)
+  assert.equal(hit.pass, true)
+  const followed = gate(d({ match_json: '{"rejected":false,"hitKeywords":[],"followed":true}' }), pref, () => 2000)
+  assert.equal(followed.pass, true)
+})
+
+test('require_theme_hit=false 时退回宽松模式（全量进候选）', () => {
+  const loose = { ...pref, require_theme_hit: false }
+  const bare = d({ match_json: '{"rejected":false,"hitKeywords":[],"followed":false}' })
+  assert.equal(gate(bare, loose, () => 2000).pass, true)
+})
+
+test('来源权重本身不能让条目过关', () => {
+  // 老 bug：prefilter_score = 权重 + follow，于是启用一个源就等于它全部内容都进候选
+  const onlyWeight = d({ prefilter_score: 0.9, match_json: '{"rejected":false,"hitKeywords":[],"followed":false}' })
+  assert.equal(gate(onlyWeight, pref, () => 2000).reason, 'no-match')
 })
 
 test('主题 never 命中 → theme-reject，并把命中的那个词带在明细里', () => {

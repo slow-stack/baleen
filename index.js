@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile } from './lib/preference.js'
-import { runOnce } from './lib/runner.js'
+import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
 import { makeLogger } from './lib/diag.js'
 import { ensureHome } from './lib/paths.js'
@@ -37,6 +37,10 @@ export function apply(ctx, config = {}) {
   migrate(db)
 
   const getPref = () => loadPreference(dir)
+  // 启动时就把偏好里的源镜像进表，否则面板要等第一轮跑完才看得到源列表
+  // （表是运行态，偏好是真源；只在 runOnce 里同步会让"配置了但还没到点"看起来像没配）。
+  const boot = getPref()
+  if (!boot.errors.length) syncSources(db, boot.pref)
   // 定时器可注入：测试里必须注入，否则一个 5 分钟的 interval 会把测试进程吊住不退出。
   const scheduler = createScheduler({
     db, getPref, runOnce, log,

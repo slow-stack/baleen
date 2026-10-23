@@ -72,6 +72,26 @@ test('never 词与 redlines 直接把条目判死，理由写清是哪一条', (
   assert.equal(JSON.parse(d.match_json).rejected, true)
 })
 
+test('英文关键词按词边界匹配——子串匹配会造假理由', () => {
+  // 真实踩过的坑：UI 命中 building、agent 命中 management，理由行因此完全不可信
+  const p = { themes: [{ group: 'AI 工具', any: ['UI', 'agent', 'MCP'], never: ['盘点合集'], weight: 1 }], redlines: [] }
+  assert.equal(matchThemes('Building resilient software', p).hitKeywords.includes('UI'), false)
+  assert.equal(matchThemes('engineering management rules', p).hitKeywords.includes('agent'), false)
+  assert.equal(matchThemes('The ROI of spending', p).score, 0)
+  assert.equal(matchThemes('The ROI of spending', p).rejected, false)
+  // 真命中要认得出来：独立词、连字符旁、大小写混合
+  const hit = matchThemes('A multi-agent framework with MCP support', p)
+  assert.deepEqual([...hit.hitKeywords].sort(), ['MCP', 'agent'].sort())
+  assert.equal(hit.groups[0], 'AI 工具')
+  assert.equal(matchThemes('关闭 UI 之后', p).hitKeywords.includes('UI'), true)
+})
+
+test('中文关键词仍按子串匹配（中文没有词边界）', () => {
+  const p = { themes: [{ group: '考研', any: ['政策过程'], weight: 1 }], redlines: [] }
+  assert.ok(matchThemes('今天讲政策过程的阶段', p).hitKeywords.includes('政策过程'))
+  assert.equal(matchThemes('今天讲政治过程', p).hitKeywords.length, 0)
+})
+
 test('全部不命中时得分为 0，不是负数', () => {
   const m = matchThemes('与任何组无关的一句话', pref)
   assert.equal(m.rejected, false)

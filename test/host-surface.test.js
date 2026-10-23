@@ -131,6 +131,27 @@ test('effect 的 dispose 会清掉定时器（禁用插件后不再偷偷抓取�
   assert.equal(ctx.timers.filter(t => t.kind === 'clear').length, 1)
 })
 
+test('启动就把偏好里的源镜像进表（不用等第一轮跑完）', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'), [
+    'version: 1',
+    'sources:',
+    '  - id: blog-a',
+    '    type: rss',
+    '    url: https://example.com/feed',
+    '    interval_min: 720',
+    '    weight: 0.8',
+    ''
+  ].join('\n'))
+  const ctx = makeCtx(home)
+  const { apply } = await import('../index.js')
+  const baleen = apply(ctx, { now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval })
+  const s = baleen.state()
+  assert.deepEqual(s.sources.map(x => x.id), ['blog-a'])
+  assert.equal(s.sources[0].interval_min, 720)
+  assert.equal(s.sources[0].cursor, null)
+})
+
 test('tick 在窗外不抓取；runNow 无视窗', async () => {
   const home = freshHome()
   fs.writeFileSync(path.join(home, 'preference.yaml'),
