@@ -12,6 +12,12 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
     }
   },
   "scripts": {
@@ -28,7 +34,8 @@
     "lib/",
     "cordis.patch.yml",
     "AGENTS.md",
-    "README.md"
+    "README.md",
+    "client.js"
   ],
   "keywords": [
     "dsh",
