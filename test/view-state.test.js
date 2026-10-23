@@ -59,6 +59,18 @@ test('filters 里的非对象值被丢掉，不会把 reduce 打下次崩溃', (
   assert.equal(reduce(d, { type: 'filter', view: 'video', key: 'q', value: 'a' }).filters.video.q, 'a')
 })
 
+test('阅读选中项与抽屉是两件事：点一行只换右栏，不弹抽屉', () => {
+  let s = reduce(initialView(), { type: 'select', id: 7 })
+  assert.equal(s.selectedId, 7)
+  assert.equal(s.drawerItemId, null)
+  s = reduce(s, { type: 'pick-view', view: 'video' })
+  assert.equal(s.selectedId, 7, '切视图不该把选中项清掉')
+  assert.equal(reduce(s, { type: 'select', id: null }).selectedId, null)
+  assert.equal(decodeState('{"selectedId":"x"}').selectedId, null)
+  assert.equal(JSON.parse(encodeState(reduce(initialView(), { type: 'select', id: 9 }))).selectedId, 9)
+  assert.equal(decodeState(encodeState(reduce(initialView(), { type: 'select', id: 9 }))).selectedId, 9)
+})
+
 test('未知 action 原样返回，不产生新对象', () => {
   const s = initialView()
   assert.equal(reduce(s, { type: 'nope' }), s)

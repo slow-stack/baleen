@@ -5,7 +5,7 @@
  */
 export const VIEWS = ['today', 'video', 'article', 'digest', 'library']
 
-const DEFAULT_STATE = () => ({ view: 'today', filters: {}, drawerItemId: null, scroll: 0 })
+const DEFAULT_STATE = () => ({ view: 'today', filters: {}, drawerItemId: null, selectedId: null, scroll: 0 })
 
 /** 首屏状态。持久化的读法在 decodeState（装配层把 localStorage 里的原文交给它）。 */
 export function initialView() {
@@ -26,6 +26,10 @@ export function reduce(state, action) {
     }
     case 'open-drawer':
       return action.id == null ? s : { ...s, drawerItemId: action.id }
+    case 'select': {
+      const id = action.id == null ? null : Number(action.id)
+      return { ...s, selectedId: Number.isInteger(id) ? id : null }
+    }
     case 'close-drawer':
       return { ...s, drawerItemId: null }
     case 'scroll':
@@ -37,7 +41,7 @@ export function reduce(state, action) {
 
 export function encodeState(state) {
   try {
-    return JSON.stringify({ v: 1, view: state.view, filters: state.filters, drawerItemId: state.drawerItemId, scroll: state.scroll })
+    return JSON.stringify({ v: 1, view: state.view, filters: state.filters, drawerItemId: state.drawerItemId, selectedId: state.selectedId, scroll: state.scroll })
   } catch { return '' }
 }
 
@@ -61,6 +65,7 @@ export function decodeState(text) {
     view: VIEWS.includes(obj.view) ? obj.view : base.view,
     filters,
     drawerItemId: Number.isInteger(obj.drawerItemId) ? obj.drawerItemId : null,
+    selectedId: Number.isInteger(obj.selectedId) ? obj.selectedId : null,
     scroll: Number.isFinite(obj.scroll) ? obj.scroll : 0
   }
 }

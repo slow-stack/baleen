@@ -138,7 +138,7 @@ test('导航项与渲染器一一对应：加视图只改一处就会红', () =>
 })
 
 test('持久化的视图决定首屏落在哪一格（重开面板不回今天）', () => {
-  for (const [view, expect] of [['digest', /判断轮未接入/], ['article', /文章区还没接上真渲染器/]]) {
+  for (const [view, expect] of [['digest', /判断轮未接入/], ['library', /库还没接上真渲染器/]]) {
     const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view, filters: {}, drawerItemId: null, scroll: 0 }) } })
     const ex = exportsOf(s)
     ex.apply(s.makeCtx(ex.inject))
@@ -154,6 +154,17 @@ test('视频区接上之后，占位文案就不许再出现（换实现要连�
   const text = flattenText(s.registered.find(r => r.slot === 'main').def.factory({})).join(' ')
   assert.match(text, /显示 0 \/ 0 条/)
   assert.doesNotMatch(text, /还没接上真渲染器/)
+})
+
+test('文章区接上之后出的是两栏阅读，不是占位', () => {
+  const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view: 'article', filters: {}, selectedId: null, drawerItemId: null, scroll: 0 }) } })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const tree = s.registered.find(r => r.slot === 'main').def.factory({})
+  const text = flattenText(tree).join(' ')
+  assert.match(text, /左边没有条目/)
+  assert.doesNotMatch(text, /还没接上真渲染器/)
+  assert.equal(findAll(tree, 'bl-two').length, 1)
 })
 
 test('findAll 也认函数组件，否则面板里的节点一个都找不到', () => {

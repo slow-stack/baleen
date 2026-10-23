@@ -2109,6 +2109,8 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 12. **`listItems` 的 `status` 支持逗号串或数组**（`new,judged,digest` → SQL `IN`）：三个视图都要"没归档的"。只传 `status=new` 不够（判过的要看档位），不限状态又会让归档条目挤占 `limit` 名额、面板看起来像"库变小了"。`/items?status=` 原样透传，路由不用改。
 13. **面板按视图决定查询**：`library` 用 `{limit:500}`（含归档），其余用 `{status:'new,judged,digest', limit:200}`；`useEffect` 依赖 `snap.view`，从「库」切回「今天」会重新取活着的那批。
 14. `fmtDuration` 的秒数取整（`Math.floor`）再拼，避免非整数秒在徽章上出现 `1:2:3.5`。工具条的搜索框用 `placeholder` 属性给文案，所以"接上真渲染器"那条断言改看 `显示 0 / 0 条`——`flattenText` 只收 children，读不到属性里的字。
+15. **文章区的"选中"与"抽屉"拆成两份状态**（计划里 ArticleView 的 `onOpen` 一词双用）。点左栏一行只换右栏（`{type:'select', id}` → `selectedId`），进抽屉改走右栏的"详情与反馈"按钮（`bl-detail`）。理由：两栏阅读本来就是常驻正文，若点一行就弹抽屉，抽屉与右栏显示同一条内容，而反馈入口反倒只能在抽屉里看到——把"读"和"判"混在一个动作上。`view-state` 因此多了 `selectedId` 字段并参与编解码，切视图不清它。
+16. `STATE_HINT.burned_in` 的说法统一成"硬字幕读不到"打头（与 `today.js` 的 `FLAG_LABELS`、`video.js` 的 `STATE_LABELS` 同一个词），后面再补"字烧在画面上"。三处口径不一致会让人以为是三件不同的事。
 
 ## 交付判据
 
