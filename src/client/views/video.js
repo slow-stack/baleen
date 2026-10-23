@@ -5,20 +5,12 @@
  */
 import { vnode } from '../vnode.js'
 import { reasonOf } from '../match.js'
+import { fmtDuration } from '../format.js'
 
 export const TIER_LABELS = { '值得看': 'good', '可以看': 'ok', '不值当': 'bad' }
 const STATE_LABELS = {
   full: '全文', summary_only: '仅摘要', subtitle: '字幕',
   transcribed: '转写', missing: '无语音', burned_in: '硬字幕读不到'
-}
-
-export function fmtDuration(sec) {
-  const s = Number(sec)
-  if (!Number.isFinite(s) || s <= 0) return ''
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const r = Math.floor(s % 60)
-  return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`
 }
 
 export function visibleVideos(items, filters = {}) {

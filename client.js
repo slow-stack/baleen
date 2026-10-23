@@ -205,6 +205,30 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // ---- src/client/format.js ----
+    /** 面板里共用的格式化。视图不各写一份，否则"同一件事两种写法"又会回来。 */
+
+    /** 秒 → 1:02:03 / 18:22；0、负数、非数字一律空串（徽章上留空比显示"0:0"诚实）。 */
+    function fmtDuration(sec) {
+      const s = Number(sec)
+      if (!Number.isFinite(s) || s <= 0) return ''
+      const h = Math.floor(s / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      const r = Math.floor(s % 60)
+      return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`
+    }
+
+    /** 时间戳 → 本地可读时间；坏值说"时间未知"而不是显示 Invalid Date。 */
+    function fmtTime(ms) {
+      const t = Number(ms)
+      if (!Number.isFinite(t) || t <= 0) return '（时间未知）'
+      try {
+        return new Date(t).toLocaleString('zh-CN', { hour12: false })
+      } catch {
+        return new Date(t).toISOString()
+      }
+    }
+
     // ---- src/client/css.js ----
     /**
      * 面板样式。**这份 CSS 里一个颜色字面量都没有**：所有颜色都从宿主 token 取，
@@ -308,6 +332,47 @@ window.__ModuleLoader__.load({
       return true
     }
 
+    // ---- src/client/views/shell.js ----
+    /**
+     * 面板外壳：顶部导航（门户式五格）+ 全局异常带 + 渲染失败的降级块。
+     *
+     * 导航是"像网站那样"的主要载体，所以它和视图一样是可测的纯函数——
+     * 预览器（tools/preview.mjs）渲染的就是这同一个 Nav，
+     * 她看预览时看到的导航布局与真机一致，不是预览里另画一条。
+     */
+
+    /** id 与 view-state 的 VIEWS 一字不差；顺序就是点击顺序。 */
+    const NAV_ITEMS = [['today', '今天'], ['video', '视频'], ['article', '文章'], ['digest', '汇报'], ['library', '库']]
+
+    function Nav({ view, pending = 0, onPick }) {
+      return vnode('nav', { className: 'bl-nav', 'aria-label': '主导航' }, [
+        vnode('span', { className: 'bl-brand' }, ['Baleen']),
+        vnode('div', { className: 'bl-navlist' }, NAV_ITEMS.map(([id, label]) => vnode('button', {
+          type: 'button',
+          key: id,
+          className: 'bl-navitem',
+          'aria-current': view === id ? 'page' : 'false',
+          onClick: () => onPick?.(id)
+        }, [label + (id === 'today' && pending ? ` ·待判${pending}` : '')])))
+      ])
+    }
+
+    /** 全局异常带：偏好文件坏了 / 接口没答上 / 手动那轮失败。没问题时这一格什么都不渲染。 */
+    function TopBar({ stale, runError, preferenceErrors }) {
+      const bits = []
+      if (preferenceErrors && preferenceErrors.length) {
+        bits.push(`偏好文件有 ${preferenceErrors.length} 处问题：${preferenceErrors.slice(0, 2).join('；')}`)
+      }
+      if (stale) bits.push('宿主接口没答上，下面是上次成功时的快照')
+      if (runError) bits.push('这一轮没跑成：' + runError)
+      if (!bits.length) return null
+      return vnode('div', { className: 'bl-band', role: 'alert' }, bits)
+    }
+
+    function NotReady({ text }) {
+      return vnode('div', { className: 'bl-empty' }, [text])
+    }
+
     // ---- src/client/views/today.js ----
     /**
      * 「今天」= 门户头版。这一屏承担全部的诚实责任：
@@ -359,7 +424,7 @@ window.__ModuleLoader__.load({
 
     function Card({ item, onOpen }) {
       return vnode('button', { type: 'button', className: 'bl-card', onClick: () => onOpen?.(item.id) }, [
-        item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [item.duration_sec ? String(item.duration_sec) : '—'])]) : null,
+        item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])]) : null,
         vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
         vnode('span', { className: 'bl-card-meta' }, [item.source_id, item.kind === 'note' ? '图文笔记' : item.kind === 'video' ? '视频' : '文章']),
         vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `已判：${item.verdict_tier}` : '待判']),
@@ -410,15 +475,6 @@ window.__ModuleLoader__.load({
     const STATE_LABELS = {
       full: '全文', summary_only: '仅摘要', subtitle: '字幕',
       transcribed: '转写', missing: '无语音', burned_in: '硬字幕读不到'
-    }
-
-    function fmtDuration(sec) {
-      const s = Number(sec)
-      if (!Number.isFinite(s) || s <= 0) return ''
-      const h = Math.floor(s / 3600)
-      const m = Math.floor((s % 3600) / 60)
-      const r = Math.floor(s % 60)
-      return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`
     }
 
     function visibleVideos(items, filters = {}) {
@@ -571,16 +627,6 @@ window.__ModuleLoader__.load({
      * 三种情况写法不同，绝不拿假摘要填版面。
      */
 
-    function digestTime(ms) {
-      const t = Number(ms)
-      if (!Number.isFinite(t) || t <= 0) return '（时间未知）'
-      try {
-        return new Date(t).toLocaleString('zh-CN', { hour12: false })
-      } catch {
-        return new Date(t).toISOString()
-      }
-    }
-
     /**
      * @param state  宿主 /state 的返回（要 digest_count、counts.new、last_run）
      * @param loaded 面板手里真正拿到的汇报份数
@@ -598,7 +644,7 @@ window.__ModuleLoader__.load({
       if (reason) return vnode('div', { className: 'bl-digest bl-empty-state' }, [reason])
       const sorted = [...digests].sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
       return vnode('div', { className: 'bl-digest' }, sorted.map((d) => vnode('section', { className: 'bl-dsum', key: d.id }, [
-        vnode('h3', {}, [digestTime(d.created_at)]),
+        vnode('h3', {}, [fmtTime(d.created_at)]),
         vnode('p', { className: 'bl-dhead' }, [d.headline || '（这份简报没写标题）']),
         vnode('p', { className: 'bl-dpath' }, ['原文：' + (d.markdown_path || '（未落文件）')])
       ])))
@@ -794,26 +840,6 @@ window.__ModuleLoader__.load({
     }
 
 
-    function NotReady({ text }) {
-      return h('div', { className: 'bl-empty' }, text)
-    }
-
-    function Nav({ view, onPick, pending }) {
-      const items = [['today', '今天'], ['video', '视频'], ['article', '文章'], ['digest', '汇报'], ['library', '库']]
-      return h('nav', { className: 'bl-nav', 'aria-label': '主导航' }, [
-        h('span', { className: 'bl-brand', key: 'b' }, 'Baleen'),
-        h('div', { className: 'bl-navlist', key: 'n' }, items.map(([id, label]) =>
-          h('button', {
-            type: 'button',
-            key: id,
-            className: 'bl-navitem',
-            'aria-current': view === id ? 'page' : 'false',
-            onClick: () => onPick?.(id)
-          }, label + (id === 'today' && pending ? ` ·待判${pending}` : ''))
-        ))
-      ])
-    }
-
     /**
      * 视图只产 {type, props, children} 这种纯数据（不碰 React，才能在 Node 里断言），
      * 这里负责把整棵树交给 createElement。列表补 index key：宿主开发模式会因缺 key 刷屏警告。
@@ -826,18 +852,6 @@ window.__ModuleLoader__.load({
       if (props.key == null && key !== undefined) props.key = key
       const kids = (node.children ?? []).map((c, i) => toElement(c, (c && c.props && c.props.key) ?? i)).filter(Boolean)
       return h(node.type, props, ...kids)
-    }
-
-    /** 全局异常带：偏好文件坏了 / 接口没答上 / 手动那轮失败。没问题时这一格不渲染。 */
-    function TopBar({ stale, runError, preferenceErrors }) {
-      const bits = []
-      if (preferenceErrors && preferenceErrors.length) {
-        bits.push(`偏好文件有 ${preferenceErrors.length} 处问题：${preferenceErrors.slice(0, 2).join('；')}`)
-      }
-      if (stale) bits.push('宿主接口没答上，下面是上次成功时的快照')
-      if (runError) bits.push('这一轮没跑成：' + runError)
-      if (!bits.length) return null
-      return h('div', { className: 'bl-band', role: 'alert' }, bits.map((b, i) => h('span', { key: i }, b)))
     }
 
     let clientCtx = null
@@ -918,8 +932,10 @@ window.__ModuleLoader__.load({
       const drawerOpen = snap.drawerItemId != null
       const drawerItem = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
       return h('div', { className: 'bl-root' }, [
-        h(TopBar, { key: 'bar', stale: data.stale, runError, preferenceErrors: st && st.preference_errors }),
-        h(Nav, { key: 'nav', view, pending, onPick: pickView }),
+        // 外壳三件（Nav / TopBar / NotReady）与视图同构，都产纯对象，所以一律经 toElement，
+        // 不能 h(Nav)：函数组件返回普通对象的话，真 React 会直接抛"Objects are not valid as a React child"。
+        toElement(TopBar({ stale: data.stale, runError, preferenceErrors: st && st.preference_errors })),
+        toElement(Nav({ view, pending, onPick: pickView })),
         h('main', { key: 'body', className: 'bl-body' }, toElement(body)),
         drawerOpen
           ? toElement(Drawer({
@@ -952,7 +968,7 @@ window.__ModuleLoader__.load({
               } catch (e) {
                 // 某一格炸了不该白屏：吃掉它并留下可读线索，宿主日志里也拿得到
                 console.error('[dsh-baleen] ' + where + ' 渲染抛错：' + ((e && e.message) || e))
-                return h(NotReady, { text: '这一格渲染失败：' + where })
+                return toElement(NotReady({ text: '这一格渲染失败：' + where }))
               }
             })
             registered.push({ slot, def })

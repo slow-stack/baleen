@@ -2126,6 +2126,11 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 29. **类名与样式的对齐由测试双向扫**：`viewSources()` 抓 `src/client/**` 里所有含 `bl-` 的字符串字面量（不只 `className: 'x'` 这种直接形式——`className: ok ? '' : 'bl-missing'` 用前者会整类漏掉），逐个查 CSS 里有没有对应选择器。第一版就按直接形式扫时确实漏了 `bl-missing`。
 30. `is-video` 这个类删了（没有任何样式引用它，纯属"以后可能用"）；`.bl-actions button` / `.bl-detail` 这些新控件补进交互样式，`min-height:32px` 统一用于可点目标，facet 的 label 也从计划的 26px 提到 32px。
 31. `injectStyles()` 在 `apply()` 里调一次（不是计划的"Panel 首行"）：Panel 是渲染函数，渲染几次就可能调几次，虽然内部有 `injected` 旗标兜着，但把幂等测试（"样式表只注入一次"）放在装配入口更对得上它的语义。
+32. **预览必须带外壳，不然这一门白过**。计划 Step 3 直接把 `TodayView(...)` 塞进页面，那她看到的是没有导航的一屏卡片——而当初定的正是"像网站那样，顶部是导航栏"，没法评。为此把 `Nav`/`TopBar`/`NotReady` 从 `_footer.txt` 提到 `src/client/views/shell.js`（纯 vnode，与视图同构），装配层与预览器共用同一份；预览每页现在渲染 `TopBar + Nav + main + 抽屉`。**注意 `h(Nav)` 这种写法要改成 `toElement(Nav({...}))`**：函数组件返回普通对象的话真 React 会抛 "Objects are not valid as a React child"。
+33. **预览器要把手写 HTML 的属性名换掉**：视图里的 `className` 直接吐出去就是 `className="bl-card"`，浏览器不认，于是**整页样式静默失效**——第一版截图看着"排版很奇怪"就是这么来的（Edge 还回 rc=0，一点错误都不报）。`toHtml` 现在过一张 `ATTR_NAME` 表（`className→class`、`htmlFor→for`、`tabIndex→tabindex`），测试也钉住 `doesNotMatch(/className=/)`。
+34. `fmtDuration` / `fmtTime` 提到 `src/client/format.js`。起因是预览截图上今天区的时间徽章写着 `1102`——`today.js` 当时直接 `String(duration_sec)`，而 `video.js` 有 mm:ss，两份实现漂移了。`digestTime` 一并并成 `fmtTime`。加视图请从这里 import，别再造第三个版本。
+35. 预览多出一页 **`preview-trouble.html`**：异常带（接口没答上 + 手动那轮失败 + 偏好文件报错）、失败源文案、空轨道文案，平时要等真坏了才看得见，预览里先演一遍给你看。抽屉那页也不再孤零零一个框，背后是面板。
+36. `out/shots/` 的无头 Edge 截图在这台机器上不稳定（同一条命令有时 rc=0 却不落文件，本机还开着她自己的 Edge，21 个 msedge 进程在场）。**交付物改成 HTML 本体**（浏览器直接打开就是明暗两块），截图不作为验收项。真机那一步另说。
 
 ## 交付判据
 

@@ -19,6 +19,7 @@ export const REASONS_READABLE = GAP_LABELS
 const n = (v) => Number(v) || 0
 import { vnode } from '../vnode.js'
 import { reasonOf } from '../match.js'
+import { fmtDuration } from '../format.js'
 
 export function summaryLine(state) {
   const c = state?.counts ?? {}
@@ -50,7 +51,7 @@ function sourceIssues(state) {
 
 function Card({ item, onOpen }) {
   return vnode('button', { type: 'button', className: 'bl-card', onClick: () => onOpen?.(item.id) }, [
-    item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [item.duration_sec ? String(item.duration_sec) : '—'])]) : null,
+    item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])]) : null,
     vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
     vnode('span', { className: 'bl-card-meta' }, [item.source_id, item.kind === 'note' ? '图文笔记' : item.kind === 'video' ? '视频' : '文章']),
     vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `已判：${item.verdict_tier}` : '待判']),

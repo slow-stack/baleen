@@ -1,0 +1,99 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { renderPreview, toHtml } from '../tools/preview.mjs'
+
+// 写到系统临时目录，不往仓库里堆产物
+const tmp = (tag) => fs.mkdtempSync(path.join(os.tmpdir(), `baleen-preview-${tag}-`))
+const NAMES = ['preview-article.html', 'preview-digest.html', 'preview-drawer.html', 'preview-library.html',
+  'preview-today.html', 'preview-trouble.html', 'preview-video.html']
+
+test('五个视图 + 抽屉 + 出问题那一屏都出 HTML，每页明暗两块', () => {
+  const files = renderPreview({ outDir: tmp('ok') })
+  assert.deepEqual(files.map((f) => path.basename(f)).sort(), NAMES)
+  for (const f of files) {
+    const html = fs.readFileSync(f, 'utf8')
+    assert.match(html, /class="bl-root" data-preview="light"/)
+    assert.match(html, /class="bl-root" data-preview="dark"/)
+    assert.doesNotMatch(html, /<script/, '预览是静态产物，不该带脚本')
+    assert.match(html, /替身/, 'token 值必须标明是替身，不然看着像宿主真实调色板')
+    assert.match(html, /<nav class="bl-nav"/, '每页都该带顶部导航，不然没法评"像不像网站"')
+    assert.doesNotMatch(html, /className=/, '吐的是 React 属性名，浏览器不认——整页样式会静默失效')
+    assert.match(html, /今天 ·待判5|>今天</, '导航里的"今天"没出来')
+  }
+})
+
+test('出问题那一屏把异常带、失败源、空轨道一起演出来（这些平时要等真坏了才看到）', () => {
+  const files = renderPreview({ outDir: tmp('trouble') })
+  const html = fs.readFileSync(files.find((f) => f.endsWith('preview-trouble.html')), 'utf8')
+  assert.match(html, /role="alert"/)
+  assert.match(html, /这一轮没跑成：demo-weekly 超时/)
+  assert.match(html, /偏好文件有 1 处问题/)
+  assert.match(html, /demo-weekly 本轮失败（timeout），游标没推进/)
+  assert.match(html, /bili 需要重新登录/)
+  assert.match(html, /库里还没有视频/)
+})
+
+test('抽屉那页是"面板里开着抽屉"的样子，不是孤零零一个框', () => {
+  const files = renderPreview({ outDir: tmp('drawer') })
+  const html = fs.readFileSync(files.find((f) => f.endsWith('preview-drawer.html')), 'utf8')
+  assert.match(html, /<section class="bl-rail"/, '抽屉页该有背后的面板')
+  assert.match(html, /<aside class="bl-drawer"/)
+  assert.match(html, /权重 \+0\.1/)
+})
+
+test('明暗两块是同一份标记，只差 token——预览不许为两种主题各画一遍', () => {
+  const files = renderPreview({ outDir: tmp('same') })
+  for (const f of files) {
+    const html = fs.readFileSync(f, 'utf8')
+    const blocks = [...html.matchAll(/<div class="bl-root" data-preview="(?:light|dark)">([\s\S]*?)<\/div>\s*(?=<p class="bl-cap">|<\/body>)/g)].map((m) => m[1])
+    assert.equal(blocks.length, 2, path.basename(f) + ' 没凑齐明暗两块')
+    assert.equal(blocks[0], blocks[1], path.basename(f) + ' 明暗两块内容不一样')
+  }
+})
+
+test('预览用的是真视图函数：渲染结果里能找到视图自己的文案', () => {
+  const files = renderPreview({ outDir: tmp('real') })
+  const read = (n) => fs.readFileSync(files.find((f) => f.endsWith(n)), 'utf8')
+  assert.match(read('preview-today.html'), /过筛 .*→ 候选 .*→ 待判/)
+  assert.match(read('preview-video.html'), /只能跳转|可在抽屉内播/)
+  assert.match(read('preview-article.html'), /左边没有条目|读原文/)
+  assert.match(read('preview-library.html'), /状态|形态|档位|来源/)
+  assert.match(read('preview-drawer.html'), /为什么给你/)
+})
+
+test('空态在预览里也看得见（不许只渲染有数据的版本）', () => {
+  const files = renderPreview({ outDir: tmp('empty'), empty: true })
+  const read = (n) => fs.readFileSync(files.find((f) => f.endsWith(n)), 'utf8')
+  assert.match(read('preview-digest.html'), /还没跑过一轮/)
+  assert.match(read('preview-today.html'), /还没有一轮记录|还没有跑过一轮/)
+  assert.match(read('preview-video.html'), /库里还没有视频/)
+  assert.match(read('preview-article.html'), /左边没有条目/)
+  assert.match(read('preview-library.html'), /库里还没有条目/)
+})
+
+test('汇报页在预览里就是空态，不许塞假简报充数', () => {
+  const files = renderPreview({ outDir: tmp('digest') })
+  const html = fs.readFileSync(files.find((f) => f.endsWith('preview-digest.html')), 'utf8')
+  assert.match(html, /判断轮（M3）尚未接入/)
+  // 只看渲染出来的节点，不看 CSS：样式表里本来就有 .bl-dsum 这条规则
+  assert.doesNotMatch(html, /<section class="bl-dsum"/, '空态里不该出现汇报卡片')
+  assert.doesNotMatch(html, /今日精选|编辑推荐/)
+})
+
+test('夹具用的是假订阅名，不许把她的真实源写进仓库', () => {
+  const files = renderPreview({ outDir: tmp('privacy') })
+  for (const f of files) {
+    const html = fs.readFileSync(f, 'utf8')
+    assert.doesNotMatch(html, /messywritings|innei|ecosocialismandnature|b23\.tv|substack\.com/, path.basename(f) + ' 漏了真实源')
+  }
+})
+
+test('toHtml 转义文本与属性，坏数据不会变成脚本', () => {
+  assert.equal(toHtml({ type: 'p', props: { title: 'a"b' }, children: ['<x> & y'] }), '<p title="a&quot;b">&lt;x&gt; &amp; y</p>')
+  assert.equal(toHtml(null), '')
+  assert.equal(toHtml([1, 2]), '12')
+  assert.equal(toHtml({ type: 'input', props: { type: 'search', onClick: () => {}, checked: false }, children: [] }), '<input type="search">')
+})

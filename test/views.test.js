@@ -96,6 +96,12 @@ test('空库时两个区各说各的话，不画假卡片', () => {
   assert.equal(findAll(TodayView({ state: { ...state, counts: { new: 0, total: 0 } }, items: [] }), 'bl-card').length, 0)
 })
 
+test('今天卡片上的时长也是 mm:ss，不是裸秒数', () => {
+  const card = findAll(TodayView({ state, items: [{ ...items[0], duration_sec: 3723 }] }), 'bl-card')[0]
+  assert.match(text(card), /1:02:03/)
+  assert.doesNotMatch(text(card), /3723/)
+})
+
 test('跑一轮按钮在忙时禁用，避免叠轮', () => {
   const tree = TodayView({ state, items, busy: true })
   const btns = findAll(tree, 'bl-actions')[0].children[0]

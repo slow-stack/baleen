@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { VideoView, visibleVideos, TIER_LABELS, fmtDuration } from '../src/client/views/video.js'
+import { VideoView, visibleVideos, TIER_LABELS } from '../src/client/views/video.js'
+import { fmtDuration } from '../src/client/format.js'
 import { text, findAll } from './helpers/tree.mjs'
 
 const mk = (over = {}) => ({

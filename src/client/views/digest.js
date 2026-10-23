@@ -4,16 +4,7 @@
  * 三种情况写法不同，绝不拿假摘要填版面。
  */
 import { vnode } from '../vnode.js'
-
-export function digestTime(ms) {
-  const t = Number(ms)
-  if (!Number.isFinite(t) || t <= 0) return '（时间未知）'
-  try {
-    return new Date(t).toLocaleString('zh-CN', { hour12: false })
-  } catch {
-    return new Date(t).toISOString()
-  }
-}
+import { fmtTime } from '../format.js'
 
 /**
  * @param state  宿主 /state 的返回（要 digest_count、counts.new、last_run）
@@ -32,7 +23,7 @@ export function DigestView({ digests = [], state }) {
   if (reason) return vnode('div', { className: 'bl-digest bl-empty-state' }, [reason])
   const sorted = [...digests].sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
   return vnode('div', { className: 'bl-digest' }, sorted.map((d) => vnode('section', { className: 'bl-dsum', key: d.id }, [
-    vnode('h3', {}, [digestTime(d.created_at)]),
+    vnode('h3', {}, [fmtTime(d.created_at)]),
     vnode('p', { className: 'bl-dhead' }, [d.headline || '（这份简报没写标题）']),
     vnode('p', { className: 'bl-dpath' }, ['原文：' + (d.markdown_path || '（未落文件）')])
   ])))

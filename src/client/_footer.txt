@@ -1,24 +1,4 @@
 
-    function NotReady({ text }) {
-      return h('div', { className: 'bl-empty' }, text)
-    }
-
-    function Nav({ view, onPick, pending }) {
-      const items = [['today', '今天'], ['video', '视频'], ['article', '文章'], ['digest', '汇报'], ['library', '库']]
-      return h('nav', { className: 'bl-nav', 'aria-label': '主导航' }, [
-        h('span', { className: 'bl-brand', key: 'b' }, 'Baleen'),
-        h('div', { className: 'bl-navlist', key: 'n' }, items.map(([id, label]) =>
-          h('button', {
-            type: 'button',
-            key: id,
-            className: 'bl-navitem',
-            'aria-current': view === id ? 'page' : 'false',
-            onClick: () => onPick?.(id)
-          }, label + (id === 'today' && pending ? ` ·待判${pending}` : ''))
-        ))
-      ])
-    }
-
     /**
      * 视图只产 {type, props, children} 这种纯数据（不碰 React，才能在 Node 里断言），
      * 这里负责把整棵树交给 createElement。列表补 index key：宿主开发模式会因缺 key 刷屏警告。
@@ -31,18 +11,6 @@
       if (props.key == null && key !== undefined) props.key = key
       const kids = (node.children ?? []).map((c, i) => toElement(c, (c && c.props && c.props.key) ?? i)).filter(Boolean)
       return h(node.type, props, ...kids)
-    }
-
-    /** 全局异常带：偏好文件坏了 / 接口没答上 / 手动那轮失败。没问题时这一格不渲染。 */
-    function TopBar({ stale, runError, preferenceErrors }) {
-      const bits = []
-      if (preferenceErrors && preferenceErrors.length) {
-        bits.push(`偏好文件有 ${preferenceErrors.length} 处问题：${preferenceErrors.slice(0, 2).join('；')}`)
-      }
-      if (stale) bits.push('宿主接口没答上，下面是上次成功时的快照')
-      if (runError) bits.push('这一轮没跑成：' + runError)
-      if (!bits.length) return null
-      return h('div', { className: 'bl-band', role: 'alert' }, bits.map((b, i) => h('span', { key: i }, b)))
     }
 
     let clientCtx = null
@@ -123,8 +91,10 @@
       const drawerOpen = snap.drawerItemId != null
       const drawerItem = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
       return h('div', { className: 'bl-root' }, [
-        h(TopBar, { key: 'bar', stale: data.stale, runError, preferenceErrors: st && st.preference_errors }),
-        h(Nav, { key: 'nav', view, pending, onPick: pickView }),
+        // 外壳三件（Nav / TopBar / NotReady）与视图同构，都产纯对象，所以一律经 toElement，
+        // 不能 h(Nav)：函数组件返回普通对象的话，真 React 会直接抛"Objects are not valid as a React child"。
+        toElement(TopBar({ stale: data.stale, runError, preferenceErrors: st && st.preference_errors })),
+        toElement(Nav({ view, pending, onPick: pickView })),
         h('main', { key: 'body', className: 'bl-body' }, toElement(body)),
         drawerOpen
           ? toElement(Drawer({
@@ -157,7 +127,7 @@
               } catch (e) {
                 // 某一格炸了不该白屏：吃掉它并留下可读线索，宿主日志里也拿得到
                 console.error('[dsh-baleen] ' + where + ' 渲染抛错：' + ((e && e.message) || e))
-                return h(NotReady, { text: '这一格渲染失败：' + where })
+                return toElement(NotReady({ text: '这一格渲染失败：' + where }))
               }
             })
             registered.push({ slot, def })

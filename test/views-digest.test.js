@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DigestView, digestEmptyReason, digestTime } from '../src/client/views/digest.js'
+import { DigestView, digestEmptyReason } from '../src/client/views/digest.js'
+import { fmtTime } from '../src/client/format.js'
 import { text, findAll } from './helpers/tree.mjs'
 
 test('M3 没接入时不许用假总结充数', () => {
@@ -48,7 +49,7 @@ test('空态原因函数按"手里有没有内容"分四种情况说话', () => 
 })
 
 test('时间按本地时区格式化，坏值不炸', () => {
-  assert.equal(typeof digestTime(1000), 'string')
-  assert.match(digestTime(null), /时间未知/)
-  assert.match(digestTime('abc'), /时间未知/)
+  assert.equal(typeof fmtTime(1000), 'string')
+  assert.match(fmtTime(null), /时间未知/)
+  assert.match(fmtTime('abc'), /时间未知/)
 })

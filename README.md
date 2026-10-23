@@ -4,13 +4,23 @@
 >
 > 名字来自鲸须——须鲸的滤食结构。这个产品做的同一件事。
 
-**当前状态：M1（摄取侧）已完成，还没有面板、还没有装进 DSH。** 现在它能做的是：按计划抓 RSS 源 → 规范化入库 → 两级去重 → 本地预筛 → 记账。判断轮（模型读正文给三档）、三区面板、B 站/小红书通道、设置页都在后续里程碑。
+**当前状态：M1（摄取侧）已完成；M2（面板）代码写完、正停在预览门等你看图点头；还没装进 DSH。** 摄取侧做的事是：按计划抓 RSS 源 → 规范化入库 → 两级去重 → 本地预筛 → 记账。面板侧五格（今天/视频/文章/汇报/库）+ 抽屉已能用假数据渲染（`node tools/preview.mjs`）。判断轮（模型读正文给三档）、B 站/小红书通道在 M3/M4，设置页在 M5。
+
+## 看面板长什么样（不装 DSH、不联网）
+
+```bash
+npm install
+node tools/preview.mjs      # 出 out/preview-*.html，每页明暗两块
+open out/preview-today.html # 浏览器直接打开即可
+```
+
+预览调的就是 `src/client/views/` 里那批真渲染函数，所以它不是另画一套。两处对不上真机：真 React 的节点形状、以及宿主真实调色板（预览里的 `--dsw-alias-*` 是按观感近似的**替身值**，页面顶部有标注）。
 
 ## 现在就能试
 
 ```bash
 npm install            # 唯一依赖：yaml（纯 JS，无 install 脚本）
-npm test               # 108 个测试，node --test，不需要网络
+npm test               # 255 个测试，node --test，不需要网络
 cp preference.example.yaml ~/baleen-trial/preference.yaml   # 先自己建目录
 BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮公开 feed
 ```
