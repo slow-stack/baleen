@@ -30,7 +30,7 @@ set ELECTRON_RUN_AS_NODE=1
 
 **结论**：`lib/store.js` 按 `node:sqlite` 实现，Task 1–9 不需要 JSONL 退路。插件在宿主进程里用的就是这个 Electron 壳，本机开发用独立 node，两边都验过。
 
-## V2 · headless 会话能不能被插件起来 → **入口确认，真实一轮未测**
+## V2 · headless 会话能不能被插件起来 → **入口能跑，卡在凭据（0 次模型调用）**
 
 `dsh --help` 的相关原文（只摘这几行）：
 
@@ -47,9 +47,21 @@ Usage: dsh [--profile] <name> [options] [app-args...]
 
 - `--profile` 本机实存的值：`desktop`、`headless`、`web`、`verify-euthyna`（`$DSH_HOME/profiles/` 目录列举）。
 - **一次性非交互执行是文档化的用法**：`dsh headless "<任务>"` 明确写着 "answer one task, print the result, and exit"，这正是 `digest` 需要的那条通道。
-- `dsh --profile headless --dump-config` 返回 rc=0 且**不启动应用**，输出里能看到 headless 那层的装配含 `llm`（`@deepseek-ai/dsh-llm`）、`session`（`@deepseek-ai/dsh-session`）、`typert-*`，即模型会话能力在这一层是齐的。
-- **真实起一轮 = 未测**。原因：那会消耗你的模型额度并产生会话记录，属于要你点头的对外动作，不属于"只读探测"。
-- **结论**：M3 可以按"自动起 headless 一轮"设计，但手动兜底（面板"现在跑一轮"）必须留在架构里，等 V2 的真实一轮跑过才能谈取消。
+- `dsh --profile headless --dump-config` 返回 rc=0 且**不启动应用**，输出里能看到 headless 那层的装配含 `llm`（`@deepseek-ai/dsh-llm`）、`deepseek-llm-api-extensions`、`agent-default-model`（`model: deepseek-flash`）、`session`、`typert-*`，即模型会话能力在这一层是齐的。`--dump-config` 也因此是**免重启的装配检查**。
+
+**真实一轮已测（2026-10-23，用户批准后执行）**：
+
+```bash
+"<DSH>/resources/runtime/cli/bin/dsh.cmd" --profile headless "只回复四个字：BALEEN-OK。不要调用任何工具，不要解释。"
+```
+
+`rc=1`，10 秒返回，报 `MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official"`。
+
+- **模型调用 0 次**（没花额度），而且不是"卡住"——它干净地报错退出。上游那个"桌面版自动跑会卡住"的风险，在这台机器上当前的表现是**拿不到凭据**，不是挂起。
+- 缺的**不是凭据文件**：`$DSH_HOME/.credentials.yaml` 就在家目录根部（7899 B，操作期间仍在被写）。缺的是 `deepseek-official` 这条 **API-key 路线上的 key**。最可能的解释是桌面版用账号登录跑模型、没单独配 API key，因此 CLI 起的独立进程拿不到——**未证实**，需要她在 Models 页看一眼。（我只看了文件名与大小，没读内容。）
+- 启动时还有别的插件告警（`dsh.allowDshCompaction` 配置项已废弃、`bili-native-dsh` 签名上游被拒），侧面说明 bundle 全装配了。
+
+**对 M3 的影响**：原设计"插件起 headless 会话做判断轮"在这台机器上现在跑不通。两条出路——把 `DEEPSEEK_API_KEY` 注入 spawn 环境（插件就得负责保管密钥，与"插件不持凭据"的红线冲突）；或**判断不另起进程**，由宿主内已有的会话用插件注册的只读工具来做（零凭据工程）。选型待她拍板，未拍板前 M3 不落实现。
 
 ## 附带发现（会影响后续任务，先记在这儿）
 
