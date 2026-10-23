@@ -148,7 +148,9 @@ export function flattenText(node, out = []) {
   if (typeof node === 'string' || typeof node === 'number') out.push(String(node))
   else if (Array.isArray(node)) node.forEach((n) => flattenText(n, out))
   else if (typeof node === 'object') {
-    if ('children' in node) flattenText(node.children, out)
+    // 函数组件按 React 的做法先调用再说，否则 main 槽返回的 h(Panel) 压出来永远是空的
+    if (typeof node.type === 'function') flattenText(node.type(node.props ?? {}), out)
+    else if ('children' in node) flattenText(node.children, out)
     else Object.values(node).forEach((v) => flattenText(v, out))
   }
   return out

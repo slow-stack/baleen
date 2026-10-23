@@ -7,8 +7,9 @@ export const VIEWS = ['today', 'video', 'article', 'digest', 'library']
 
 const DEFAULT_STATE = () => ({ view: 'today', filters: {}, drawerItemId: null, scroll: 0 })
 
-export function initialView(persisted) {
-  return decodeState(persisted)
+/** 首屏状态。持久化的读法在 decodeState（装配层把 localStorage 里的原文交给它）。 */
+export function initialView() {
+  return decodeState()
 }
 
 export function reduce(state, action) {

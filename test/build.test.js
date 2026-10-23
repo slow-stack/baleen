@@ -15,6 +15,17 @@ test('PARTS 里列的文件都真的存在', () => {
   }
 })
 
+test('src/client 下每个源文件都在 PARTS 里（漏进去等于白写，面板不会变）', () => {
+  const root = path.join(process.cwd(), 'src', 'client')
+  const files = []
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).forEach((e) => {
+    if (e.isDirectory()) walk(path.join(d, e.name))
+    else if (e.name.endsWith('.js')) files.push(path.relative(root, path.join(d, e.name)).split(path.sep).join('/'))
+  })
+  walk(root)
+  assert.deepEqual(files.sort(), [...PARTS].sort())
+})
+
 test('生成结果没有残留的 import/export（loader bundle 里不合法）', () => {
   const out = build()
   assert.doesNotMatch(out, /^\s*import\s/m, '还留着 import')

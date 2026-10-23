@@ -2096,10 +2096,14 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 ## 实现偏差记录（M2 落地时，以代码为准）
 
 1. **两个反馈按钮不写 `preference.yaml`，改写 `tuning.json`**（计划原话是"写回 yaml"）。原因是一条测试逼出来的：`YAML.stringify` 会重排整个文件并丢掉注释，`any: [MCP]` 被展开成块——用户手编辑的配置不该因为"点了下不感兴趣"就变样。加载时按 `{...yaml 的 tuning, ...tuning.json}` 合并，json 赢；累加到 0 就删键，越界夹在 ±0.5，坏 json 当没有。宿主 `/feedback` 的拒绝路径现在也有断言保证**两个文件都不碰**。
-2. 取数层从骨架里的内联 `makeStore` 拆成 `src/client/view-api.js` 的 `createApi`，`PARTS` 加一项即生成进 bundle。内部把 API 常量改名 `API_BASE`：生成后它和 `_header.txt` 里的 `API` 在同一作用域，重名会直接 `SyntaxError`（这条是 bundle 生成方式带来的新约束，以后加源文件都要注意）。
+2. 取数层从骨架里的内联 `makeStore` 拆成 `src/client/view-api.js` 的 `createApi`，`PARTS` 加一项即生成进 bundle。**API 常量只留一份**：原先 `_header.txt` 的 `API` 与 view-api 的 `API_BASE` 同值重名，生成后落在同一作用域（这是 bundle 生成方式带来的新约束，以后加源文件都要注意）；现在删掉 `API`，`__test` 与测试都改断 `API_BASE`，一个事实一个名字。
 3. 桩补了 `exportsOf` / `flattenText`：断言文案用压平文本比逐层断结构耐改，`createElement` 的节点形状在桩和预览里同构。
 4. 视图状态多测了三件事：`filters` 里的非对象值要丢掉（否则下次 reduce 会崩）、空串筛选值是删除而非存空、未知 action 必须**返回同一个对象**（不产生新引用，省掉无谓重渲染）。
 5. 计划里 Task 4 那句"客户端内联一份、测试逐字节比对"作废，改为 `src/client/` + `tools/build-client.mjs` 生成 + `test/build.test.js` 盯陈旧产物；`--check` 模式留给以后可能的 CI。
+6. **`vnode.js` 是计划里没有的文件**。`views/today.js` 与 `views/placeholder.js` 各自写了 `const node = ...`，内联进同一个 factory 作用域就是 `SyntaxError: Identifier 'node' has already been declared`。把节点工厂提到 `src/client/vnode.js` 的 `vnode()`，两个视图都 import 它（生成时 import 行被剥掉，只剩一份定义）。加视图请沿用 `vnode`，别再本地造同名 const。
+7. **`flattenText` 现在会调用函数组件**：`main` 槽返回的是 `h(Panel, {key})`，桩不 reconcile，压平出来是空串——于是"Panel 落地在今天"这条断言一度对着 `''` 通过。桩里加了 `typeof node.type === 'function'` 分支（按 React 的做法把组件调一层），并单独立一条测试钉住它，否则以后所有面板断言都可能静默空转。
+8. **装配层新增 `toElement()`**（计划 Step 4 只说了"装配层负责交给 React"，没写实现）：递归 `h(type, props, ...children)`，`null/false` 归零，数组子节点补 index key（宿主 dev 模式缺 key 会刷屏）。视图本身不碰 React，才能在 Node 里断言、也才能被 Task 10 的预览器复用。
+9. **两个新增守卫**：`test/build.test.js` 断言 `src/client` 下每个 `.js` 都在 `PARTS` 里（漏了等于白写，面板不会变）；`test/client-boot.test.js` 断言 `Object.keys(VIEW_RENDER)` 与 `VIEWS` 一字不差，因此 `Panel` 里不再留 `|| VIEW_RENDER.today` 的兜底。另：`initialView()` 去掉了 `persisted` 形参——`decodeState(对象)` 会静默回落默认值，是个陷阱；持久化的读法只有一条路，就是装配层把 `localStorage` 原文交给 `decodeState`。
 
 ## 交付判据
 

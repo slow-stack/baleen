@@ -19,6 +19,32 @@
       ])
     }
 
+    /**
+     * 视图只产 {type, props, children} 这种纯数据（不碰 React，才能在 Node 里断言），
+     * 这里负责把整棵树交给 createElement。列表补 index key：宿主开发模式会因缺 key 刷屏警告。
+     */
+    function toElement(node, key) {
+      if (node == null || node === false || node === true) return null
+      if (Array.isArray(node)) return node.map((n, i) => toElement(n, (n && n.props && n.props.key) ?? i)).filter(Boolean)
+      if (typeof node !== 'object' || !('type' in node)) return node
+      const props = { ...(node.props ?? {}) }
+      if (props.key == null && key !== undefined) props.key = key
+      const kids = (node.children ?? []).map((c, i) => toElement(c, (c && c.props && c.props.key) ?? i)).filter(Boolean)
+      return h(node.type, props, ...kids)
+    }
+
+    /** 全局异常带：偏好文件坏了 / 接口没答上 / 手动那轮失败。没问题时这一格不渲染。 */
+    function TopBar({ stale, runError, preferenceErrors }) {
+      const bits = []
+      if (preferenceErrors && preferenceErrors.length) {
+        bits.push(`偏好文件有 ${preferenceErrors.length} 处问题：${preferenceErrors.slice(0, 2).join('；')}`)
+      }
+      if (stale) bits.push('宿主接口没答上，下面是上次成功时的快照')
+      if (runError) bits.push('这一轮没跑成：' + runError)
+      if (!bits.length) return null
+      return h('div', { className: 'bl-band', role: 'alert' }, bits.map((b, i) => h('span', { key: i }, b)))
+    }
+
     let clientCtx = null
     const inject = ['slots', 'layout']
 
@@ -37,10 +63,57 @@
       try { return (clientCtx && clientCtx.layout) || null } catch { return null }
     }
 
+    /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。 */
+    const VIEW_RENDER = { today: TodayView, video: VideoView, article: ArticleView, digest: DigestView, library: LibraryView }
+
     function Panel() {
+      // api 与首屏状态都得只建一次：useState 的惰性初始化是唯一入口（useMemo 在桩里等价于直接调）
+      const [api] = React.useState(() => createApi({ fetch: globalThis.fetch, storage: globalThis.localStorage }))
+      const [snap, setSnap] = React.useState(() => decodeState(globalThis.localStorage && globalThis.localStorage.getItem(VIEW_KEY)))
+      const [data, setData] = React.useState({ state: null, items: [], stale: false })
+      const [busy, setBusy] = React.useState(false)
+      const [runError, setRunError] = React.useState('')
+
+      const pickView = (v) => dispatch({ type: 'pick-view', view: v })
+      function dispatch(action) {
+        const next = reduce(snap, action)
+        setSnap(next)
+        try { globalThis.localStorage.setItem(VIEW_KEY, encodeState(next)) } catch { /* 存不上不影响这一屏 */ }
+      }
+
+      function refresh() {
+        return Promise.all([api.state(), api.items({ limit: 200, status: 'new' })])
+          .then(([s, it]) => setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok }))
+      }
+      React.useEffect(() => { refresh() }, [])
+
+      function onRun() {
+        setBusy(true)
+        setRunError('')
+        api.run()
+          .then((r) => { if (!r.ok) setRunError(r.error || '未知错误'); return refresh() })
+          .finally(() => setBusy(false))
+      }
+
+      const view = snap.view
+      const st = data.state
+      const pending = (st && st.counts && st.counts.new) || 0
+      const render = VIEW_RENDER[view]
+      const body = render({
+        state: st,
+        items: data.items,
+        busy,
+        onRun,
+        onOpen: (id) => dispatch({ type: 'open-drawer', id }),
+        onPickView: pickView
+      })
       return h('div', { className: 'bl-root' }, [
-        h(Nav, { key: 'nav', view: 'today', pending: 0, onPick: () => {} }),
-        h('main', { key: 'body', className: 'bl-body' }, h(NotReady, { text: '面板装配中（M2 后续任务填视图）' }))
+        h(TopBar, { key: 'bar', stale: data.stale, runError, preferenceErrors: st && st.preference_errors }),
+        h(Nav, { key: 'nav', view, pending, onPick: pickView }),
+        h('main', { key: 'body', className: 'bl-body' }, toElement(body)),
+        snap.drawerItemId
+          ? toElement(Drawer({ id: snap.drawerItemId, items: data.items, api, onClose: () => dispatch({ type: 'close-drawer' }) }))
+          : null
       ])
     }
 
@@ -86,7 +159,11 @@
 
     exports.apply = apply
     exports.inject = inject
-    exports.__test = { PANEL_ID, API, SNAPSHOT_KEY, Nav, NotReady, createApi, getLayout, safeGet }
+    exports.__test = {
+      PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER,
+      Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
+      reduce, encodeState, decodeState, TodayView
+    }
     return module.exports
   }
 })

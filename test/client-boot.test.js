@@ -15,6 +15,11 @@ test('flattenText 能把节点树压成文本', () => {
   assert.equal(flattenText(node).join(' '), 'a b c')
 })
 
+test('flattenText 会调用函数组件，否则断言永远看不到面板内容', () => {
+  const Comp = () => ({ type: 'p', props: {}, children: ['组件里的话'] })
+  assert.deepEqual(flattenText({ type: Comp, props: {}, children: [] }), ['组件里的话'])
+})
+
 test('client.js 不存在时 loadClient 明确报错，不静默通过', () => {
   if (clientExists()) {
     const s = loadClient()
@@ -86,9 +91,65 @@ test('__test 暴露了后续任务要断言的内部件', () => {
   const ex = exportsOf(s)
   const t = ex.__test
   assert.equal(t.PANEL_ID, 'baleen')
-  assert.equal(t.API, '/api/dsh-baleen')
+  assert.equal(t.API_BASE, '/api/dsh-baleen')
+  assert.equal(t.VIEW_KEY, 'baleen.view')
   assert.equal(t.SNAPSHOT_KEY, 'baleen.snapshot')
   assert.equal(typeof t.createApi, 'function')
   assert.equal(typeof t.Nav, 'function')
   assert.equal(typeof t.getLayout, 'function')
+})
+
+test('装配层把纯对象节点树交给 React：视图本身不需要 React 就能测', () => {
+  const s = loadClient()
+  const t = exportsOf(s).__test
+  const el = t.toElement({ type: 'div', props: { className: 'bl-x' }, children: ['甲', { type: 'span', props: {}, children: ['乙'] }] })
+  assert.equal(el.type, 'div')
+  assert.equal(el.props.className, 'bl-x')
+  assert.deepEqual(flattenText(el), ['甲', '乙'])
+  // null / false 是合法的"这一格什么都不渲染"，不能被当成文本 "null" 画出来
+  assert.equal(t.toElement(null), null)
+  assert.equal(t.toElement(false), null)
+  assert.deepEqual(t.toElement([null, { type: 'i', props: {}, children: ['ok'] }, false]).filter(Boolean).map(n => n.type), ['i'])
+})
+
+test('Panel 落地在「今天」：出统计行与两轨空态，不再挂装配中的牌子', () => {
+  const s = loadClient()
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const main = s.registered.find(r => r.slot === 'main').def.factory
+  const errs = []
+  const orig = console.error
+  console.error = (...a) => errs.push(a.join(' '))
+  let tree
+  try { tree = main({}) } finally { console.error = orig }
+  assert.equal(errs.length, 0, '渲染不该抛错降级：' + errs.join(' | '))
+  const text = flattenText(tree).join(' ')
+  assert.match(text, /还没有跑过一轮/)
+  assert.match(text, /B 站/)
+  assert.doesNotMatch(text, /面板装配中/)
+  assert.match(text, /现在跑一轮/)
+})
+
+test('导航项与渲染器一一对应：加视图只改一处就会红', () => {
+  const t = exportsOf(loadClient()).__test
+  assert.deepEqual(Object.keys(t.VIEW_RENDER).sort(), [...t.VIEWS].sort())
+  for (const v of t.VIEWS) assert.equal(typeof t.VIEW_RENDER[v], 'function', `${v} 没有渲染器`)
+})
+
+test('持久化的视图决定首屏落在哪一格（重开面板不回今天）', () => {
+  for (const [view, expect] of [['digest', /判断轮未接入/], ['video', /视频区还没接上真渲染器/]]) {
+    const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view, filters: {}, drawerItemId: null, scroll: 0 }) } })
+    const ex = exportsOf(s)
+    ex.apply(s.makeCtx(ex.inject))
+    const main = s.registered.find(r => r.slot === 'main').def.factory
+    assert.match(flattenText(main({})).join(' '), expect, view + ' 视图没接上')
+  }
+})
+
+test('坏掉的 baleen.view 回落「今天」，不能把首屏炸成空白', () => {
+  const s = loadClient({ storage: { 'baleen.view': '{坏掉的' } })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const main = s.registered.find(r => r.slot === 'main').def.factory
+  assert.match(flattenText(main({})).join(' '), /还没有跑过一轮/)
 })

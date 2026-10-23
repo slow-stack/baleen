@@ -25,5 +25,6 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     const PANEL_ID = 'baleen'
-    const API = '/api/dsh-baleen'
+    /** 视图状态存这个键，数据快照存 SNAPSHOT_KEY（view-api 里）——两份别混 */
+    const VIEW_KEY = 'baleen.view'
     /*__BODY__*/
