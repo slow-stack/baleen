@@ -2897,6 +2897,28 @@ git tag m1-ingest -m "M1：定时摄取入库跑通（RSS），失败不推进�
 3. 手动一轮真实 RSS 抓取入库，`state` 里能看到每源成败与游标；`counts()` 的 `new` 数与候选一致。
 4. `docs/verification.md` 里 V1/V2/V4/V6 四条有实测结论（含"未测"的写明为什么），V3/V5 明确留给后续计划。
 
+## 实现偏差记录（Task 1–9 落地时，按实际代码为准）
+
+计划写给执行者读，但代码写出来后有八处和计划示例不一致。都是**实现更好、计划更粗**的情形，逐条留痕，免得下一个人以为文档就是事实。
+
+1. **`package.json` 必须第一个落**。计划把它的步骤排在测试之后，而测试文件用 ESM `import`——没有 `type: module` 时 `node --test` 直接报 `Cannot use import statement outside a module`。已加 Step 0。
+2. **`node --test test/` 在 Windows 上会把目录当模块解析**，报 `Cannot find module ...\\test`。测试脚本与全部文档统一改成 `node --test "test/*.test.js"`（`npm test` 已是该形式）。
+3. **DDL 多了 `title_norm` 列与索引**。二级去重要按"去掉空白和标点的标题"比对，SQL 里做不了正则清洗，所以在写库时算好存下来；`normalize` 不产这个列，由 `putDraft` 负责。
+4. **URL 归一化挪到写库边界**。原计划只在适配器/解析器里清 `utm`，实测发现只要任何一个适配器忘了清，URL 级去重就**静默失效**（无报错）。现在 `putDraft` 统一 `cleanUrl`，并有测试盯着"库里存的 url 一定没有跟踪参数"。
+5. **`normalize` 的产出正好等于 items 的 20 个插入列**，不多不少。计划里它还返回 `rejected_by_theme` / `stale` 两个私货字段——那会让"Draft 能不能直接插库"变成一个需要记住的口头约定。现在有一条测试用列名清单做 `deepEqual` 断言，把约定变成机器盯的不变量；`rejected` 这类判断信息放进 `match_json`。
+6. **新增 `prefilter.summarizeGaps` 与固定 `REASONS`**。spec §7 要求"读不到的东西必须可见"，但计划里没有任何数据结构承载它；现在每轮的丢弃计数进 `runs.per_source_json` 与返回值 `stats.gaps`，汇报区直接消费。
+7. **`counts()` 返回四个状态**（`new`/`judged`/`digest`/`archived` + `total`），计划里少 `digest`。`listItems` 的筛选参数与 M2 面板的 facet 对齐。
+8. **`validate` 只接受 `type: rss`**，`bili`/`xhs`/`yt` 在 M4 登记进 `KNOWN_TYPES` 之前会被拒。这是刻意的：宁可现在报错，也不要用户填了一个"看起来支持"的源、跑起来才发现没有适配器。
+9. **`createScheduler` 暴露 `tick()`**，`start()` 只登记 interval。计划把窗内判断埋在 `start()` 里，导致"窗外不该抓取"这条无法直接测；分开之后它有自己的断言，跨零点窗也有。
+10. **测试替身不模拟 `since` 过滤**（那是 rss 适配器的职责，另有测试盯），于是 runner 的测试如实断言"第二轮回来的旧条目走 update、不变成第二行"——比假装过滤更诚实，也顺便验证了第二道防线。
+
+执行中发现的两个测试自己的错（都已改测试而不是改实现）：`prefilter` 那条把 `total_dropped` 算成 3（正确是 4，带 `keep` 标记的不算丢弃）；fixture 里一个标题被我写成双重转义 `&amp;amp;`，与真实 feed 的形状不符。
+
+## 累计验收
+
+- `npm test`：88 个测试全绿（store 5 / preference 8 / feed 8 / pool 7 / adapters-rss 6 / normalize 8 / dedup 10 / store-queries 8 / prefilter 11 / runner 9）。
+- 提交历史：Task 0–9 各一次 commit，`git log --oneline` 可追溯到每条不变量是谁盯着的。
+
 <!-- CONTINUE-HERE -->
 
 

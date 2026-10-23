@@ -131,12 +131,18 @@ items(
   status TEXT NOT NULL,               -- new|queued|judged|digest|archived
   archived_reason TEXT,
   feedback TEXT,                      -- NULL|dismiss|save
-  seen_at INTEGER
+  seen_at INTEGER,
+  title_norm TEXT                     -- 标题归一化键（去空白标点+小写），二级去重用
 )
 UNIQUE (source_id, external_id)
 ```
 
-去重两级：主 `(source_id, external_id)`；二级为"14 天内规范化 URL 相同，或标题与作者均相同"视为重复，保留更早那条，新条目标 `archived` 且 `archived_reason='duplicate'`。
+去重两级：主 `(source_id, external_id)`；二级为"14 天内规范化 URL 相同，或标题归一化后与作者均相同"视为重复，保留更早那条，新条目标 `archived` 且 `archived_reason='duplicate:…'`（明细里带上是按 url 还是 title-author 命中的）。
+
+M1 落地时补的两条不变量（原文没写，写代码才发现必须钉住）：
+
+- **`url` 列一律存归一化后的 URL**（去跟踪参数与 fragment），且清洗发生在**写库边界**而不是各适配器里。实测过一次：库里存了带 `utm_source` 的 URL，URL 级查重就**静默失效**，没有任何报错——这类"看着在工作其实没去重"的 bug 最难发现，所以归一化不交给适配器的自觉。
+- **归一化后短于 8 字符的标题不参与标题查重**，否则"教程"这种词会把一片正常内容误吞成重复。宁可重复一条，不可误吞十条。
 
 状态机：`new → queued → judged → digest`，任意态可 → `archived`（须带 `archived_reason`）。已 `judged`/`digest` 的条目永不再次进入判断，避免重复烧预算。
 
