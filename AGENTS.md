@@ -25,7 +25,7 @@ Baleen 是一个 DSH（DeepSeek Harness 桌面版）插件：定时把信息源�
 - 编辑工具可能**静默删掉文件内容里的 Windows 绝对路径**。写含路径的文件后要么用脚本拼接，要么读回验证。
 - DSH 客户端 `ctx` 是 **Proxy**：服务名没写进 `package.json` 的 `dsh.client.inject`，`ctx.get()` 和属性访问都会抛。`try { ctx.get(x) } catch {}` 之后再去裸读 `ctx.x` 是炸启动的写法，不是安全降级。
 - 侧栏入口 `sidebar.panellist` 注册的 `id` 必须与 `main` 面板的 key **完全同名**，否则宿主 `layout.selectPanel` 抛。
-- 主题只消费宿主 token（`--dsw-alias-*`），**明暗双主题都是验收项**，不写死颜色。
+- 主题只消费宿主 token（`--dsw-alias-*`），**明暗双主题都是验收项**，不写死颜色。本机实测存在的名字（清单见 `test/css.test.js` 的 `HOST_TOKENS`，来源是已跑通的 dsh-study-desk）：`bg-base`、`bg-layer-1/2/3`、`border-l1..l4`、`label-primary/secondary/tertiary/dimmed`、`brand-primary`、`interactive-bg-hover/active`、`state-error-primary`、`state-success-primary`。**`fill-tertiary`、`border-primary`、`link` 这些不存在**——写错名字不是风格问题，是宿主取不到值。也不给 `var()` 加 `light-dark()` 兜底：那等于把硬编码颜色请回来，脱离宿主的样子由 `tools/preview.mjs` 的替身 token 表负责。
 - 面板布局别留两侧大空白；网格用 `auto-fill minmax(260px, 1fr)`。
 - 打包 node 的入口是 `resources/runtime/bin/node.cmd`，需要 `DSH_DESKTOP_NODE_EXECUTABLE` 指向 `DeepSeek Harness.exe`（细节见 `docs/verification.md`）。
 - **宿主 API 实测形态**（抄自本机 dsh-study-desk，别自己发明）：取服务用 `ctx.get('webServer') ?? ctx.webServer`；注册路由用 `webServer.register({ kind:'prefix', path, handler })` 且必须包在 `ctx.effect(fn, label)` 里；注册服务用 `ctx.provide`（`ctx.set` 对未 provide 的服务会抛）。

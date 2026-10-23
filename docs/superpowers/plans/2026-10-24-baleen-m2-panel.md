@@ -2120,6 +2120,12 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 23. **`boundaryNote` 现在是"能不能播 + 能不能读"两句拼接**，不是计划的 if 链一出口。原因：一条 B 站硬字幕视频走到第一个分支就返回了播放器的说法，"其实内容读不到"这条最该说的信息被盖掉。状态说法与正文区共用同一张 `STATE_NOTE` 表（`summary_only`/`missing`/`burned_in` 三种算能力边界，`subtitle`/`transcribed` 只是来源说明）。
 24. **反馈结果的回显在装配层**（`feedbackMsg` 状态 + 抽屉里的 `bl-feedback` 一行）。计划片段里的 `actions.push(msg)` 是个推进完就丢的局部数组——刷新即蒸发，等于"点了不知道有没有用"。关闭抽屉时清掉这行。
 25. M2 的抽屉**不许许诺 M4 的能力**：B 站那句从"抽屉内尝试内嵌播放器"改成"内嵌播放器在 M4 接入，现在只能跳到浏览器里看"。
+26. **计划里那份 CSS 的 token 名是本机没有的**。`--dsw-alias-fill-tertiary` / `--dsw-alias-border-primary` / `--dsw-alias-link` 在 dsh-study-desk（0.2.1-rc.2 上已跑通）里一次都没出现过；真名是 `--dsw-alias-bg-layer-1..3`、`--dsw-alias-border-l1..l4`、`--dsw-alias-brand-primary`、`--dsw-alias-label-tertiary/dimmed`、`--dsw-alias-interactive-bg-hover`、`--dsw-alias-state-error-primary`。写错名字不是"风格差异"，是宿主取不到值、整块裸奔。`test/css.test.js` 里钉了一张 allowlist，注释写明来源。
+27. **不设 `light-dark()` 内联兜底**（计划 Step 3 通篇是 `var(--x, light-dark(#..,#..))`）。那条写法等于把硬编码颜色请回这份文件，"零硬编码颜色"就退化成"颜色都有兜底"。现在 `CSS` 里一个颜色字面量都没有，测试也简单得多：整串扫十六进制/函数式/颜色名，命中即红。脱离宿主的样子交给预览器——`tools/preview.mjs` 自己声明一张**标明是替身**的 token 表分明暗两块。测试另加一条"var() 不许带兜底"，防止有人好心加回来。
+28. 网格 `minmax(260px, 1fr)`（计划写的是 232px）。AGENTS.md 里"不留两侧大空白"那条给的就是 260px，以它为准。
+29. **类名与样式的对齐由测试双向扫**：`viewSources()` 抓 `src/client/**` 里所有含 `bl-` 的字符串字面量（不只 `className: 'x'` 这种直接形式——`className: ok ? '' : 'bl-missing'` 用前者会整类漏掉），逐个查 CSS 里有没有对应选择器。第一版就按直接形式扫时确实漏了 `bl-missing`。
+30. `is-video` 这个类删了（没有任何样式引用它，纯属"以后可能用"）；`.bl-actions button` / `.bl-detail` 这些新控件补进交互样式，`min-height:32px` 统一用于可点目标，facet 的 label 也从计划的 26px 提到 32px。
+31. `injectStyles()` 在 `apply()` 里调一次（不是计划的"Panel 首行"）：Panel 是渲染函数，渲染几次就可能调几次，虽然内部有 `injected` 旗标兜着，但把幂等测试（"样式表只注入一次"）放在装配入口更对得上它的语义。
 
 ## 交付判据
 

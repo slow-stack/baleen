@@ -20,7 +20,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = path.join(ROOT, 'client.js')
 
 /** 顺序有意义：状态与取数在前，视图在后，装配（_footer）最后。加视图往这里追加。 */
-export const PARTS = ['view-state.js', 'view-api.js', 'vnode.js', 'match.js',
+export const PARTS = ['view-state.js', 'view-api.js', 'vnode.js', 'match.js', 'css.js',
   'views/today.js', 'views/video.js', 'views/article.js', 'views/digest.js', 'views/library.js', 'views/drawer.js']
 
 const HEADER = fs.readFileSync(path.join(ROOT, 'src', 'client', '_header.txt'), 'utf8')

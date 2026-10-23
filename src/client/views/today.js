@@ -49,7 +49,7 @@ function sourceIssues(state) {
 }
 
 function Card({ item, onOpen }) {
-  return vnode('button', { type: 'button', className: 'bl-card' + (item.kind === 'video' ? ' is-video' : ''), onClick: () => onOpen?.(item.id) }, [
+  return vnode('button', { type: 'button', className: 'bl-card', onClick: () => onOpen?.(item.id) }, [
     item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [item.duration_sec ? String(item.duration_sec) : '—'])]) : null,
     vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
     vnode('span', { className: 'bl-card-meta' }, [item.source_id, item.kind === 'note' ? '图文笔记' : item.kind === 'video' ? '视频' : '文章']),

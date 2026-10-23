@@ -140,6 +140,7 @@
 
     function apply(ctx) {
       clientCtx = ctx
+      injectStyles()
       const slots = safeGet('slots')
       if (!slots) {
         console.error('[dsh-baleen] 拿不到 slots 服务，界面不注册')
