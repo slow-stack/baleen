@@ -2111,6 +2111,10 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 14. `fmtDuration` 的秒数取整（`Math.floor`）再拼，避免非整数秒在徽章上出现 `1:2:3.5`。工具条的搜索框用 `placeholder` 属性给文案，所以"接上真渲染器"那条断言改看 `显示 0 / 0 条`——`flattenText` 只收 children，读不到属性里的字。
 15. **文章区的"选中"与"抽屉"拆成两份状态**（计划里 ArticleView 的 `onOpen` 一词双用）。点左栏一行只换右栏（`{type:'select', id}` → `selectedId`），进抽屉改走右栏的"详情与反馈"按钮（`bl-detail`）。理由：两栏阅读本来就是常驻正文，若点一行就弹抽屉，抽屉与右栏显示同一条内容，而反馈入口反倒只能在抽屉里看到——把"读"和"判"混在一个动作上。`view-state` 因此多了 `selectedId` 字段并参与编解码，切视图不清它。
 16. `STATE_HINT.burned_in` 的说法统一成"硬字幕读不到"打头（与 `today.js` 的 `FLAG_LABELS`、`video.js` 的 `STATE_LABELS` 同一个词），后面再补"字烧在画面上"。三处口径不一致会让人以为是三件不同的事。
+17. **`facet` 是 reducer 的新动作，不是 `filter` 的变体**。计划 Step 3 里 `onFilter({facet, value, on})` 与 `filter` 动作的 `{view,key,value}` 形状不接（`filters.status` 到底是标量还是数组，两处写得不一样）。现在定死：**库的 facet 值是数组**，组内 OR、组间 AND，`{type:'facet', view, key, value, on}` 由 reducer 负责加/删并在空数组时**删键**——"没筛"和"筛了个空"在 UI 上必须看起来一样。视频/文章的工具条仍是标量单选，两套各走各的动作。
+18. **汇报区多了一种诚实情况**：`digestEmptyReason(state, loaded)` 除了"没跑过 / 判断轮没接入"，还要处理 `state.digest_count > 0` 但面板手里没内容（M3 之前没有 `/digests` 读取路由，面板传的是 `digests: []`）。这时说"数得出、读不出来"，而不是画一个空的 `bl-dsum` 列表。
+19. `libraryRows` 与 `LibraryView` 只渲染前 100 条并写出"还有 N 条"——面板没有分页控件之前，静默截断等于谎报"库就这么大"。库里 archived 条目带上 `archived_reason`，让"为什么不见了"在库里能自查。
+20. 占位文件到这一步只剩 `Drawer`（Task 8 接完就删）。`test/client-boot.test.js` 新增一条"五个视图都接上了：面板里不该再有占位字样"的遍历断言——逐个视图渲染并查文案，比记住"哪个任务该删哪个导出"可靠。
 
 ## 交付判据
 

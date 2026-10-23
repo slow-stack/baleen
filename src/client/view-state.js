@@ -24,6 +24,16 @@ export function reduce(state, action) {
       else perView[action.key] = action.value
       return { ...s, filters: { ...s.filters, [action.view]: perView } }
     }
+    case 'facet': {
+      // 「库」的多选筛选：组内 OR，勾满再取消就删键（等价于"不筛"），不留空数组占位
+      if (!action.view || !action.key || action.value == null) return s
+      const perView = { ...(s.filters[action.view] ?? {}) }
+      const cur = Array.isArray(perView[action.key]) ? perView[action.key] : []
+      const next = action.on ? [...new Set([...cur, action.value])] : cur.filter((v) => v !== action.value)
+      if (next.length) perView[action.key] = next
+      else delete perView[action.key]
+      return { ...s, filters: { ...s.filters, [action.view]: perView } }
+    }
     case 'open-drawer':
       return action.id == null ? s : { ...s, drawerItemId: action.id }
     case 'select': {

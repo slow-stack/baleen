@@ -109,9 +109,12 @@
         items: data.items,
         filters: snap.filters[view] || {},
         selectedId: snap.selectedId,
+        // 汇报的读取路由要到 M3 才建；先给空数组，DigestView 会用 state.digest_count 说"数得出读不出来"
+        digests: [],
         busy,
         onRun,
         onFilter: dispatch,
+        onFacet: dispatch,
         onSelect: (id) => dispatch({ type: 'select', id }),
         onOpen: (id) => dispatch({ type: 'open-drawer', id }),
         onPickView: pickView

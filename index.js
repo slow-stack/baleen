@@ -74,6 +74,7 @@ export function apply(ctx, config = {}) {
     return {
       home: '<HOME>',
       counts: counts(db),
+      digest_count: db.prepare('SELECT COUNT(*) n FROM digests').get().n,
       last_run: prev ? {
         id: prev.id, status: prev.status, at: prev.started_at, finished_at: prev.finished_at,
         candidates: prev.candidates, judged: prev.judged

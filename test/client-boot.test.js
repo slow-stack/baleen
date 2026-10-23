@@ -138,12 +138,21 @@ test('导航项与渲染器一一对应：加视图只改一处就会红', () =>
 })
 
 test('持久化的视图决定首屏落在哪一格（重开面板不回今天）', () => {
-  for (const [view, expect] of [['digest', /判断轮未接入/], ['library', /库还没接上真渲染器/]]) {
-    const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view, filters: {}, drawerItemId: null, scroll: 0 }) } })
+  const persisted = (view) => JSON.stringify({ v: 1, view, filters: {}, selectedId: null, drawerItemId: null, scroll: 0 })
+  const s = loadClient({ storage: { 'baleen.view': persisted('digest') } })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  assert.match(flattenText(s.registered.find(r => r.slot === 'main').def.factory({})).join(' '), /还没跑过一轮/)
+})
+
+test('五个视图都接上了：面板里不该再有"占位"字样', () => {
+  for (const view of ['today', 'video', 'article', 'digest', 'library']) {
+    const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view, filters: {}, selectedId: null, drawerItemId: null, scroll: 0 }) } })
     const ex = exportsOf(s)
     ex.apply(s.makeCtx(ex.inject))
-    const main = s.registered.find(r => r.slot === 'main').def.factory
-    assert.match(flattenText(main({})).join(' '), expect, view + ' 视图没接上')
+    const text = flattenText(s.registered.find(r => r.slot === 'main').def.factory({})).join(' ')
+    assert.doesNotMatch(text, /还没接上真渲染器/, view + ' 还是占位')
+    assert.ok(text.length > 20, view + ' 渲染出了空壳')
   }
 })
 

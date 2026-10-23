@@ -71,6 +71,26 @@ test('阅读选中项与抽屉是两件事：点一行只换右栏，不弹抽�
   assert.equal(decodeState(encodeState(reduce(initialView(), { type: 'select', id: 9 }))).selectedId, 9)
 })
 
+test('facet 是数组筛选：勾上加入、取消移除、清空即删键', () => {
+  let s = reduce(initialView(), { type: 'facet', view: 'library', key: 'status', value: 'judged', on: true })
+  assert.deepEqual(s.filters.library.status, ['judged'])
+  s = reduce(s, { type: 'facet', view: 'library', key: 'status', value: 'archived', on: true })
+  assert.deepEqual(s.filters.library.status, ['judged', 'archived'])
+  s = reduce(s, { type: 'facet', view: 'library', key: 'status', value: 'judged', on: false })
+  assert.deepEqual(s.filters.library.status, ['archived'])
+  s = reduce(s, { type: 'facet', view: 'library', key: 'status', value: 'archived', on: false })
+  assert.equal('status' in s.filters.library, false, '空数组该删掉，别让"没筛"和"筛了个空"看着一样')
+  s = reduce(s, { type: 'facet', view: 'library', key: 'status', value: 'new', on: true })
+  s = reduce(s, { type: 'facet', view: 'library', key: 'status', value: 'new', on: true })
+  assert.deepEqual(s.filters.library.status, ['new'], '重复勾同一个值不该出现两份')
+  assert.deepEqual(reduce(s, { type: 'facet', view: 'video', key: 'tier', value: '值得看', on: true }).filters.video.tier, ['值得看'])
+})
+
+test('facet 的数组值能编解码往返', () => {
+  const s = reduce(initialView(), { type: 'facet', view: 'library', key: 'kind', value: 'video', on: true })
+  assert.deepEqual(decodeState(encodeState(s)).filters.library.kind, ['video'])
+})
+
 test('未知 action 原样返回，不产生新对象', () => {
   const s = initialView()
   assert.equal(reduce(s, { type: 'nope' }), s)
