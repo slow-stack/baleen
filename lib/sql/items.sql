@@ -25,11 +25,13 @@ CREATE TABLE IF NOT EXISTS items (
   archived_reason TEXT,
   feedback TEXT,
   seen_at INTEGER,
-  prefilter_score REAL
+  prefilter_score REAL,
+  title_norm TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_items_key ON items (source_id, external_id);
 CREATE INDEX IF NOT EXISTS ix_items_status ON items (status, published_at);
 CREATE INDEX IF NOT EXISTS ix_items_url ON items (url);
+CREATE INDEX IF NOT EXISTS ix_items_title_norm ON items (title_norm, fetched_at);
 
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,
