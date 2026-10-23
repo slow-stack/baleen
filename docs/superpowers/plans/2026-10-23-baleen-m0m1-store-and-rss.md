@@ -2950,6 +2950,10 @@ git tag m1-ingest -m "M1：定时摄取入库跑通（RSS），失败不推进�
 
 顺带说明一处我自己加的猜测：`themes` 里的"生态 / 环境 / 气候"是我按她的备考方向补的，**已在报告里明写并请她确认**，不是为了把数字改好看。
 
+## 第五个缺陷：关键词大小写不分，专名抓普通词
+
+同一批真数据里，messy-writings 那篇《it took me 24 years to realize that love》被判成命中 `React`——因为散文里出现了小写动词 "react"。修法是**把大小写变成关键词的语义**：含大写的纯 ASCII 关键词大小写敏感，全小写的不敏感，非 ASCII 仍走子串。改后该源命中数 1 → 0，四个残留命中全部是真的（`生态` ×2、`agent` ×1、`CSS` ×1）。规则已写进 spec §5 与 README，因为这是写给"用户怎么填关键词"的，不只是内部实现。测试 113 个。
+
 ## 累计验收
 
 - `npm test`：88 个测试全绿（store 5 / preference 8 / feed 8 / pool 7 / adapters-rss 6 / normalize 8 / dedup 10 / store-queries 8 / prefilter 11 / runner 9）。

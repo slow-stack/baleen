@@ -92,6 +92,17 @@ test('中文关键词仍按子串匹配（中文没有词边界）', () => {
   assert.equal(matchThemes('今天讲政治过程', p).hitKeywords.length, 0)
 })
 
+test('写成大写的关键词按大小写敏感匹配——框架名不该抓散文的动词', () => {
+  const p = { themes: [{ group: '前端', any: ['React', 'CSS', 'agent', 'mcp'], weight: 1 }], redlines: [] }
+  // 真实踩过的坑：Medium 散文里的 "how we react to" 被判成命中框架名 React
+  assert.equal(matchThemes('how we react to things', p).hitKeywords.length, 0)
+  assert.equal(matchThemes('A pure CSS migration', p).hitKeywords.includes('CSS'), true)
+  assert.equal(matchThemes('Built with React and Vue', p).hitKeywords.includes('React'), true)
+  // 全小写的关键词仍不区分大小写：agent 要能命中 Agent
+  assert.ok(matchThemes('An Agent framework', p).hitKeywords.includes('agent'))
+  assert.ok(matchThemes('The MCP protocol', p).hitKeywords.includes('mcp'))
+})
+
 test('全部不命中时得分为 0，不是负数', () => {
   const m = matchThemes('与任何组无关的一句话', pref)
   assert.equal(m.rejected, false)
