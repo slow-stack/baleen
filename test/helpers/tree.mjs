@@ -7,6 +7,8 @@ export const text = (node) => flattenText(node).join(' ')
 export function findAll(node, cls, out = []) {
   if (!node || typeof node !== 'object') return out
   if (Array.isArray(node)) { node.forEach((n) => findAll(n, cls, out)); return out }
+  // 与 flattenText 同一件事：桩不 reconcile，函数组件得自己调一层才看得见里面的节点
+  if (typeof node.type === 'function') return findAll(node.type(node.props ?? {}), cls, out)
   if (node.props && String(node.props.className ?? '').split(/\s+/).includes(cls)) out.push(node)
   findAll(node.children ?? [], cls, out)
   return out

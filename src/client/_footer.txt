@@ -66,6 +66,9 @@
     /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。 */
     const VIEW_RENDER = { today: TodayView, video: VideoView, article: ArticleView, digest: DigestView, library: LibraryView }
 
+    /** 面板里"活着"的条目：归档的只在「库」里看。一次 IN 查询，不靠多次请求拼。 */
+    const LIVE_STATUS = 'new,judged,digest'
+
     function Panel() {
       // api 与首屏状态都得只建一次：useState 的惰性初始化是唯一入口（useMemo 在桩里等价于直接调）
       const [api] = React.useState(() => createApi({ fetch: globalThis.fetch, storage: globalThis.localStorage }))
@@ -81,11 +84,13 @@
         try { globalThis.localStorage.setItem(VIEW_KEY, encodeState(next)) } catch { /* 存不上不影响这一屏 */ }
       }
 
-      function refresh() {
-        return Promise.all([api.state(), api.items({ limit: 200, status: 'new' })])
+      // 「库」要看得归档条目，所以它的查询不限状态；其余三格只要活着的那些。
+      const query = (view) => (view === 'library' ? { limit: 500 } : { status: LIVE_STATUS, limit: 200 })
+      function refresh(view = snap.view) {
+        return Promise.all([api.state(), api.items(query(view))])
           .then(([s, it]) => setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok }))
       }
-      React.useEffect(() => { refresh() }, [])
+      React.useEffect(() => { refresh() }, [snap.view])
 
       function onRun() {
         setBusy(true)
@@ -102,8 +107,10 @@
       const body = render({
         state: st,
         items: data.items,
+        filters: snap.filters[view] || {},
         busy,
         onRun,
+        onFilter: dispatch,
         onOpen: (id) => dispatch({ type: 'open-drawer', id }),
         onPickView: pickView
       })

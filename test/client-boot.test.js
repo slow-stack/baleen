@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { clientExists, loadClient, exportsOf, flattenText, makeStubs } from '../tools/client-loader.mjs'
+import { findAll } from './helpers/tree.mjs'
 
 test('桩的 ctx 复刻宿主 Proxy：未声明服务一律抛', () => {
   const s = makeStubs()
@@ -137,13 +138,37 @@ test('导航项与渲染器一一对应：加视图只改一处就会红', () =>
 })
 
 test('持久化的视图决定首屏落在哪一格（重开面板不回今天）', () => {
-  for (const [view, expect] of [['digest', /判断轮未接入/], ['video', /视频区还没接上真渲染器/]]) {
+  for (const [view, expect] of [['digest', /判断轮未接入/], ['article', /文章区还没接上真渲染器/]]) {
     const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view, filters: {}, drawerItemId: null, scroll: 0 }) } })
     const ex = exportsOf(s)
     ex.apply(s.makeCtx(ex.inject))
     const main = s.registered.find(r => r.slot === 'main').def.factory
     assert.match(flattenText(main({})).join(' '), expect, view + ' 视图没接上')
   }
+})
+
+test('视频区接上之后，占位文案就不许再出现（换实现要连同占位一起删）', () => {
+  const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view: 'video', filters: {}, drawerItemId: null, scroll: 0 }) } })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const text = flattenText(s.registered.find(r => r.slot === 'main').def.factory({})).join(' ')
+  assert.match(text, /显示 0 \/ 0 条/)
+  assert.doesNotMatch(text, /还没接上真渲染器/)
+})
+
+test('findAll 也认函数组件，否则面板里的节点一个都找不到', () => {
+  const Comp = () => ({ type: 'div', props: { className: 'bl-z' }, children: [] })
+  assert.equal(findAll({ type: Comp, props: {}, children: [] }, 'bl-z').length, 1)
+})
+
+test('筛选跟着视图走：持久化里的 video 筛选回填到视频区工具条', () => {
+  const persisted = { v: 1, view: 'video', filters: { video: { tier: '可以看' }, article: { q: '治理' } }, drawerItemId: null, scroll: 0 }
+  const s = loadClient({ storage: { 'baleen.view': JSON.stringify(persisted) } })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const tree = s.registered.find(r => r.slot === 'main').def.factory({})
+  const tier = findAll(tree, 'bl-toolbar')[0].children.find((n) => n.type === 'select')
+  assert.equal(tier.props.value, '可以看')
 })
 
 test('坏掉的 baleen.view 回落「今天」，不能把首屏炸成空白', () => {

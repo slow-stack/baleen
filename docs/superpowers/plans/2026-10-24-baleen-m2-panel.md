@@ -2104,6 +2104,11 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 7. **`flattenText` 现在会调用函数组件**：`main` 槽返回的是 `h(Panel, {key})`，桩不 reconcile，压平出来是空串——于是"Panel 落地在今天"这条断言一度对着 `''` 通过。桩里加了 `typeof node.type === 'function'` 分支（按 React 的做法把组件调一层），并单独立一条测试钉住它，否则以后所有面板断言都可能静默空转。
 8. **装配层新增 `toElement()`**（计划 Step 4 只说了"装配层负责交给 React"，没写实现）：递归 `h(type, props, ...children)`，`null/false` 归零，数组子节点补 index key（宿主 dev 模式缺 key 会刷屏）。视图本身不碰 React，才能在 Node 里断言、也才能被 Task 10 的预览器复用。
 9. **两个新增守卫**：`test/build.test.js` 断言 `src/client` 下每个 `.js` 都在 `PARTS` 里（漏了等于白写，面板不会变）；`test/client-boot.test.js` 断言 `Object.keys(VIEW_RENDER)` 与 `VIEWS` 一字不差，因此 `Panel` 里不再留 `|| VIEW_RENDER.today` 的兜底。另：`initialView()` 去掉了 `persisted` 形参——`decodeState(对象)` 会静默回落默认值，是个陷阱；持久化的读法只有一条路，就是装配层把 `localStorage` 原文交给 `decodeState`。
+10. **`match.js` 也是计划里没有的文件**：`views/today.js` 与 `views/video.js` 各写了一份 `reasonOf`，内联后 `SyntaxError: Identifier 'reasonOf' has already been declared`——同作用域重名这条约束不是纸上谈兵，第二个视图就撞上了。命中理由的读法提到 `src/client/match.js` 共用。
+11. **`findAll` 与 `flattenText` 一样要调用函数组件**：`main` 槽返回 `h(Panel)`，不调一层就永远找不到 `bl-toolbar`，而"找不到"表现为空数组——看起来像实现漏了节点，其实是桩没展开。两处各立一条测试钉住，因为一旦退化，后面所有面板断言都会静默空转。
+12. **`listItems` 的 `status` 支持逗号串或数组**（`new,judged,digest` → SQL `IN`）：三个视图都要"没归档的"。只传 `status=new` 不够（判过的要看档位），不限状态又会让归档条目挤占 `limit` 名额、面板看起来像"库变小了"。`/items?status=` 原样透传，路由不用改。
+13. **面板按视图决定查询**：`library` 用 `{limit:500}`（含归档），其余用 `{status:'new,judged,digest', limit:200}`；`useEffect` 依赖 `snap.view`，从「库」切回「今天」会重新取活着的那批。
+14. `fmtDuration` 的秒数取整（`Math.floor`）再拼，避免非整数秒在徽章上出现 `1:2:3.5`。工具条的搜索框用 `placeholder` 属性给文案，所以"接上真渲染器"那条断言改看 `显示 0 / 0 条`——`flattenText` 只收 children，读不到属性里的字。
 
 ## 交付判据
 

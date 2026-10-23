@@ -18,6 +18,7 @@ export const REASONS_READABLE = GAP_LABELS
 
 const n = (v) => Number(v) || 0
 import { vnode } from '../vnode.js'
+import { reasonOf } from '../match.js'
 
 export function summaryLine(state) {
   const c = state?.counts ?? {}
@@ -45,13 +46,6 @@ function sourceIssues(state) {
         : s.error_class === 'empty' ? `${s.id} 本轮取到 0 条`
           : `${s.id} 本轮失败（${s.error_class ?? '未知'}），游标没推进，下轮自动补`
   }))
-}
-
-function reasonOf(item) {
-  try {
-    const m = JSON.parse(item?.match_json ?? '{}')
-    return typeof m.reason === 'string' && m.reason ? m.reason : '（无理由）'
-  } catch { return '（无理由）' }
 }
 
 function Card({ item, onOpen }) {

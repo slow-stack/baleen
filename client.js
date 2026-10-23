@@ -168,6 +168,19 @@ window.__ModuleLoader__.load({
      */
     const vnode = (type, props, children) => ({ type, props: props ?? {}, children: children ?? [] })
 
+    // ---- src/client/match.js ----
+    /**
+     * 命中理由的读法。预筛入库时把"为什么给你这条"写进 items.match_json，
+     * 面板只读不改；坏 JSON 与缺字段一律显示"（无理由）"——留空看起来像"没有理由"，
+     * 而真实情况是"这条没写下理由"，两者不能混。
+     */
+    function reasonOf(item) {
+      try {
+        const m = JSON.parse(item?.match_json ?? '{}')
+        return typeof m.reason === 'string' && m.reason ? m.reason : '（无理由）'
+      } catch { return '（无理由）' }
+    }
+
     // ---- src/client/views/today.js ----
     /**
      * 「今天」= 门户头版。这一屏承担全部的诚实责任：
@@ -217,13 +230,6 @@ window.__ModuleLoader__.load({
       }))
     }
 
-    function reasonOf(item) {
-      try {
-        const m = JSON.parse(item?.match_json ?? '{}')
-        return typeof m.reason === 'string' && m.reason ? m.reason : '（无理由）'
-      } catch { return '（无理由）' }
-    }
-
     function Card({ item, onOpen }) {
       return vnode('button', { type: 'button', className: 'bl-card' + (item.kind === 'video' ? ' is-video' : ''), onClick: () => onOpen?.(item.id) }, [
         item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [item.duration_sec ? String(item.duration_sec) : '—'])]) : null,
@@ -266,6 +272,87 @@ window.__ModuleLoader__.load({
       ].filter(Boolean))
     }
 
+    // ---- src/client/views/video.js ----
+    /**
+     * 「视频」视图。这一屏的诚实点在两处：
+     *  1. 档位只有三个词，没判过的就是"待判"，不许用预筛得分冒充结论；
+     *  2. 能不能播按源说清楚——只有 B 站打算内嵌，其余一律跳转，不画播放键骗人。
+     */
+
+    const TIER_LABELS = { '值得看': 'good', '可以看': 'ok', '不值当': 'bad' }
+    const STATE_LABELS = {
+      full: '全文', summary_only: '仅摘要', subtitle: '字幕',
+      transcribed: '转写', missing: '无语音', burned_in: '硬字幕读不到'
+    }
+
+    function fmtDuration(sec) {
+      const s = Number(sec)
+      if (!Number.isFinite(s) || s <= 0) return ''
+      const h = Math.floor(s / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      const r = Math.floor(s % 60)
+      return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`
+    }
+
+    function visibleVideos(items, filters = {}) {
+      const q = String(filters.q ?? '').trim().toLowerCase()
+      return (items ?? []).filter((i) => i.kind === 'video')
+        .filter((i) => !filters.tier || i.verdict_tier === filters.tier)
+        .filter((i) => !filters.source || i.source_id === filters.source)
+        .filter((i) => !q || `${i.title ?? ''} ${i.author ?? ''}`.toLowerCase().includes(q))
+        .sort((a, b) => (b.prefilter_score ?? 0) - (a.prefilter_score ?? 0))
+    }
+
+    function Picker({ label, filterKey, view, options, value, onFilter }) {
+      return vnode('select', {
+        'aria-label': label,
+        value: value ?? '',
+        onChange: (e) => onFilter?.({ view, key: filterKey, value: e?.target?.value ?? '' })
+      }, [
+        vnode('option', { value: '' }, [`${label}：全部`]),
+        ...options.map((o) => vnode('option', { key: o, value: o }, [o]))
+      ])
+    }
+
+    function VideoCard({ item, onOpen }) {
+      return vnode('button', { type: 'button', className: 'bl-card', key: item.id, onClick: () => onOpen?.(item.id) }, [
+        vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])]),
+        vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
+        vnode('span', { className: 'bl-card-meta' }, [
+          item.author || item.source_id,
+          STATE_LABELS[item.body_state] ?? item.body_state ?? ''
+        ]),
+        vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `${item.verdict_tier}：${item.verdict_why || '（这条没写理由）'}` : '待判']),
+        vnode('span', { className: 'bl-why' }, [reasonOf(item)]),
+        vnode('span', { className: 'bl-play' }, [item.source_id === 'bili' ? '可在抽屉内播' : '只能跳转'])
+      ])
+    }
+
+    function VideoView({ items = [], filters = {}, onFilter, onOpen }) {
+      const all = (items ?? []).filter((i) => i.kind === 'video')
+      const list = visibleVideos(items, filters)
+      const sources = [...new Set(all.map((i) => i.source_id))]
+      const judged = list.filter((i) => i.status === 'judged').length
+
+      return vnode('div', { className: 'bl-video' }, [
+        vnode('div', { className: 'bl-toolbar' }, [
+          Picker({ label: '档位', filterKey: 'tier', view: 'video', options: Object.keys(TIER_LABELS), value: filters.tier, onFilter }),
+          Picker({ label: '平台', filterKey: 'source', view: 'video', options: sources, value: filters.source, onFilter }),
+          vnode('input', {
+            type: 'search', 'aria-label': '关键词', placeholder: '在这批视频里找',
+            value: filters.q ?? '',
+            onChange: (e) => onFilter?.({ view: 'video', key: 'q', value: e?.target?.value ?? '' })
+          })
+        ]),
+        vnode('div', { className: 'bl-count' }, [`显示 ${list.length} / ${all.length} 条（判过 ${judged} 条）`]),
+        list.length
+          ? vnode('div', { className: 'bl-grid' }, list.map((i) => VideoCard({ item: i, onOpen })))
+          : vnode('div', { className: 'bl-empty' }, [all.length
+            ? '这个筛选下没有东西。库里有货但没显示出来时，通常是档位或平台筛过了——把筛选清一下。'
+            : '库里还没有视频。B 站与小红书视频笔记在 M4 接入；现在订阅的都是文章源的话，这里就该是空的。'])
+      ])
+    }
+
     // ---- src/client/views/placeholder.js ----
     /**
      * 未接入视图的占位渲染器。规则是"不许把没有的画成有"：
@@ -278,7 +365,6 @@ window.__ModuleLoader__.load({
       return vnode('div', { className: 'bl-empty-state' }, [`${why}（${view}）`])
     }
 
-    const VideoView = () => Placeholder({ view: 'M2 视频区任务', why: '视频区还没接上真渲染器' })
     const ArticleView = () => Placeholder({ view: 'M2 文章区任务', why: '文章区还没接上真渲染器' })
     const DigestView = () => Placeholder({ view: 'M3 判断轮', why: '判断轮未接入，所以这里没有图文汇报' })
     const LibraryView = () => Placeholder({ view: 'M2 库任务', why: '库还没接上真渲染器' })
@@ -352,6 +438,9 @@ window.__ModuleLoader__.load({
     /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。 */
     const VIEW_RENDER = { today: TodayView, video: VideoView, article: ArticleView, digest: DigestView, library: LibraryView }
 
+    /** 面板里"活着"的条目：归档的只在「库」里看。一次 IN 查询，不靠多次请求拼。 */
+    const LIVE_STATUS = 'new,judged,digest'
+
     function Panel() {
       // api 与首屏状态都得只建一次：useState 的惰性初始化是唯一入口（useMemo 在桩里等价于直接调）
       const [api] = React.useState(() => createApi({ fetch: globalThis.fetch, storage: globalThis.localStorage }))
@@ -367,11 +456,13 @@ window.__ModuleLoader__.load({
         try { globalThis.localStorage.setItem(VIEW_KEY, encodeState(next)) } catch { /* 存不上不影响这一屏 */ }
       }
 
-      function refresh() {
-        return Promise.all([api.state(), api.items({ limit: 200, status: 'new' })])
+      // 「库」要看得归档条目，所以它的查询不限状态；其余三格只要活着的那些。
+      const query = (view) => (view === 'library' ? { limit: 500 } : { status: LIVE_STATUS, limit: 200 })
+      function refresh(view = snap.view) {
+        return Promise.all([api.state(), api.items(query(view))])
           .then(([s, it]) => setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok }))
       }
-      React.useEffect(() => { refresh() }, [])
+      React.useEffect(() => { refresh() }, [snap.view])
 
       function onRun() {
         setBusy(true)
@@ -388,8 +479,10 @@ window.__ModuleLoader__.load({
       const body = render({
         state: st,
         items: data.items,
+        filters: snap.filters[view] || {},
         busy,
         onRun,
+        onFilter: dispatch,
         onOpen: (id) => dispatch({ type: 'open-drawer', id }),
         onPickView: pickView
       })

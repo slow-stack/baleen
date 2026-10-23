@@ -10,7 +10,6 @@ export function Placeholder({ view, why }) {
   return vnode('div', { className: 'bl-empty-state' }, [`${why}（${view}）`])
 }
 
-export const VideoView = () => Placeholder({ view: 'M2 视频区任务', why: '视频区还没接上真渲染器' })
 export const ArticleView = () => Placeholder({ view: 'M2 文章区任务', why: '文章区还没接上真渲染器' })
 export const DigestView = () => Placeholder({ view: 'M3 判断轮', why: '判断轮未接入，所以这里没有图文汇报' })
 export const LibraryView = () => Placeholder({ view: 'M2 库任务', why: '库还没接上真渲染器' })

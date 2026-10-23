@@ -79,6 +79,20 @@ test('upsertSource 带上按源的过期窗，缺省为 null（用全局值）',
   db.close()
 })
 
+test('listItems 的 status 能吃逗号串：面板要的"没归档"是三种状态一起', () => {
+  const db = dbOf()
+  insRow(db, { external_id: '1' })
+  insRow(db, { external_id: '2', status: 'judged' })
+  insRow(db, { external_id: '3', status: 'digest' })
+  insRow(db, { external_id: '4', status: 'archived' })
+  assert.deepEqual(listItems(db, { status: 'new,judged,digest' }).map(r => r.external_id).sort(), ['1', '2', '3'])
+  assert.deepEqual(listItems(db, { status: ['new', 'digest'] }).map(r => r.external_id).sort(), ['1', '3'])
+  assert.deepEqual(listItems(db, { status: 'new,judged,digest', kind: 'video' }).length, 0)
+  assert.equal(listItems(db, { status: '' }).length, 4)       // 空串=不筛，不是"筛空"
+  assert.equal(listItems(db, { status: 'archived' }).length, 1)
+  db.close()
+})
+
 test('run 生命周期：create → patch → finish', () => {
   const db = dbOf()
   const id = createRun(db, 'manual', () => 1000)
