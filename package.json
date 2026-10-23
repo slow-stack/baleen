@@ -10,13 +10,15 @@
     "./package.json": "./package.json"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   },
   "scripts": {
     "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
-    "yaml": "2.8.2"
+    "yaml": "^2.8.2"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -28,12 +30,21 @@
     "AGENTS.md",
     "README.md"
   ],
-  "keywords": ["dsh", "dsh-plugin", "rss", "aggregation", "bilibili", "xiaohongshu"],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "rss",
+    "aggregation",
+    "bilibili",
+    "xiaohongshu"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/slow-stack/dsh-baleen.git"
   },
-  "bugs": { "url": "https://github.com/slow-stack/dsh-baleen/issues" },
+  "bugs": {
+    "url": "https://github.com/slow-stack/dsh-baleen/issues"
+  },
   "homepage": "https://github.com/slow-stack/dsh-baleen#readme"
 }
