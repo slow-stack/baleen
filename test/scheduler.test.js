@@ -1,0 +1,130 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { openStore, migrate, createRun, finishRun } from '../lib/store.js'
+import { withinWindow, dueReason, createScheduler } from '../lib/scheduler.js'
+
+// 用本地时区构造时刻，避免测试依赖机器是不是 +08
+const at = (hhmm) => {
+  const [h, m] = String(hhmm).split(':').map(Number)
+  return new Date(2026, 9, 23, h, m, 0).getTime()
+}
+const pref = { schedule: { windows: ['07:00-09:00', '12:30-13:30'], max_per_run: 10 } }
+const dbOf = () => { const { db } = openStore(':memory:'); migrate(db); return db }
+const dirOf = () => fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-sched-'))
+
+test('时段窗：窗内真、窗外假、含起点不含终点、空窗不限', () => {
+  assert.equal(withinWindow(['07:00-09:00'], at('07:00')), true)
+  assert.equal(withinWindow(['07:00-09:00'], at('08:59')), true)
+  assert.equal(withinWindow(['07:00-09:00'], at('09:00')), false)
+  assert.equal(withinWindow(['07:00-09:00', '12:30-13:30'], at('12:45')), true)
+  assert.equal(withinWindow([], at('03:00')), true)
+  assert.equal(withinWindow(undefined, at('03:00')), true)
+})
+
+test('跨零点的窗（18:00-09:00）早晚都算，下午三点不算', () => {
+  assert.equal(withinWindow(['18:00-09:00'], at('21:00')), true)
+  assert.equal(withinWindow(['18:00-09:00'], at('03:00')), true)
+  assert.equal(withinWindow(['18:00-09:00'], at('08:59')), true)
+  assert.equal(withinWindow(['18:00-09:00'], at('15:00')), false)
+})
+
+test('写错的窗直接被忽略而不是抛', () => {
+  assert.equal(withinWindow(['7am-9am'], at('08:00')), false)
+  assert.equal(withinWindow(['07:00-09:00', '坏掉的'], at('08:00')), true)
+})
+
+test('不在窗内报 window；正在跑报 running；离上次太近报 too-soon', () => {
+  const db = dbOf()
+  assert.equal(dueReason({ db, pref, now: () => at('20:00'), running: false }), 'window')
+  assert.equal(dueReason({ db, pref, now: () => at('08:00'), running: true }), 'running')
+  const id = createRun(db, 'schedule', () => at('08:00'))
+  finishRun(db, id, { status: 'done' }, () => at('08:01'))
+  assert.equal(dueReason({ db, pref, now: () => at('08:05'), running: false, minGapMs: 600000 }), 'too-soon')
+  assert.equal(dueReason({ db, pref, now: () => at('08:20'), running: false, minGapMs: 600000 }), null)
+  db.close()
+})
+
+test('triggerNow 无视时段窗，但受单实例锁约束', async () => {
+  let runs = 0
+  const slow = async () => { runs++; await new Promise(r => setTimeout(r, 30)); return { runId: 1, status: 'done', stats: {} } }
+  const db = dbOf()
+  const s = createScheduler({
+    db, getPref: () => ({ pref, errors: [] }), runOnce: slow,
+    now: () => at('20:00'), log: () => {}, lockFile: path.join(dirOf(), 'run.lock')
+  })
+  const p = await Promise.all([s.triggerNow(), s.triggerNow()])
+  assert.deepEqual(p.map(r => r.skipped), [false, true])
+  assert.equal(p[1].why, 'running')
+  assert.equal(runs, 1)
+  db.close()
+})
+
+test('偏好校验不过时不起跑，并把 errors 交回去', async () => {
+  const db = dbOf()
+  let runs = 0
+  const s = createScheduler({
+    db, getPref: () => ({ pref: {}, errors: ['schedule.windows[0]: 要写成 "07:00-09:00"'] }),
+    runOnce: async () => { runs++; return {} }, now: () => at('08:00'), log: () => {},
+    lockFile: path.join(dirOf(), 'run.lock')
+  })
+  const r = await s.triggerNow()
+  assert.equal(r.skipped, true)
+  assert.equal(r.why, 'preference')
+  assert.equal(runs, 0)
+  db.close()
+})
+
+test('runOnce 抛异常时不留下卡死的锁，下一次还能跑', async () => {
+  const lockFile = path.join(dirOf(), 'run.lock')
+  const db = dbOf()
+  let n = 0
+  const s = createScheduler({
+    db, getPref: () => ({ pref, errors: [] }),
+    runOnce: async () => { n++; if (n === 1) throw new Error('炸了'); return { runId: n, status: 'done', stats: {} } },
+    now: () => at('08:00'), log: (e) => e, lockFile
+  })
+  const first = await s.triggerNow()
+  assert.equal(first.skipped, true)
+  assert.equal(first.why, 'crash')
+  assert.equal(fs.existsSync(lockFile), false, '异常后锁没释放')
+  const second = await s.triggerNow()
+  assert.equal(second.skipped, false)
+  assert.equal(n, 2)
+  db.close()
+})
+
+test('陈旧锁（pid 不存在）会被接管，不会永久挡住调度', async () => {
+  const lockFile = path.join(dirOf(), 'run.lock')
+  fs.writeFileSync(lockFile, JSON.stringify({ pid: 2147483646, since: Date.now() - 900000 }))
+  const db = dbOf()
+  let n = 0
+  const s = createScheduler({ db, getPref: () => ({ pref, errors: [] }), runOnce: async () => ({ runId: ++n, status: 'done', stats: {} }), now: () => at('08:00'), log: () => {}, lockFile })
+  const r = await s.triggerNow()
+  assert.equal(r.skipped, false)
+  assert.equal(n, 1)
+  assert.equal(fs.existsSync(lockFile), false)
+  db.close()
+})
+
+test('tick 在窗外只登记不抓取；start 用注入的 interval 且不立刻跑', () => {
+  const db = dbOf()
+  let n = 0
+  const started = []
+  const s = createScheduler({
+    db, getPref: () => ({ pref, errors: [] }), runOnce: async () => ({ runId: ++n, status: 'done', stats: {} }),
+    now: () => at('20:00'), log: () => {}, tickMin: 1, lockFile: path.join(dirOf(), 'run.lock'),
+    setInterval: (fn, ms) => { started.push(ms); return { fn, ms } },
+    clearInterval: () => { started.push('cleared') }
+  })
+  assert.deepEqual(s.tick(), { skipped: true, why: 'window' })
+  assert.equal(n, 0)
+  const handle = s.start()
+  assert.deepEqual(started, [60000])
+  assert.equal(handle.ms, 60000)
+  s.stop(handle)
+  assert.deepEqual(started, [60000, 'cleared'])
+  db.close()
+})
