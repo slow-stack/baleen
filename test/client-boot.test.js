@@ -176,6 +176,17 @@ test('文章区接上之后出的是两栏阅读，不是占位', () => {
   assert.equal(findAll(tree, 'bl-two').length, 1)
 })
 
+test('抽屉由持久化状态打开：数据还没到时也要能解释"这条不在手里"', () => {
+  const persisted = JSON.stringify({ v: 1, view: 'today', filters: {}, selectedId: null, drawerItemId: 7, scroll: 0 })
+  const s = loadClient({ storage: { 'baleen.view': persisted } })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const tree = s.registered.find(r => r.slot === 'main').def.factory({})
+  const text = flattenText(tree).join(' ')
+  assert.match(text, /这条不在当前列表里/)
+  assert.equal(findAll(tree, 'bl-drawer').length, 1)
+})
+
 test('findAll 也认函数组件，否则面板里的节点一个都找不到', () => {
   const Comp = () => ({ type: 'div', props: { className: 'bl-z' }, children: [] })
   assert.equal(findAll({ type: Comp, props: {}, children: [] }, 'bl-z').length, 1)

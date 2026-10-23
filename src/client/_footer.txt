@@ -76,6 +76,7 @@
       const [data, setData] = React.useState({ state: null, items: [], stale: false })
       const [busy, setBusy] = React.useState(false)
       const [runError, setRunError] = React.useState('')
+      const [feedbackMsg, setFeedbackMsg] = React.useState('')
 
       const pickView = (v) => dispatch({ type: 'pick-view', view: v })
       function dispatch(action) {
@@ -119,12 +120,20 @@
         onOpen: (id) => dispatch({ type: 'open-drawer', id }),
         onPickView: pickView
       })
+      const drawerOpen = snap.drawerItemId != null
+      const drawerItem = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
       return h('div', { className: 'bl-root' }, [
         h(TopBar, { key: 'bar', stale: data.stale, runError, preferenceErrors: st && st.preference_errors }),
         h(Nav, { key: 'nav', view, pending, onPick: pickView }),
         h('main', { key: 'body', className: 'bl-body' }, toElement(body)),
-        snap.drawerItemId
-          ? toElement(Drawer({ id: snap.drawerItemId, items: data.items, api, onClose: () => dispatch({ type: 'close-drawer' }) }))
+        drawerOpen
+          ? toElement(Drawer({
+            item: drawerItem,
+            api,
+            note: feedbackMsg,
+            onClose: () => { setFeedbackMsg(''); dispatch({ type: 'close-drawer' }) },
+            onDone: (r) => setFeedbackMsg(r.message)
+          }))
           : null
       ])
     }
@@ -174,7 +183,7 @@
     exports.__test = {
       PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
-      reduce, encodeState, decodeState, TodayView
+      reduce, encodeState, decodeState, TodayView, Drawer
     }
     return module.exports
   }

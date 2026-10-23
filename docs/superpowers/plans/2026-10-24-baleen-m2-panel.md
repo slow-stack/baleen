@@ -2114,7 +2114,12 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 17. **`facet` 是 reducer 的新动作，不是 `filter` 的变体**。计划 Step 3 里 `onFilter({facet, value, on})` 与 `filter` 动作的 `{view,key,value}` 形状不接（`filters.status` 到底是标量还是数组，两处写得不一样）。现在定死：**库的 facet 值是数组**，组内 OR、组间 AND，`{type:'facet', view, key, value, on}` 由 reducer 负责加/删并在空数组时**删键**——"没筛"和"筛了个空"在 UI 上必须看起来一样。视频/文章的工具条仍是标量单选，两套各走各的动作。
 18. **汇报区多了一种诚实情况**：`digestEmptyReason(state, loaded)` 除了"没跑过 / 判断轮没接入"，还要处理 `state.digest_count > 0` 但面板手里没内容（M3 之前没有 `/digests` 读取路由，面板传的是 `digests: []`）。这时说"数得出、读不出来"，而不是画一个空的 `bl-dsum` 列表。
 19. `libraryRows` 与 `LibraryView` 只渲染前 100 条并写出"还有 N 条"——面板没有分页控件之前，静默截断等于谎报"库就这么大"。库里 archived 条目带上 `archived_reason`，让"为什么不见了"在库里能自查。
-20. 占位文件到这一步只剩 `Drawer`（Task 8 接完就删）。`test/client-boot.test.js` 新增一条"五个视图都接上了：面板里不该再有占位字样"的遍历断言——逐个视图渲染并查文案，比记住"哪个任务该删哪个导出"可靠。
+20. 占位文件到这一步只剩 `Drawer`（Task 8 接完就删）。`test/client-boot.test.js` 新增一条"五个视图都接上了：面板里不该再有占位字样"的遍历断言——逐个视图渲染并查文案，比记住"哪个任务该删哪个导出"可靠。`views/placeholder.js` 已随 Task 8 删除，`Drawer` 落地后它没有别的导出可留。
+21. **计划 Step 1 那段抽屉测试自己有个坑**：`const item = (over) => ({...})` 是个构造函数，而测试写的是 `Drawer({ item, api: {} })`——把函数本身当条目传进去了，于是渲染的是"没有条目"分支，`assert.match(t, /命中 DSH/)` 这类断言看着像通过了结构检查，其实一直在断空壳。落地时改成 `Drawer({ item: item(), ... })`，并额外加一条"条目不在手里"的显式测试，让那个分支成为**被测行为**而不是漏传参数的副作用。
+22. **抽屉的入参是 `item` 而不是 `id + items`**：装配层负责从 `data.items` 里把 `snap.drawerItemId` 解析出来；解析不到时抽屉渲染一句解释（"这条不在当前列表里，去「库」里按状态找"）并给关闭按钮——抽屉**开着**与抽屉**有内容**是两件事，合并成一个分支会让人以为点没反应。
+23. **`boundaryNote` 现在是"能不能播 + 能不能读"两句拼接**，不是计划的 if 链一出口。原因：一条 B 站硬字幕视频走到第一个分支就返回了播放器的说法，"其实内容读不到"这条最该说的信息被盖掉。状态说法与正文区共用同一张 `STATE_NOTE` 表（`summary_only`/`missing`/`burned_in` 三种算能力边界，`subtitle`/`transcribed` 只是来源说明）。
+24. **反馈结果的回显在装配层**（`feedbackMsg` 状态 + 抽屉里的 `bl-feedback` 一行）。计划片段里的 `actions.push(msg)` 是个推进完就丢的局部数组——刷新即蒸发，等于"点了不知道有没有用"。关闭抽屉时清掉这行。
+25. M2 的抽屉**不许许诺 M4 的能力**：B 站那句从"抽屉内尝试内嵌播放器"改成"内嵌播放器在 M4 接入，现在只能跳到浏览器里看"。
 
 ## 交付判据
 
