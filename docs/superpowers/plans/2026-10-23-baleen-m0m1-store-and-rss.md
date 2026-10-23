@@ -29,7 +29,7 @@
 - 提交信息用中文，前缀 `feat:` / `test:` / `docs:` / `chore:`；每个任务一次提交。
 - 仓库是 CRLF 工作副本：写多行锚点的脚本时用 `\r?\n` 匹配，别假设只有 LF。
 - 生成含 Windows 绝对路径的文件时，用脚本拼接写入并读回验证（本机已证实编辑工具会静默删掉路径串）。
-- 测试一律 `node --test test/`，禁止引入 jest/vitest。
+- 测试一律 `node --test`，单文件用 `node --test test/x.test.js`，全量用 `npm test`（脚本是 `node --test "test/*.test.js"`）。**Windows 下 `node --test test/` 会把目录当模块解析而 `Cannot find module`**，别用那个形式。禁止引入 jest/vitest。
 
 ## 文件结构（本计划将建立的边界）
 
@@ -166,6 +166,8 @@ git commit -m "chore: 实测 node:sqlite 可用性与 dsh headless 入口"
   - `migrate(db): void`（幂等，可重复调用）
   - `setMeta(db, key, value)` / `getMeta(db, key)`（游标与默认值都存这里）
   - `homeDir(): string`、`ensureHome(): string`
+
+- [ ] **Step 0: 先落 `package.json` 与 `AGENTS.md`**（Step 7/9 的内容**必须提前**：测试文件用的是 ESM，没有 `type: module` 时 `node --test` 直接报 `Cannot use import statement outside a module`。实测本机 `node --test test/` 也会因把目录当模块解析而失败，所以测试脚本写成 `node --test "test/*.test.js"`。）
 
 - [ ] **Step 1: 写失败的测试 `test/store.test.js`**
 
@@ -388,7 +390,7 @@ Expected: PASS 4 tests
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" }
   },
-  "scripts": { "test": "node --test test/" },
+  "scripts": { "test": "node --test \"test/*.test.js\"" },
   "dependencies": { "yaml": "2.8.2" },
   "engines": { "node": ">=22.13.0" },
   "files": ["index.js", "lib/", "cordis.patch.yml", "AGENTS.md", "README.md"],
@@ -428,7 +430,7 @@ Expected: PASS 4 tests
 
 - [ ] **Step 10: 全量测试 + 提交**
 
-Run: `node --test test/`
+Run: `node --test "test/*.test.js"`
 Expected: PASS
 
 ```bash
@@ -1343,7 +1345,7 @@ export function adapterFor(type) {
 
 - [ ] **Step 9: 跑测试确认通过并提交**
 
-Run: `node --test test/`
+Run: `node --test "test/*.test.js"`
 Expected: 全绿（此时 `since` 那条断言已按 Step 5 的说明改正）
 
 ```bash
@@ -1895,7 +1897,7 @@ function insert(db, d) {
 
 - [ ] **Step 6: 跑测试确认通过并提交**
 
-Run: `node --test test/`
+Run: `node --test "test/*.test.js"`
 Expected: 全绿
 
 ```bash
@@ -2742,7 +2744,7 @@ test('apply 把库和日志都落在 BALEEN_HOME 里，不碰真实家目录', (
 
 - [ ] **Step 7: 跑测试确认通过**
 
-Run: `node --test test/`
+Run: `node --test "test/*.test.js"`
 Expected: 全绿
 
 - [ ] **Step 8: 提交**
@@ -2859,7 +2861,7 @@ for (const r of db.prepare('SELECT source_id, body_state, COUNT(*) n FROM items 
 
 - [ ] **Step 9: 全量测试 + 提交**
 
-Run: `node --test test/`
+Run: `node --test "test/*.test.js"`
 Expected: 全绿
 
 ```bash
@@ -2890,7 +2892,7 @@ git tag m1-ingest -m "M1：定时摄取入库跑通（RSS），失败不推进�
 
 ## 交付判据（整个计划完成的定义）
 
-1. `node --test test/` 全绿，且 `test/runner.test.js` 里"坏源恢复后补齐缺口"那条通过——它是"失败不推进游标"这条不变量的直接证据。
+1. `npm test` 全绿，且 `test/runner.test.js` 里"坏源恢复后补齐缺口"那条通过——它是"失败不推进游标"这条不变量的直接证据。
 2. 本机 desktop profile 装载后 DSH 正常启动（无新 crash log）。
 3. 手动一轮真实 RSS 抓取入库，`state` 里能看到每源成败与游标；`counts()` 的 `new` 数与候选一致。
 4. `docs/verification.md` 里 V1/V2/V4/V6 四条有实测结论（含"未测"的写明为什么），V3/V5 明确留给后续计划。

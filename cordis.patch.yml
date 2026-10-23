@@ -1,0 +1,9 @@
+# dsh-baleen 自带挂载声明。
+# name 用裸包名 —— 可发布、可移植的形态（启动期装配按包名解析）。
+# 本机热挂载调试时会被改写成 name: file:///<绝对路径>/index.js?v=N，
+# 那个形态带本机路径，**不要提交**。
+- insert:
+    - id: baleen
+      name: dsh-baleen
+      config:
+        enabled: true

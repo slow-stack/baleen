@@ -1,0 +1,39 @@
+{
+  "name": "dsh-baleen",
+  "version": "0.1.0",
+  "description": "信息源聚合 DSH 插件：定时摄取入库（RSS 为主、平台 MCP 为辅），本地预筛 + 三档判断 + 每轮增量汇报。彻底不做平台互动。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" }
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "yaml": "2.8.2"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "cordis.patch.yml",
+    "AGENTS.md",
+    "README.md"
+  ],
+  "keywords": ["dsh", "dsh-plugin", "rss", "aggregation", "bilibili", "xiaohongshu"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/slow-stack/dsh-baleen.git"
+  },
+  "bugs": { "url": "https://github.com/slow-stack/dsh-baleen/issues" },
+  "homepage": "https://github.com/slow-stack/dsh-baleen#readme"
+}
