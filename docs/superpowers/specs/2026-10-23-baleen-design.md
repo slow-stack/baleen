@@ -454,7 +454,7 @@ charter: |                      # 判断那一轮的人设与准则，插件读�
 
 ## 17. 参照与出处
 
-- [c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)（MIT，v2.0.2）——三档判据、headless 跑一轮、只注册只读工具、沙箱家目录、成本纪律、报告固定行格式
+- [c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)（MIT，v2.0.2）——三档判据、只注册只读工具、沙箱家目录、成本纪律、报告固定行格式（它那一套"headless 跑一轮"我们**没采用**，见 D11）
 - [adoresever/bilibili-mcp](https://github.com/adoresever/bilibili-mcp)（MIT）——vendored B 站通道
 - 本机 `D:/dsh-study-desk`（自有插件）——`sidebar.panellist` 与 `main` 同名约束、`ctx` Proxy 的 inject 陷阱、`inject:['tools','webServer']`、`/api/...` 路由、`system-prompt/assemble` 注入、`--dsw-alias-*` 主题 token
 - [ShunL12324/xhs-mcp](https://github.com/ShunL12324/xhs-mcp)、[laolaoshiren/claude-code-skills-zh](https://github.com/laolaoshiren/claude-code-skills-zh)（小红书 MCP 候选与清单）
