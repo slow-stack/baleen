@@ -19,64 +19,6 @@
       ])
     }
 
-    const KEY_SNAPSHOT = 'baleen.snapshot'
-
-    /**
-     * 取数层。三条硬规矩：
-     *  - 失败绝不抛到渲染层：回 { ok:false, stale:true, data:上次快照 }，顶栏据此出灰条；
-     *  - 快照只存"能渲染的状态"，不存正文（真相在 sqlite 里）；
-     *  - feedback 的动作是白名单，不让调用方塞任意 delta。
-     */
-    function makeStore({ fetch: fetchImpl = globalThis.fetch, storage = globalThis.localStorage, actions = { dismiss: -0.1, save: 0.1 } } = {}) {
-      function write(obj) {
-        try { storage.setItem(KEY_SNAPSHOT, JSON.stringify(obj)) } catch { /* 存不下就算了 */ }
-      }
-      function readCached() {
-        try {
-          const t = storage.getItem(KEY_SNAPSHOT)
-          const p = t ? JSON.parse(t) : null
-          return p && typeof p === 'object' ? p : null
-        } catch { return null }
-      }
-      async function call(url, init) {
-        try {
-          const res = await fetchImpl(url, init)
-          if (!res || res.ok === false) throw new Error('HTTP ' + ((res && res.status) ?? '?'))
-          return { json: await res.json(), httpOk: true }
-        } catch (e) {
-          return { error: String((e && e.message) || e) }
-        }
-      }
-      async function get(url) {
-        const r = await call(url, { cache: 'no-store' })
-        if (r.httpOk) { write(r.json); return { ok: true, stale: false, data: r.json } }
-        return { ok: false, stale: true, data: readCached(), error: r.error }
-      }
-      return {
-        readCached,
-        state: () => get(API + '/state'),
-        items: (q) => get(API + '/items?' + new URLSearchParams(q || {}).toString()),
-        async run() {
-          const r = await call(API + '/run', { method: 'POST' })
-          if (!r.httpOk) return { ok: false, stale: true, data: readCached(), error: r.error }
-          const next = r.json && r.json.state ? r.json.state : r.json
-          if (next) write(next)
-          return { ok: true, stale: false, data: r.json }
-        },
-        async feedback(sourceId, action) {
-          if (!Object.prototype.hasOwnProperty.call(actions, action)) throw new Error('未知动作：' + action)
-          if (!sourceId) throw new Error('feedback 需要 source_id')
-          const r = await call(API + '/feedback', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ source_id: sourceId, action })
-          })
-          if (!r.httpOk) return { ok: false, stale: true, data: readCached(), error: r.error }
-          return { ok: true, stale: false, data: r.json }
-        }
-      }
-    }
-
     let clientCtx = null
     const inject = ['slots', 'layout']
 
@@ -144,7 +86,7 @@
 
     exports.apply = apply
     exports.inject = inject
-    exports.__test = { PANEL_ID, API, KEY_SNAPSHOT, Nav, NotReady, makeStore, getLayout, safeGet }
+    exports.__test = { PANEL_ID, API, SNAPSHOT_KEY, Nav, NotReady, createApi, getLayout, safeGet }
     return module.exports
   }
 })

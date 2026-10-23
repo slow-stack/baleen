@@ -2093,6 +2093,14 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 - 平台适配器与凭据（M4）。
 - 任何 push / 发布 / 建仓动作——对外一律先出草稿等她批准。
 
+## 实现偏差记录（M2 落地时，以代码为准）
+
+1. **两个反馈按钮不写 `preference.yaml`，改写 `tuning.json`**（计划原话是"写回 yaml"）。原因是一条测试逼出来的：`YAML.stringify` 会重排整个文件并丢掉注释，`any: [MCP]` 被展开成块——用户手编辑的配置不该因为"点了下不感兴趣"就变样。加载时按 `{...yaml 的 tuning, ...tuning.json}` 合并，json 赢；累加到 0 就删键，越界夹在 ±0.5，坏 json 当没有。宿主 `/feedback` 的拒绝路径现在也有断言保证**两个文件都不碰**。
+2. 取数层从骨架里的内联 `makeStore` 拆成 `src/client/view-api.js` 的 `createApi`，`PARTS` 加一项即生成进 bundle。内部把 API 常量改名 `API_BASE`：生成后它和 `_header.txt` 里的 `API` 在同一作用域，重名会直接 `SyntaxError`（这条是 bundle 生成方式带来的新约束，以后加源文件都要注意）。
+3. 桩补了 `exportsOf` / `flattenText`：断言文案用压平文本比逐层断结构耐改，`createElement` 的节点形状在桩和预览里同构。
+4. 视图状态多测了三件事：`filters` 里的非对象值要丢掉（否则下次 reduce 会崩）、空串筛选值是删除而非存空、未知 action 必须**返回同一个对象**（不产生新引用，省掉无谓重渲染）。
+5. 计划里 Task 4 那句"客户端内联一份、测试逐字节比对"作废，改为 `src/client/` + `tools/build-client.mjs` 生成 + `test/build.test.js` 盯陈旧产物；`--check` 模式留给以后可能的 CI。
+
 ## 交付判据
 
 1. `node --test "test/*.test.js"` 全绿，其中 `test/css.test.js` 证明**零硬编码颜色**、`test/build.test.js` 证明 `client.js` 不是手改的陈旧产物。

@@ -1,6 +1,7 @@
+import fs from 'node:fs'
 import path from 'node:path'
-import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor } from './lib/store.js'
-import { loadPreference, ensurePreferenceFile } from './lib/preference.js'
+import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback } from './lib/store.js'
+import { loadPreference, ensurePreferenceFile, bumpTuningFile } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
 import { makeLogger } from './lib/diag.js'
@@ -10,6 +11,20 @@ export const name = 'dsh-baleen'
 export const inject = ['webServer']
 
 const API_ROUTE = '/api/dsh-baleen'
+
+/** 面板两个按钮允许的动作，与客户端白名单一致；值就是对来源权重的增量 */
+const ALLOWED_ACTIONS = { dismiss: -0.1, save: 0.1 }
+
+function readBody(req) {
+  if (typeof req?.rawBody === 'string') return Promise.resolve(req.rawBody)
+  if (!req || typeof req.on !== 'function') return Promise.resolve('')
+  return new Promise((resolve, reject) => {
+    let raw = ''
+    req.on('data', (c) => { raw += c })
+    req.on('end', () => resolve(raw))
+    req.on('error', reject)
+  })
+}
 
 function json(res, code, payload) {
   res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' })
@@ -31,6 +46,7 @@ function num(v, dflt, max) {
  */
 export function apply(ctx, config = {}) {
   const dir = ensureHome()
+  const now = config.now ?? Date.now
   const log = makeLogger({ dir })
   const prefs = ensurePreferenceFile(dir)
   const { db } = openStore(path.join(dir, 'baleen.sqlite'))
@@ -44,7 +60,7 @@ export function apply(ctx, config = {}) {
   // 定时器可注入：测试里必须注入，否则一个 5 分钟的 interval 会把测试进程吊住不退出。
   const scheduler = createScheduler({
     db, getPref, runOnce, log,
-    now: config.now ?? Date.now,
+    now,
     tickMin: Number.isFinite(config.tickMin) ? config.tickMin : 5,
     setInterval: config.setInterval ?? setInterval,
     clearInterval: config.clearInterval ?? clearInterval
@@ -87,7 +103,21 @@ export function apply(ctx, config = {}) {
       }
       if (sub === '/run' && req.method === 'POST') {
         const r = await scheduler.triggerNow()
-        return json(res, r.skipped ? 200 : 200, { ok: !r.skipped, ...r, state: state() })
+        return json(res, 200, { ok: !r.skipped, ...r, state: state() })
+      }
+      if (sub === '/feedback' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req)) || '{}') || {}
+        const actionDelta = ALLOWED_ACTIONS[body.action]
+        if (actionDelta === undefined) return json(res, 400, { ok: false, error: '未知动作' })
+        if (typeof body.source_id !== 'string' || !body.source_id) return json(res, 400, { ok: false, error: '缺 source_id' })
+        const { pref, errors } = getPref()
+        if (errors.length) return json(res, 400, { ok: false, error: 'preference_invalid', errors })
+        if (!pref.sources.some((s) => s.id === body.source_id)) return json(res, 400, { ok: false, error: '源不存在' })
+        // 只写 tuning.json，绝不动用户的 preference.yaml（YAML 重排会吃掉他的注释）
+        const tuning = bumpTuningFile(dir, body.source_id, actionDelta)
+        if (Number.isInteger(body.item_id)) markFeedback(db, body.item_id, body.action, now)
+        log({ level: 'info', event: 'feedback', detail: `${body.source_id} ${body.action} → ${tuning[body.source_id] ?? 0}` })
+        return json(res, 200, { ok: true, tuning, state: state() })
       }
       return json(res, 404, { ok: false, error: 'no such route' })
     } catch (e) {

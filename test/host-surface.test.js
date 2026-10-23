@@ -14,6 +14,9 @@ function fakeRes() {
   }
 }
 
+/** 假请求直接给 rawBody，不 mock EventEmitter（readBody 两种都吃） */
+const bodyOf = (o) => ({ rawBody: JSON.stringify(o) })
+
 function makeCtx(home, { withServer = true, timers = [] } = {}) {
   const provided = new Map()
   const effects = []
@@ -150,6 +153,57 @@ test('启动就把偏好里的源镜像进表（不用等第一轮跑完）', as
   assert.deepEqual(s.sources.map(x => x.id), ['blog-a'])
   assert.equal(s.sources[0].interval_min, 720)
   assert.equal(s.sources[0].cursor, null)
+})
+
+test('POST /feedback 只改 tuning，themes 与 sources 原样不动', async () => {
+  const home = freshHome()
+  const yaml = [
+    'version: 1',
+    'themes:',
+    '  - group: AI',
+    '    any: [MCP]',
+    '    weight: 1.0',
+    'sources:',
+    '  - id: blog-a',
+    '    type: rss',
+    '    url: https://example.com/feed',
+    ''
+  ].join('\n')
+  fs.writeFileSync(path.join(home, 'preference.yaml'), yaml)
+  const ctx = makeCtx(home)
+  const { apply } = await import('../index.js')
+  apply(ctx, { now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval })
+  const res = fakeRes()
+  await ctx.registered[0].handler(
+    { url: '/api/dsh-baleen/feedback', method: 'POST', ...bodyOf({ source_id: 'blog-a', action: 'dismiss' }) }, res)
+  assert.equal(res.code, 200)
+  const out = JSON.parse(res.body)
+  assert.deepEqual(out.tuning, { 'blog-a': -0.1 })
+  // 用户的 yaml 必须一字未动：YAML 重排会吃掉注释，那两个按钮没资格改他的文件
+  assert.equal(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8'), yaml)
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'tuning.json'), 'utf8')), { 'blog-a': -0.1 })
+  // 再点一次是累加，限幅由 bumpTuningFile 管
+  const r2 = fakeRes()
+  await ctx.registered[0].handler({ url: '/api/dsh-baleen/feedback', method: 'POST', ...bodyOf({ source_id: 'blog-a', action: 'dismiss' }) }, r2)
+  assert.deepEqual(JSON.parse(r2.body).tuning, { 'blog-a': -0.2 })
+})
+
+test('feedback 的未知动作、缺 source_id、不存在的源都被拒且不写文件', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'), 'version: 1\nsources:\n  - id: real\n    type: rss\n    url: https://e.com/f\n')
+  const ctx = makeCtx(home)
+  const { apply } = await import('../index.js')
+  apply(ctx, { now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval })
+  const before = fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8')
+  const h = ctx.registered[0].handler
+  for (const body of [{ source_id: 'real', action: 'like' }, { action: 'save' }, { source_id: 'ghost', action: 'save' }]) {
+    const r = fakeRes()
+    await h({ url: '/api/dsh-baleen/feedback', method: 'POST', ...bodyOf(body) }, r)
+    assert.equal(r.code, 400, JSON.stringify(body))
+    assert.equal(JSON.parse(r.body).ok, false)
+  }
+  assert.equal(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8'), before, '被拒的反馈不该动文件')
+  assert.equal(fs.existsSync(path.join(home, 'tuning.json')), false, '被拒的反馈也不该写 tuning.json')
 })
 
 test('tick 在窗外不抓取；runNow 无视窗', async () => {

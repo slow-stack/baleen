@@ -87,7 +87,8 @@ test('__test 暴露了后续任务要断言的内部件', () => {
   const t = ex.__test
   assert.equal(t.PANEL_ID, 'baleen')
   assert.equal(t.API, '/api/dsh-baleen')
-  assert.equal(typeof t.makeStore, 'function')
+  assert.equal(t.SNAPSHOT_KEY, 'baleen.snapshot')
+  assert.equal(typeof t.createApi, 'function')
   assert.equal(typeof t.Nav, 'function')
   assert.equal(typeof t.getLayout, 'function')
 })

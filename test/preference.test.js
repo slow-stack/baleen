@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { loadPreference, validate, bumpTuning, ensurePreferenceFile, DEFAULTS } from '../lib/preference.js'
+import { loadPreference, validate, bumpTuning, bumpTuningFile, readTuning, ensurePreferenceFile, DEFAULTS } from '../lib/preference.js'
 
 function tmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-pref-'))
@@ -91,6 +91,30 @@ test('两个按钮只写 tuning，themes 一个字节都不动', () => {
   assert.equal(p.tuning.source_delta['blog-a'], -0.5)
   for (let i = 0; i < 30; i++) p = bumpTuning(p, 'blog-a', 0.1)
   assert.equal(p.tuning.source_delta['blog-a'], 0.5)
+})
+
+test('tuning.json 合并进偏好，且用户的 yaml 不被改动', () => {
+  const d = tmp()
+  const original = 'version: 1\nsources:\n  - id: blog-a\n    type: rss\n    url: https://e.com/f\n'
+  fs.writeFileSync(path.join(d, 'preference.yaml'), original)
+  assert.deepEqual(readTuning(d), {})
+  assert.deepEqual(bumpTuningFile(d, 'blog-a', -0.1), { 'blog-a': -0.1 })
+  const { pref } = loadPreference(d)
+  assert.deepEqual(pref.tuning.source_delta, { 'blog-a': -0.1 })
+  assert.equal(fs.readFileSync(path.join(d, 'preference.yaml'), 'utf8'), original)
+})
+
+test('tuning.json 累加到 0 就删键，越界被夹住，坏内容被忽略', () => {
+  const d = tmp()
+  let t = bumpTuningFile(d, 'x', -0.1)
+  t = bumpTuningFile(d, 'x', 0.1)
+  assert.deepEqual(t, {})
+  for (let i = 0; i < 30; i++) t = bumpTuningFile(d, 'x', -0.1)
+  assert.deepEqual(t, { x: -0.5 })
+  fs.writeFileSync(path.join(d, 'tuning.json'), '{坏掉的')
+  assert.deepEqual(readTuning(d), {})
+  fs.writeFileSync(path.join(d, 'tuning.json'), JSON.stringify({ ok: 0.2, huge: 9, nan: 'x' }))
+  assert.deepEqual(readTuning(d), { ok: 0.2 })
 })
 
 test('ensurePreferenceFile 幂等，不覆盖已存在的文件', () => {
