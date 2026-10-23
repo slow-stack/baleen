@@ -1,0 +1,29 @@
+/**
+ * dsh-baleen —— 客户端半
+ *
+ * 以 dsh.client bundle 格式加载（宿主 ModuleLoader 直接吃单文件，无打包器）。
+ * 注册 id 必须等于 loader entry 名（dsh-baleen），否则宿主报
+ *   "loaded without registering dsh-baleen"。
+ *
+ * 视觉约定：一个硬编码颜色都没有 —— 只消费 --dsw-alias-* / --dsw-static-*，
+ * fallback 用 light-dark() 同时给明暗两值。换主题时这里自动跟着变，
+ * 是「融进主题」而不是「自带一套皮肤」。
+ *
+ * 挂载点（M2）：
+ *   sidebar.panellist → 左侧栏入口，id 与 main 的 key 同为 baleen（不同名宿主会抛）
+ *   main              → 整页面板：顶部五项导航 + 视图 + 抽屉
+ * 设置页 settings.section 在 M5 才注册，本里程碑不挂。
+ */
+window.__ModuleLoader__.load({
+  id: 'dsh-baleen',
+  factory: (require) => {
+    const module = { exports: {} }
+    const exports = module.exports
+    Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
+
+    const React = require('react')
+    const h = React.createElement
+
+    const PANEL_ID = 'baleen'
+    const API = '/api/dsh-baleen'
+    /*__BODY__*/

@@ -21,6 +21,8 @@
     }
   },
   "scripts": {
+    "build": "node tools/build-client.mjs",
+    "build:check": "node tools/build-client.mjs --check",
     "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
@@ -35,7 +37,9 @@
     "cordis.patch.yml",
     "AGENTS.md",
     "README.md",
-    "client.js"
+    "client.js",
+    "src/client/",
+    "tools/"
   ],
   "keywords": [
     "dsh",
