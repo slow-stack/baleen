@@ -121,6 +121,19 @@ test('burned_in 条目保留但在 gaps 统计里看得见（不悄悄消失）'
   assert.equal(r.stats.gaps.kept_with_flag.burned_in, 1)
 })
 
+test('一个源都没启用时记 done，不是 failed（别让小面板亮假红点）', async () => {
+  const db = dbOf()
+  const none = { ...pref, sources: pref.sources.map(s => ({ ...s, enabled: false })) }
+  const r = await runOnce({ db, pref: none, now: () => 5000, adapters: { rss: fakeAdapter('rss', {}) } })
+  assert.equal(r.status, 'done')
+  assert.equal(r.stats.fetched, 0)
+  assert.equal(r.stats.candidates, 0)
+  assert.deepEqual(r.stats.per_source, {})
+  assert.equal(lastRunOf(db).error, null)
+})
+
+const lastRunOf = (db) => db.prepare('SELECT * FROM runs ORDER BY id DESC LIMIT 1').get()
+
 test('日志不含家目录，失败源有记录', async () => {
   const db = dbOf()
   const lines = []

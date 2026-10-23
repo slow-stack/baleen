@@ -2911,6 +2911,11 @@ git tag m1-ingest -m "M1：定时摄取入库跑通（RSS），失败不推进�
 8. **`validate` 只接受 `type: rss`**，`bili`/`xhs`/`yt` 在 M4 登记进 `KNOWN_TYPES` 之前会被拒。这是刻意的：宁可现在报错，也不要用户填了一个"看起来支持"的源、跑起来才发现没有适配器。
 9. **`createScheduler` 暴露 `tick()`**，`start()` 只登记 interval。计划把窗内判断埋在 `start()` 里，导致"窗外不该抓取"这条无法直接测；分开之后它有自己的断言，跨零点窗也有。
 10. **测试替身不模拟 `since` 过滤**（那是 rss 适配器的职责，另有测试盯），于是 runner 的测试如实断言"第二轮回来的旧条目走 update、不变成第二行"——比假装过滤更诚实，也顺便验证了第二道防线。
+11. **Task 10 Step 1 抄到的宿主写法与原示例不同**，以抄到的为准：路由是 `webServer.register({ kind:'prefix', path, handler })` 且必须包在 `ctx.effect(fn, label)` 里；服务注册用 `ctx.provide`（`ctx.set` 对未 provide 的服务会抛）；**桌面端 UI 跑在自定义协议上，只有 `/api/*` 会被转发到宿主**，所以路由前缀固定 `/api/dsh-baleen`。`apply()` 里取服务用 `ctx.get('webServer') ?? ctx.webServer`，取不到就记一条 `no_webserver` 错误日志而不是抛——禁用插件时不该连带炸宿主。
+12. **两处实现 bug 由测试当场抓住并修掉**（都不是改断言）：
+    - `runOnce` 在**没有任何 job** 时把状态记成 `failed`（因为 `okCount === 0`），新装好的插件会在面板上亮假红点。改为 `results.length === 0 → done`，并加了专门的测试。
+    - 路由对 `?limit=abc` 这类坏参数会走到 500。改为 `num()` 消毒：非法就用默认值，并且 `limit` 上限 500、`offset` 不为负。
+13. `createScheduler` 的 `setInterval/clearInterval` 可由 `apply(ctx, config)` 注入。测试必须注入——否则 5 分钟的真 interval 会把 `node --test` 的进程吊住不退出。`ctx.effect` 返回 dispose 函数来停定时器，禁用插件后不会留下偷偷抓取的计时器。
 
 执行中发现的两个测试自己的错（都已改测试而不是改实现）：`prefilter` 那条把 `total_dropped` 算成 3（正确是 4，带 `keep` 标记的不算丢弃）；fixture 里一个标题被我写成双重转义 `&amp;amp;`，与真实 feed 的形状不符。
 

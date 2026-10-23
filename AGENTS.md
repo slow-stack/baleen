@@ -28,6 +28,10 @@ Baleen 是一个 DSH（DeepSeek Harness 桌面版）插件：定时把信息源�
 - 主题只消费宿主 token（`--dsw-alias-*`），**明暗双主题都是验收项**，不写死颜色。
 - 面板布局别留两侧大空白；网格用 `auto-fill minmax(260px, 1fr)`。
 - 打包 node 的入口是 `resources/runtime/bin/node.cmd`，需要 `DSH_DESKTOP_NODE_EXECUTABLE` 指向 `DeepSeek Harness.exe`（细节见 `docs/verification.md`）。
+- **宿主 API 实测形态**（抄自本机 dsh-study-desk，别自己发明）：取服务用 `ctx.get('webServer') ?? ctx.webServer`；注册路由用 `webServer.register({ kind:'prefix', path, handler })` 且必须包在 `ctx.effect(fn, label)` 里；注册服务用 `ctx.provide`（`ctx.set` 对未 provide 的服务会抛）。
+- **桌面端 UI 跑在自定义协议上，只有 `/api/*` 会被转发到宿主**——路由前缀固定 `/api/dsh-baleen`，改成别的名字面板就读不到数据。
+- 定时器一律走 `ctx.effect(() => { const h = start(); return () => stop(h) })`；测试里通过 `apply(ctx, { setInterval, clearInterval })` 注入替身，否则真 interval 会把 `node --test` 吊住不退出。
+- `node:sqlite` 在本机可用（独立 node 24.15 与 DSH 打包 24.21 都实测通过），不要引第三方 DB。
 - 动 DSH profile 之前：**备份 `cordis.patch.yml` 和 profile `package.json`**，一次只切换一个插件，**永远不要点启动失败弹窗里"禁用第三方插件、备份 profile patch 并重启"那个按钮**（它会重新序列化并清掉文件）。
 - 装完插件先用 `dsh --profile desktop --dump-config` 检查装配，别用重启试错。
 
