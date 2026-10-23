@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+  <title>Frame Work</title>
+  <link rel="alternate" href="https://blog.example.org"/>
+  <entry>
+    <id>tag:blog.example.org,2026:/p/118</id>
+    <link rel="alternate" href="https://blog.example.org/p/118"/>
+    <title>硬字幕视频的 OCR 兜底：值不值得做</title>
+    <updated>2026-10-22T01:15:00Z</updated>
+    <author><name>桉</name></author>
+    <media:thumbnail url="https://blog.example.org/i/118.jpg"/>
+    <content type="html">&lt;p&gt;burned&amp;#95;in 要单独一档，因为它和"没有内容"是两回事。&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:blog.example.org,2026:/p/119</id>
+    <link href="https://blog.example.org/p/119"/>
+    <title>&lt;震惊&gt; &amp; 转义测试</title>
+    <summary>只有 summary</summary>
+  </entry>
+</feed>

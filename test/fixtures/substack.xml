@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Naval Notes</title>
+  <link>https://example.substack.com</link>
+  <item>
+    <title><![CDATA[为什么 RSS 还活着：12 个新闻站的取样]]></title>
+    <description>我们测了 12 个站点，其中 9 个提供完整正文。</description>
+    <content:encoded><![CDATA[<p>全文首段：我们测了 12 个站点，逐个人工核对。</p><p>第二段有数字：9/12 提供全文，其余只给摘要，付费墙是三例。</p><p>第三段讲方法：抓取时不推进游标的话，失败就会变成永久丢失。</p>]]></content:encoded>
+    <link>https://example.substack.com/p/rss-2026?utm_source=twitter&amp;utm_campaign=x</link>
+    <guid isPermaLink="false">rss-33771</guid>
+    <dc:creator><![CDATA[A. Lefèvre]]></dc:creator>
+    <pubDate>Wed, 21 Oct 2026 06:00:00 GMT</pubDate>
+    <category>工具</category><category>资讯</category>
+  </item>
+  <item>
+    <title>只有摘要的一则</title>
+    <description>摘要而已。</description>
+    <link>https://example.substack.com/p/summary-only</link>
+    <pubDate>not-a-date</pubDate>
+  </item>
+</channel>
+</rss>
