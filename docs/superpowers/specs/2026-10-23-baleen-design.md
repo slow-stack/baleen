@@ -189,13 +189,14 @@ follow:
     - https://example.substack.com/feed
     - https://medium.com/@someone/feed
 
-sources:                        # 每源：开关 / 频率 / 权重
+sources:                        # 每源：开关 / 频率 / 权重 /（可选）按源过期窗
   - id: substack-example
     type: rss
     url: https://example.substack.com/feed
     enabled: true
     interval_min: 720
     weight: 0.8
+    max_age_days: 365           # 省略则用全局 limits.max_age_days；慢更源必须放宽
 
 schedule:
   windows: ["07:00-09:00", "12:30-13:30"]
@@ -239,6 +240,10 @@ charter: |                      # 判断那一轮的人设与准则，插件读�
 3. **抓取**：并发上限 4；单 job 超时 20s；失败重试 1 次。
 4. **归一与去重**：填 `kind`/`body_state`，按 `(source_id, external_id)` upsert；已判过的跳过。
 5. **预筛（本地，不调模型）**：命中 `redlines`/`never`、超 `max_age_days`、时长 < `min_duration_sec`、`body_state=missing`、以及**一条主题都没命中且不是关注 feed**（`no-match`，受 `require_theme_hit` 控制）→ `archived` 并写原因。丢弃原因是固定集合 `theme-reject` `no-body` `stale` `too-short` `skip-kind` `below-score` `no-match`，面板与汇报直接按它出统计。输出候选清单并按得分排序。
+
+   两个关于"过期"的规定（都由真实订阅数据定下来的）：
+   - **首轮不看过期**：该源还没有游标时，`stale` 规则整体跳过。低频作者的 feed 里全是几个月的存货，而对刚订阅的源来说那些没读过的旧文章正是首轮最值钱的部分——实测三个源存货中位年龄 137 / 54 / 166 天，14 天窗会扔掉 92%。
+   - **`max_age_days` 可以按源覆盖**（`sources[].max_age_days`），省略则用全局值。高频源保持 14 天，慢更源设 365 天；全局一刀切必然一头不健康。
 6. **判断**：起 headless 会话，注入章程 + 候选（上限 `max_per_run`）+ 只读工具；逐条读 `body_text`/字幕后写报告；宿主解析 `###` 与 `**档位**` 行回写 `verdict_tier`/`verdict_why`。
 7. **汇报**：报告落 `out/<日期>-<runId>.md` + 入 `digests`；面板「汇报」显示历史、「今天」显示最新一份摘要与卡片；`system-prompt/assemble` 注入一句当日结论。
 8. **收尾**：更新各源游标；`runs.status` → `done` / `partial`（有源失败）/ `failed`（会话起不来）。

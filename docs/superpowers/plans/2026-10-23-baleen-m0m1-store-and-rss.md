@@ -2931,6 +2931,25 @@ git tag m1-ingest -m "M1：定时摄取入库跑通（RSS），失败不推进�
 
 `tools/live-ingest.mjs` 留在仓库里：不经 DSH、用假 ctx 直接跑一轮，`BALEEN_HOME` 指到临时目录就能反复试真数据而不动 `~/.dsh/baleen`。
 
+## 她的三个订阅源暴露的第四个缺陷（过期窗一刀切）
+
+清单：Eco-socialism and Nature（Substack）、Messy Writings（Medium 单个作者）、innei 的小站（独立博客）。三个源全部可达，40 条真内容。
+
+| 源 | 存货中位年龄 | 最老 | 14 天内 |
+|---|---|---|---|
+| eco-socialism | 137 天 | 206 天 | 2 / 20 |
+| innei | 54 天 | 80 天 | 1 / 10 |
+| messy-writings | 166 天 | 224 天 | 0 / 10 |
+
+按原设计（全局 `max_age_days: 14`）首轮只留下 **3 条候选**，九成二被当"过期"丢掉。用户拍板改为：
+
+1. **首轮（该源无游标）跳过 stale 规则**——低频作者的存货对刚订阅的源就是最有价值的内容；
+2. **`sources[].max_age_days` 可按源覆盖**，省略才用全局值（她的三个源分别设 365 / 365 / 180）。
+
+改后实测：首轮 **40 条候选、0 条丢弃**；紧接着第二轮 **抓 0**——这是第一次在真实 feed 上证明游标过滤成立（同一批内容既不重复入库，也不重复进判断预算）。新增 4 条测试（backlog 两态、按源覆盖、sources 表新列、runner 三轮连跑），累计 112。
+
+顺带说明一处我自己加的猜测：`themes` 里的"生态 / 环境 / 气候"是我按她的备考方向补的，**已在报告里明写并请她确认**，不是为了把数字改好看。
+
 ## 累计验收
 
 - `npm test`：88 个测试全绿（store 5 / preference 8 / feed 8 / pool 7 / adapters-rss 6 / normalize 8 / dedup 10 / store-queries 8 / prefilter 11 / runner 9）。

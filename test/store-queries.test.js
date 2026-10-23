@@ -56,6 +56,16 @@ test('setSourceResult 失败时记录错误类别并保留上一次成功时间'
   db.close()
 })
 
+test('upsertSource 带上按源的过期窗，缺省为 null（用全局值）', () => {
+  const db = dbOf()
+  upsertSource(db, { id: 'slow', type: 'rss', url: 'https://e.com/f', max_age_days: 180 })
+  upsertSource(db, { id: 'fast', type: 'rss', url: 'https://e.com/g' })
+  const rows = listSources(db)
+  assert.equal(rows.find(r => r.id === 'slow').max_age_days, 180)
+  assert.equal(rows.find(r => r.id === 'fast').max_age_days, null)
+  db.close()
+})
+
 test('run 生命周期：create → patch → finish', () => {
   const db = dbOf()
   const id = createRun(db, 'manual', () => 1000)

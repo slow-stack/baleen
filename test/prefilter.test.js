@@ -69,6 +69,18 @@ test('skip_kinds 与低分', () => {
   assert.equal(gate(d({ prefilter_score: 0.01 }), pref, () => 2000).reason, 'below-score')
 })
 
+test('首轮（backlog）不看过期：低频源的存货对你就是新的', () => {
+  const old = d({ published_at: 0 })
+  assert.equal(gate(old, pref, () => 200 * DAY).reason, 'stale')
+  assert.equal(gate(old, pref, () => 200 * DAY, { backlog: true }).pass, true)
+})
+
+test('按源覆盖的过期窗生效（覆盖在 pref 里传进来）', () => {
+  const perSource = { ...pref, limits: { ...pref.limits, max_age_days: 365 } }
+  const r = gate(d({ published_at: 0 }), perSource, () => 200 * DAY)
+  assert.equal(r.pass, true)
+})
+
 test('发布时间缺失不按过期处理（缺时间不等于很旧）', () => {
   assert.equal(gate(d({ published_at: null }), pref, () => 20 * DAY).pass, true)
 })

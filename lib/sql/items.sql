@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS sources (
   enabled INTEGER NOT NULL DEFAULT 1,
   interval_min INTEGER NOT NULL DEFAULT 720,
   weight REAL NOT NULL DEFAULT 1.0,
+  max_age_days INTEGER,
   cursor TEXT,
   last_error_class TEXT,
   last_error TEXT,

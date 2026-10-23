@@ -134,6 +134,25 @@ test('一个源都没启用时记 done，不是 failed（别让小面板亮假�
 
 const lastRunOf = (db) => db.prepare('SELECT * FROM runs ORDER BY id DESC LIMIT 1').get()
 
+test('首轮 backlog 不看过期；之后按该源的过期窗过滤', async () => {
+  const DAY = 86400000
+  const p = { ...pref, sources: [{ id: 'slow', type: 'rss', url: 'https://e.com/slow', enabled: true, interval_min: 60, weight: 1, max_age_days: 365 }] }
+  const db = dbOf()
+  const A = fakeAdapter('rss', { slow: { items: [rawOf('slow', { external_id: 'x1', title: 'DSH 的旧文', published_at: 5000 - 100 * DAY })] } })
+  const r1 = await runOnce({ db, pref: p, now: () => 5000, adapters: { rss: A } })
+  assert.equal(r1.stats.candidates, 1)          // 没有游标 = 首轮 = 存货对你就是新的
+  assert.equal(r1.stats.archived, 0)
+
+  const B = fakeAdapter('rss', { slow: { items: [rawOf('slow', { external_id: 'x2', title: 'DSH 太老的文', published_at: 5000 - 400 * DAY })] } })
+  const r2 = await runOnce({ db, pref: p, now: () => 5000, adapters: { rss: B } })
+  assert.equal(r2.stats.candidates, 0)          // 第二轮起才用 365 天窗
+  assert.match(db.prepare("SELECT archived_reason FROM items WHERE external_id='x2'").get().archived_reason, /^stale:400 天前/)
+
+  const C = fakeAdapter('rss', { slow: { items: [rawOf('slow', { external_id: 'x3', title: 'DSH 中年的文', published_at: 5000 - 200 * DAY })] } })
+  const r3 = await runOnce({ db, pref: p, now: () => 5000, adapters: { rss: C } })
+  assert.equal(r3.stats.candidates, 1)          // 200 天在该源的窗内，全局 14 天被覆盖掉了
+})
+
 test('日志不含家目录，失败源有记录', async () => {
   const db = dbOf()
   const lines = []

@@ -13,3 +13,6 @@ credentials/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# 真实订阅清单：personal data，绝不进仓库（示例见 preference.example.yaml）
+preference.live.yaml
