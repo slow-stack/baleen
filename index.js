@@ -124,10 +124,17 @@ export function apply(ctx, config = {}) {
         let body
         try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
         if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { ok: false, error: 'bad_payload' })
-        const itemId = Number(body.item_id)
-        if (!Number.isInteger(itemId)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        // item_id 必须先自身是整数再谈别的：Number(true) === 1，先转再验会把 true
+        // 收成 1 号条目——比 /feedback 的松散写法更严是 controller 拍板接受的代价。
+        if (!Number.isInteger(body.item_id)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        const itemId = body.item_id
         const wanted = Array.isArray(body.folder_ids) ? body.folder_ids.map((x) => Number(x)) : null
-        if (wanted == null && typeof body.new_folder !== 'string') return json(res, 400, { ok: false, error: 'bad_payload' })
+        // 只放行"有内容"的请求：folder_ids 缺席时 new_folder 必须是真名字。
+        // 放过去空串就会跳过建夹、再把 wanted ?? [] 当全量替换——静默清空该条目的收藏，
+        // 正是裁定 2 在 store 层堵掉的那个破坏性默认，路由层不许重新打开。
+        if (wanted == null && !(typeof body.new_folder === 'string' && body.new_folder.trim())) {
+          return json(res, 400, { ok: false, error: 'bad_payload' })
+        }
         // 条目先于夹：收藏的动作主语是这条条目。条目都没了却报 410"夹没了"，
         // 会把面板引去修错误的那一头。
         if (!db.prepare('SELECT 1 FROM items WHERE id = ? LIMIT 1').get(itemId)) {

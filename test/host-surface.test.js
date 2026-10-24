@@ -393,6 +393,32 @@ test('/collect 的失败路径：夹没了、条目没了、载荷坏了各说�
   assert.equal(JSON.parse(r5.body).error, 'bad_name')
 })
 
+test('/collect 没带 folder_ids、new_folder 又是空串：400，不清空已有收藏', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const iid = seedItem(baleen)
+  const seed = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [1] }) }, seed)
+  assert.equal(seed.code, 200, '前置收藏没建起来')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items WHERE item_id = ?').get(iid).n, 1)
+  // 空串 new_folder 不是"要建夹"，folder_ids 缺席也不是"清空"。这种没内容的请求必须响：
+  // 放过去就是 wanted ?? [] 全量替换——静默抹掉该条目的全部收藏。
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, new_folder: '' }) }, res)
+  assert.equal(res.code, 400)
+  assert.equal(JSON.parse(res.body).error, 'bad_payload')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items WHERE item_id = ?').get(iid).n, 1, '坏请求把收藏清空了')
+})
+
+test('/collect 的 item_id 要整数：true 不再被 Number 收成 1 号条目', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  seedItem(baleen) // 1 号条目：Number(true) === 1 泄漏时收藏被写到的就是它
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: true, folder_ids: [1] }) }, res)
+  assert.equal(res.code, 400)
+  assert.equal(JSON.parse(res.body).error, 'bad_payload')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0, 'true 被当成 1 号条目写进了收藏')
+})
+
 test('GET /items?folder= 取该夹条目并带上所属夹，归档的也列得出', async () => {
   const { h, baleen } = await apiOf(freshHome())
   const mk = fakeRes()
@@ -419,13 +445,21 @@ test('/items 的脏 folder 参数当没带，不把 Number 的脏转换喂给 st
   const fid = JSON.parse(mk.body).folder.id
   const iid = seedItem(baleen)
   await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [fid] }) }, fakeRes())
+  // 1 号是默认夹：往里再放一条。folder 若被 Number(true) 之类的脏收成 1，列表会从
+  // "全量"缩成这一条——下面的脏值迭代这才真抓得到泄漏，而不是只靠 store 的兜底。
+  const inDefault = seedItem(baleen, { external_id: 'def' })
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: inDefault, folder_ids: [1] }) }, fakeRes())
+  const one = fakeRes()
+  await h({ url: '/api/dsh-baleen/items?folder=1', method: 'GET' }, one)
+  assert.equal(one.code, 200)
+  assert.deepEqual(JSON.parse(one.body).items.map((i) => i.id), [inDefault], 'folder=1 的正路过滤本身不对')
   // Number('') === 0、Number(true) === 1：脏值不校验就进 store，'' 会变成"筛 0 号夹"（恒空）、
   // 'true' 会变成"筛 1 号夹"。脏值必须当这个参数不存在——视图与不带 folder 时一致。
   for (const dirty of ['', 'true', '-1', '1.5', 'abc']) {
     const res = fakeRes()
     await h({ url: `/api/dsh-baleen/items?folder=${encodeURIComponent(dirty)}`, method: 'GET' }, res)
     assert.equal(res.code, 200, dirty)
-    assert.equal(JSON.parse(res.body).items.length, 1, `脏值 folder=${dirty} 被当成了过滤条件`)
+    assert.equal(JSON.parse(res.body).items.length, 2, `脏值 folder=${dirty} 被当成了过滤条件`)
   }
 })
 
