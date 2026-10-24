@@ -219,3 +219,84 @@ test('tick 在窗外不抓取；runNow 无视窗', async () => {
   const r = await baleen.runNow()
   assert.equal(r.skipped, false)
 })
+
+const apiOf = async (home) => {
+  const ctx = makeCtx(home)
+  const { apply } = await import('../index.js')
+  const baleen = apply(ctx, { now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval })
+  return { h: ctx.registered[0].handler, baleen, ctx }
+}
+
+test('GET /folders 至少带回那个删不掉的默认夹', async () => {
+  const { h } = await apiOf(freshHome())
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/folders', method: 'GET' }, res)
+  const body = JSON.parse(res.body)
+  assert.equal(res.code, 200)
+  assert.equal(body.ok, true)
+  assert.deepEqual(body.folders, [{ id: 1, name: '默认', is_default: 1, count: 0 }])
+})
+
+test('POST /folder 建夹：成功就回整个列表', async () => {
+  const { h } = await apiOf(freshHome())
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '公共管理' }) }, res)
+  const body = JSON.parse(res.body)
+  assert.equal(res.code, 200)
+  assert.equal(body.folder.name, '公共管理')
+  assert.equal(body.folder.is_default, 0)
+  assert.deepEqual(body.folders.map(f => f.name), ['默认', '公共管理'])
+})
+
+test('建夹的失败路径给的是人话状态码，不是 500', async () => {
+  const { h } = await apiOf(freshHome())
+  const cases = [
+    [{ action: 'create', name: '  ' }, 400, 'bad_name'],
+    [{ action: 'create', name: 'x'.repeat(41) }, 400, 'name_too_long'],
+    [{ action: 'create', name: '默认' }, 409, 'name_taken'],
+    [{ action: 'nope' }, 400, 'unknown_action'],
+    [{ action: 'delete', id: 1 }, 403, 'default_folder'],
+    [{ action: 'delete', id: 999 }, 404, 'no_folder'],
+    [{ action: 'rename', id: 999, name: 'x' }, 404, 'no_folder'],
+    [{}, 400, 'unknown_action'],
+    [{ action: 'create' }, 400, 'bad_name']
+  ]
+  for (const [payload, code, error] of cases) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf(payload) }, res)
+    assert.equal(res.code, code, JSON.stringify(payload) + ' 的状态码不对')
+    assert.equal(JSON.parse(res.body).error, error, JSON.stringify(payload))
+    assert.equal(JSON.parse(res.body).ok, false)
+  }
+})
+
+test('删自建夹：条目一条不少，夹列表变短', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home)
+  const created = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '要精读' }) }, created)
+  const fid = JSON.parse(created.body).folder.id
+  baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status)
+    VALUES ('s1', 'e1', 'article', 't', 'https://e.com/1', 'full', 1000, 'new')`).run()
+  const iid = baleen.db.prepare('SELECT id FROM items').get().id
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [fid] }) }, fakeRes())
+  const del = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'delete', id: fid }) }, del)
+  assert.equal(del.code, 200)
+  assert.equal(JSON.parse(del.body).folders.length, 1)
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM items').get().n, 1, '删夹把条目删了')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0)
+})
+
+test('folder 事件进日志时只有动作与夹 id，不含夹名也不含标题', async () => {
+  const home = freshHome()
+  process.env.BALEEN_HOME = home
+  const { h } = await apiOf(home)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '考研专业课' }) }, res)
+  // 本仓日志固定落 <home>/logs/diagnostics.jsonl（lib/diag.js 的 makeLogger），不是 <home>/*.log
+  const logFile = path.join(home, 'logs', 'diagnostics.jsonl')
+  const blob = fs.readFileSync(logFile, 'utf8')
+  assert.match(blob, /folder/, '建夹没记日志')
+  assert.doesNotMatch(blob, /考研专业课/, '日志里出现了夹名')
+})

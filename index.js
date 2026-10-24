@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback } from './lib/store.js'
+import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
@@ -14,6 +14,12 @@ const API_ROUTE = '/api/dsh-baleen'
 
 /** 面板两个按钮允许的动作，与客户端白名单一致；值就是对来源权重的增量 */
 const ALLOWED_ACTIONS = { dismiss: -0.1, save: 0.1 }
+
+/** 夹操作是白名单而不是 if 链：新加动作时漏了枚举就直接 400，不会悄悄走进某个分支 */
+const FOLDER_ACTIONS = new Set(['create', 'rename', 'delete'])
+
+/** store 抛的是短码（name_taken / bad_name / …），这里只负责翻成 HTTP 语义 */
+const FOLDER_ERRORS = { name_taken: 409, name_too_long: 400, bad_name: 400, no_folder: 404, default_folder: 403 }
 
 function readBody(req) {
   if (typeof req?.rawBody === 'string') return Promise.resolve(req.rawBody)
@@ -105,6 +111,26 @@ export function apply(ctx, config = {}) {
           })
         })
       }
+      if (sub === '/folders' && req.method === 'GET') {
+        return json(res, 200, { ok: true, folders: listFolders(db) })
+      }
+      if (sub === '/folder' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req)) || '{}') || {}
+        if (!FOLDER_ACTIONS.has(body.action)) return json(res, 400, { ok: false, error: 'unknown_action' })
+        try {
+          let folder = null
+          if (body.action === 'create') folder = createFolder(db, body.name, now)
+          else if (body.action === 'rename') folder = renameFolder(db, Number(body.id), body.name)
+          else deleteFolder(db, Number(body.id))
+          // 夹名可能带个人色彩（"考研专业课"），日志只记动作与 id。
+          log({ level: 'info', event: 'folder', detail: `${body.action} #${body.id ?? folder?.id ?? ''}` })
+          return json(res, 200, { ok: true, folder, folders: listFolders(db) })
+        } catch (e) {
+          const code = FOLDER_ERRORS[String(e?.message)] ?? 500
+          if (code === 500) log({ level: 'error', event: 'folder_failed', detail: `${body.action}: ${String(e?.message).slice(0, 60)}` })
+          return json(res, code, { ok: false, error: code === 500 ? 'internal' : String(e?.message) })
+        }
+      }
       if (sub === '/run' && req.method === 'POST') {
         const r = await scheduler.triggerNow()
         return json(res, 200, { ok: !r.skipped, ...r, state: state() })
@@ -132,6 +158,7 @@ export function apply(ctx, config = {}) {
 
   const baleen = {
     state,
+    folders: () => listFolders(db),
     list: (opts) => listItems(db, opts),
     runNow: () => scheduler.triggerNow(),
     tick: () => scheduler.tick(),
