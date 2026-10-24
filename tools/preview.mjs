@@ -22,8 +22,9 @@ import { VideoView } from '../src/client/views/video.js'
 import { ArticleView } from '../src/client/views/article.js'
 import { DigestView } from '../src/client/views/digest.js'
 import { LibraryView } from '../src/client/views/library.js'
+import { CollectionsView } from '../src/client/views/collections.js'
 import { Drawer } from '../src/client/views/drawer.js'
-import { previewState, previewItems } from '../test/fixtures/preview-data.js'
+import { previewState, previewItems, previewFolders } from '../test/fixtures/preview-data.js'
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -127,13 +128,32 @@ export function renderPreview({ outDir = path.join(ROOT, 'out'), empty = false }
   const items = empty ? [] : previewItems
   const live = items.filter((i) => i.status !== 'archived')
   const drawerItem = items[0] ?? null
+  // 空态传空夹表：抽屉走"没有夹列表"那一支，收藏页走"读不到夹"那一支——诚实的缺席也要演一遍。
+  const folders = empty ? [] : previewFolders
   const drawer = drawerItem
-    ? Drawer({ item: drawerItem, api: {}, note: empty ? '' : 'demo-longform 权重 +0.1——只改 tuning，你的 themes 一个字没动' })
-    : Drawer({ item: null, api: {} })
+    ? Drawer({ item: drawerItem, api: {}, folders, note: empty ? '' : 'demo-longform 权重 +0.1——只改 tuning，你的 themes 一个字没动' })
+    : Drawer({ item: null, api: {}, folders })
   const pages = {
     today: both(shell({ view: 'today', state, body: TodayView({ state, items: live, onRun: () => {}, onOpen: () => {}, onPickView: () => {} }) })),
     video: both(shell({ view: 'video', state, body: VideoView({ state, items, filters: empty ? {} : { tier: '' } }) })),
     article: both(shell({ view: 'article', state, body: ArticleView({ state, items, filters: {}, selectedId: items[4] ? items[4].id : null }) })),
+    collections: both(shell({
+      view: 'collections',
+      state,
+      body: CollectionsView({
+        // 右区与左列默认夹的数字同源：都数"挂着夹 1"的条目（含已归档的 id 8），
+        // 左列写 2 条、右区恰好 2 张卡——收藏页最容易犯的"写着 3 条点进去 2 条"在这里演不出来。
+        items: items.filter((i) => (i.folders ?? []).includes(1)),
+        folders,
+        filters: { folder: 1 },
+        pendingDelete: null,
+        note: '',
+        newFolderName: '',
+        currentName: '默认',
+        onPickFolder: () => {}, onCreate: () => {}, onRename: () => {},
+        onAskDelete: () => {}, onCancelDelete: () => {}, onDelete: () => {}, onOpen: () => {}
+      })
+    })),
     digest: both(shell({ view: 'digest', state, body: DigestView({ digests: [], state }) })),
     library: both(shell({ view: 'library', state, body: LibraryView({ items, filters: empty ? {} : { status: ['judged'] } }) })),
     drawer: both(shell({ view: 'today', state, body: TodayView({ state, items: live }), drawer, problems: { stale: true } })),
