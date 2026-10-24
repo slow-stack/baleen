@@ -35,10 +35,11 @@ export const currentFolderId = (folders, filters) => {
   return folderTabs(list)[0]?.id ?? null
 }
 
-function CollectedCard({ item, folders, onOpen }) {
-  const alsoIn = (item.folders ?? []).length
-    ? vnode('span', { className: 'bl-in' }, ['还在：' + item.folders.map((id) => nameOf(folders, id)).join(' / ')])
-    : null
+function CollectedCard({ item, folders, cur, onOpen }) {
+  // spec §6.2 卡面要的是"它还在哪些**别的**夹里"：item.folders 里含当前夹自己，
+  // 不滤掉就会在单夹条目上写出"还在：默认"这种语病。滤完一个不剩时这行整个不出现——
+  // 原文没规定空列表的说法，最不撒谎的做法是什么都不说。
+  const alsoIn = (item.folders ?? []).filter((id) => id !== cur)
   return vnode('button', { type: 'button', className: 'bl-card', key: item.id, onClick: () => onOpen?.(item.id) }, [
     vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
     vnode('span', { className: 'bl-card-meta' }, [
@@ -50,7 +51,9 @@ function CollectedCard({ item, folders, onOpen }) {
     item.status === 'archived'
       ? vnode('span', { className: 'bl-missing' }, [`已归档：${item.archived_reason || '原因没记'}（收藏不会让它重新出现在今天）`])
       : null,
-    alsoIn
+    alsoIn.length
+      ? vnode('span', { className: 'bl-in' }, ['还在：' + alsoIn.map((id) => nameOf(folders, id)).join(' / ')])
+      : null
   ].filter(Boolean))
 }
 
@@ -75,7 +78,7 @@ export function CollectionsView({
     ? `${foldersUnreadNote}。这一页列不出收藏关系，但你收过的条目一条都没少——回到「今天」再点一次收藏，或者刷新这格。`
     : total === 0
       ? '你一条都还没收过。在「今天」或「视频」里点开一条，抽屉下方有「收藏到…」。'
-      : `这个夹还是空的（「${curFolder?.name ?? '当前夹'}」里一条都没有）。左边的数字是别的夹里的，点别的夹看看。`
+      : `这个夹还是空的（「${curFolder?.name ?? '当前夹'}」里一条都没有）。去别的页用抽屉「收藏到…」放进来。`
 
   return vnode('div', { className: 'bl-collections' }, [
     unread ? null : vnode('aside', { className: 'bl-folderlist', 'aria-label': '收藏夹' },
@@ -110,7 +113,7 @@ export function CollectionsView({
       note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
       // 读不到夹的时候 items 是"没筛夹"捞回来的全量，跟收藏关系无关，一张卡都不许画
       !unread && items.length
-        ? vnode('div', { className: 'bl-grid' }, items.map((i) => CollectedCard({ item: i, folders: list, onOpen })))
+        ? vnode('div', { className: 'bl-grid' }, items.map((i) => CollectedCard({ item: i, folders: list, cur, onOpen })))
         : vnode('p', { className: 'bl-empty' }, [emptyText])
     ])
   ])

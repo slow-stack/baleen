@@ -1044,10 +1044,11 @@ window.__ModuleLoader__.load({
       return folderTabs(list)[0]?.id ?? null
     }
 
-    function CollectedCard({ item, folders, onOpen }) {
-      const alsoIn = (item.folders ?? []).length
-        ? vnode('span', { className: 'bl-in' }, ['还在：' + item.folders.map((id) => nameOf(folders, id)).join(' / ')])
-        : null
+    function CollectedCard({ item, folders, cur, onOpen }) {
+      // spec §6.2 卡面要的是"它还在哪些**别的**夹里"：item.folders 里含当前夹自己，
+      // 不滤掉就会在单夹条目上写出"还在：默认"这种语病。滤完一个不剩时这行整个不出现——
+      // 原文没规定空列表的说法，最不撒谎的做法是什么都不说。
+      const alsoIn = (item.folders ?? []).filter((id) => id !== cur)
       return vnode('button', { type: 'button', className: 'bl-card', key: item.id, onClick: () => onOpen?.(item.id) }, [
         vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
         vnode('span', { className: 'bl-card-meta' }, [
@@ -1059,7 +1060,9 @@ window.__ModuleLoader__.load({
         item.status === 'archived'
           ? vnode('span', { className: 'bl-missing' }, [`已归档：${item.archived_reason || '原因没记'}（收藏不会让它重新出现在今天）`])
           : null,
-        alsoIn
+        alsoIn.length
+          ? vnode('span', { className: 'bl-in' }, ['还在：' + alsoIn.map((id) => nameOf(folders, id)).join(' / ')])
+          : null
       ].filter(Boolean))
     }
 
@@ -1084,7 +1087,7 @@ window.__ModuleLoader__.load({
         ? `${foldersUnreadNote}。这一页列不出收藏关系，但你收过的条目一条都没少——回到「今天」再点一次收藏，或者刷新这格。`
         : total === 0
           ? '你一条都还没收过。在「今天」或「视频」里点开一条，抽屉下方有「收藏到…」。'
-          : `这个夹还是空的（「${curFolder?.name ?? '当前夹'}」里一条都没有）。左边的数字是别的夹里的，点别的夹看看。`
+          : `这个夹还是空的（「${curFolder?.name ?? '当前夹'}」里一条都没有）。去别的页用抽屉「收藏到…」放进来。`
 
       return vnode('div', { className: 'bl-collections' }, [
         unread ? null : vnode('aside', { className: 'bl-folderlist', 'aria-label': '收藏夹' },
@@ -1119,7 +1122,7 @@ window.__ModuleLoader__.load({
           note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
           // 读不到夹的时候 items 是"没筛夹"捞回来的全量，跟收藏关系无关，一张卡都不许画
           !unread && items.length
-            ? vnode('div', { className: 'bl-grid' }, items.map((i) => CollectedCard({ item: i, folders: list, onOpen })))
+            ? vnode('div', { className: 'bl-grid' }, items.map((i) => CollectedCard({ item: i, folders: list, cur, onOpen })))
             : vnode('p', { className: 'bl-empty' }, [emptyText])
         ])
       ])
@@ -1180,6 +1183,9 @@ window.__ModuleLoader__.load({
       return { status: LIVE_STATUS, limit: 200 }
     }
 
+    /** 取数的请求序号（终审 C14）：只在工厂作用域，Panel 每帧重跑不能把它清零。 */
+    let refreshSeq = 0
+
     function Panel() {
       // api 与首屏状态都得只建一次：useState 的惰性初始化是唯一入口（useMemo 在桩里等价于直接调）
       const [api] = React.useState(() => createApi({ fetch: globalThis.fetch, storage: globalThis.localStorage }))
@@ -1213,15 +1219,22 @@ window.__ModuleLoader__.load({
        * 用上一帧的 folders 解析会在首帧拿到 null，于是捞回一批"没筛夹"的全量条目，
        * 而那一屏马上就有东西可画了，读回失败被悄悄说成"这个夹里有内容"。
        * 夹表读不到时 setFolders([])：视图据此说"夹列表没读回来"，不假装是空的。
+       * 连点两个夹会有多个 refresh 同时在途：谁后到谁回填，先点的那份旧响应就会盖掉后点的夹
+       * （左列高亮新夹、右区还是旧夹的条目）。所以每次自增请求序号，响应落地前比对，
+       * 过期的整份丢弃——setFolders 与 setData 都要罩住，只罩一半就各坏一半；
+       * runFolder 成功后的 setFolders(r.data.folders) 是动作应答不是取数，不走也不受这条管。
        */
       function refresh(view = snap.view) {
+        const myReq = ++refreshSeq
         const f = snap.filters[view] || {}
         return api.folders().then((fo) => {
+          if (myReq !== refreshSeq) return undefined
           const list = fo && fo.ok && Array.isArray(fo.data?.folders) ? fo.data.folders : []
           setFolders(list)
           const folderId = view === 'collections' ? currentFolderId(list, f) : null
           return Promise.all([api.state(), api.items(viewQuery(view, folderId))])
             .then(([s, it]) => {
+              if (myReq !== refreshSeq) return undefined
               setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok })
             })
         })

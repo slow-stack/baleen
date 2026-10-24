@@ -45,15 +45,19 @@ test('一个夹都没读到时不画空标签栏，直接说读不到', () => {
   assert.equal(findAll(tree, 'bl-foldertab').length, 0)
 })
 
-test('右区显示这个夹里的条目，并带上"还在哪些夹里"', () => {
+test('右区显示这个夹里的条目，"还在"只列当前夹之外的归属（spec §6.2"还在哪些别的夹里"）', () => {
   const tree = CollectionsView({
     items: [item({ id: 1, folders: [1, 2], folder_names: ['默认', '公共管理'] })],
     folders: FOLDERS, filters: { folder: 1 }
   })
   const card = findAll(tree, 'bl-card')[0]
   assert.match(text(card), /一条收过的文章/)
-  // 简报里这条写成 /还在：默认 / 公共管理/ ——斜杠在正则字面量里就终止了正则，是坏代码；按原意转义
-  assert.match(text(card), /还在：默认 \/ 公共管理/)
+  // spec 原文是"别的夹"：当前夹（默认）自己不许列进"还在"里，否则单夹条目会写出"还在：默认"
+  assert.match(text(card), /还在：公共管理/)
+  assert.doesNotMatch(text(card), /还在：默认/)
+  // 只在这一个夹里时没有"别的夹"：这行整个不显示（spec 没规定空列表的说法，不说最不撒谎）
+  const solo = CollectionsView({ items: [item()], folders: FOLDERS, filters: { folder: 1 } })
+  assert.doesNotMatch(text(findAll(solo, 'bl-card')[0]), /还在：/)
 })
 
 test('卡上的时间是收进来的时间，不是发布时间', () => {
@@ -82,6 +86,9 @@ test('归档条目没记原因时说明没记，不编一个原因', () => {
 test('空夹、一条没收、读不到夹，三种空态说法不同', () => {
   const emptyFolder = text(CollectionsView({ items: [], folders: FOLDERS, filters: { folder: 3 } }))
   assert.match(emptyFolder, /这个夹还是空的/)
+  // spec §6.2：空夹要说"去别的页用抽屉「收藏到…」放进来"，不是"点别的夹看看"
+  assert.match(emptyFolder, /去别的页用抽屉「收藏到…」放进来/)
+  assert.doesNotMatch(emptyFolder, /左边的数字/, '旧文案（左边的数字是别的夹里的）已按 spec 换掉')
   const nothingAtAll = text(CollectionsView({ items: [], folders: FOLDERS.map((f) => ({ ...f, count: 0 })), filters: {} }))
   assert.match(nothingAtAll, /一条都还没收过/)
   assert.doesNotMatch(nothingAtAll, /这个夹还是空的/)
