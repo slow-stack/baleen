@@ -45,6 +45,12 @@
       const [busy, setBusy] = React.useState(false)
       const [runError, setRunError] = React.useState('')
       const [feedbackMsg, setFeedbackMsg] = React.useState('')
+      // 抽屉的收藏多选：夹列表跟着数据一起刷；新夹名是装配层持有的瞬时输入（不进 reducer）；
+      // collecting 防连点叠请求；knownFolders 记收藏成功后服务端读回的归属（按条目 id 用）。
+      const [folders, setFolders] = React.useState([])
+      const [newFolderName, setNewFolderName] = React.useState('')
+      const [collecting, setCollecting] = React.useState(false)
+      const [knownFolders, setKnownFolders] = React.useState(null)
 
       const pickView = (v) => dispatch({ type: 'pick-view', view: v })
       function dispatch(action) {
@@ -56,8 +62,12 @@
       // 「库」要看得归档条目，所以它的查询不限状态；其余三格只要活着的那些。
       const query = (view) => (view === 'library' ? { limit: 500 } : { status: LIVE_STATUS, limit: 200 })
       function refresh(view = snap.view) {
-        return Promise.all([api.state(), api.items(query(view))])
-          .then(([s, it]) => setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok }))
+        return Promise.all([api.state(), api.items(query(view)), api.folders()])
+          .then(([s, it, fo]) => {
+            setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok })
+            // 夹列表一律按 res.ok 分支；"ok 但 data 没读出来"算读回失败，回空表让抽屉去说读不到。
+            setFolders(fo && fo.ok && fo.data && Array.isArray(fo.data.folders) ? fo.data.folders : [])
+          })
       }
       React.useEffect(() => { refresh() }, [snap.view])
 
@@ -89,7 +99,20 @@
         onPickView: pickView
       })
       const drawerOpen = snap.drawerItemId != null
-      const drawerItem = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
+      const found = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
+      // 抽屉里那条可能来自不带 folders 字段的查询（今天的三格）。/collect 是全量替换，
+      // 所以收藏成功后要把服务端读回的归属覆盖上去——只覆盖抽屉这一条的展示，不改 data.items。
+      const drawerItem = found && !Array.isArray(found.folders) && knownFolders && knownFolders.itemId === found.id
+        ? { ...found, folders: knownFolders.folder_ids }
+        : found
+      // 包一层 collecting：点一下即生效意味着连点会叠请求，全量替换下后到的旧集合会盖掉新决定。
+      function runCollect(...args) {
+        setCollecting(true)
+        return api.collect(...args).then(
+          (r) => { setCollecting(false); return r },
+          (e) => { setCollecting(false); throw e }
+        )
+      }
       return h('div', { className: 'bl-root' }, [
         // 外壳三件（Nav / TopBar / NotReady）与视图同构，都产纯对象，所以一律经 toElement，
         // 不能 h(Nav)：函数组件返回普通对象的话，真 React 会直接抛"Objects are not valid as a React child"。
@@ -99,10 +122,22 @@
         drawerOpen
           ? toElement(Drawer({
             item: drawerItem,
-            api,
+            api: { ...api, collect: runCollect },
             note: feedbackMsg,
-            onClose: () => { setFeedbackMsg(''); dispatch({ type: 'close-drawer' }) },
-            onDone: (r) => setFeedbackMsg(r.message)
+            folders,
+            collecting,
+            newFolderName,
+            onNewFolderName: setNewFolderName,
+            onClose: () => { setFeedbackMsg(''); setNewFolderName(''); dispatch({ type: 'close-drawer' }) },
+            onDone: (r) => {
+              setFeedbackMsg(r.message)
+              // 只有成功（带读回的 folderIds）才清输入框并覆盖归属；失败留住名字好重试。
+              if (r.kind === 'collect' && r.folderIds) {
+                setNewFolderName('')
+                if (drawerItem) setKnownFolders({ itemId: drawerItem.id, folder_ids: r.folderIds })
+                if (Array.isArray(r.folders)) setFolders(r.folders)
+              }
+            }
           }))
           : null
       ])

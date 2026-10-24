@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Drawer, boundaryNote, feedbackHint } from '../src/client/views/drawer.js'
+import { Drawer, boundaryNote, feedbackHint, collectSetOf } from '../src/client/views/drawer.js'
 import { text, findAll } from './helpers/tree.mjs'
 
 const item = (over = {}) => ({
@@ -37,7 +37,7 @@ test('能力边界按 kind 与源给不同说法，不许假装现在就能播',
 test('两个按钮的说明写清只调来源权重、不动主题词', () => {
   const t = text(Drawer({ item: item(), api: {} }))
   assert.match(t, /不感兴趣/)
-  assert.match(t, /收藏/)
+  assert.match(t, /这源多来点/)
   assert.match(t, /只改来源权重|只调来源权重/)
   assert.match(t, /不改你的主题词|一个字没动/)
   assert.match(feedbackHint('dismiss'), /-0\.1/)
@@ -60,7 +60,7 @@ test('api 失败时显示"没记上"，不假装成功', async () => {
   const done = []
   const api = { feedback: async () => ({ ok: false, stale: true, error: 'HTTP 500' }) }
   const tree = Drawer({ item: item(), api, onDone: (r) => done.push(r) })
-  await btn(tree, '收藏').props.onClick()
+  await btn(tree, '这源多来点').props.onClick()
   assert.match(done[0].message, /没记上/)
   assert.match(done[0].message, /HTTP 500/)
 })
@@ -100,4 +100,79 @@ test('原文为空时写"读不到"而不是空白，且带 body_state 的说法
   const t = text(Drawer({ item: item({ body_text: null, body_state: 'missing' }), api: {} }))
   assert.match(t, /（没有可读内容）/)
   assert.match(t, /读不到/)
+})
+
+const FOLDERS = [
+  { id: 1, name: '默认', is_default: 1, count: 0 },
+  { id: 2, name: '公共管理', is_default: 0, count: 3 },
+  { id: 3, name: '要精读', is_default: 0, count: 1 }
+]
+
+test('「收藏到…」把这条当前所属的夹回填成勾选', () => {
+  const tree = Drawer({ item: item({ folders: [2] }), api: {}, folders: FOLDERS })
+  const boxes = findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')
+  assert.equal(boxes.length, 3)
+  assert.deepEqual(boxes.map((b) => Boolean(b.props.checked)), [false, true, false])
+  assert.deepEqual(boxes.map((b) => b.props['aria-label']), ['放进：默认', '放进：公共管理', '放进：要精读'])
+})
+
+test('点一个夹名就是立刻放进，提交的是"当前集合 + 这一个"', async () => {
+  const sent = []
+  const api = { collect: async (id, folderIds) => { sent.push([id, folderIds]); return { ok: true, data: { folder_ids: folderIds } } } }
+  const tree = Drawer({ item: item({ folders: [2] }), api, folders: FOLDERS })
+  const box = findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')[0]
+  await box.props.onChange({ target: { checked: true } })
+  assert.deepEqual(sent, [[1, [2, 1]]], '放进的顺序该跟这条当前所属的记法一致：原有在前、新勾追加')
+})
+
+test('再点一次是移出，集合里减掉那一个', async () => {
+  const sent = []
+  const api = { collect: async (id, folderIds) => { sent.push(folderIds); return { ok: true } } }
+  const tree = Drawer({ item: item({ folders: [2, 3] }), api, folders: FOLDERS })
+  const box = findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')[1]
+  await box.props.onChange({ target: { checked: false } })
+  assert.deepEqual(sent, [[3]])
+})
+
+test('collectSetOf 不靠夹列表的顺序反推，条目里多出来的未知夹 id 要保留', () => {
+  assert.deepEqual(collectSetOf({ folders: [9] }, FOLDERS, 1, true), [9, 1])
+  assert.deepEqual(collectSetOf({ folders: [1, 9] }, FOLDERS, 1, false), [9])
+  assert.deepEqual(collectSetOf(null, FOLDERS, 2, true), [2])
+})
+
+test('没有夹列表时（路由缺席）说读不到，不给一组空勾', () => {
+  const t = text(Drawer({ item: item(), api: {}, folders: [] }))
+  assert.match(t, /读不到夹/)
+  assert.doesNotMatch(t, /放进：/)
+})
+
+test('new_folder 那行：空白名不发，发了就带上', async () => {
+  const sent = []
+  const api = { collect: async (id, folderIds, nf) => { sent.push([id, folderIds, nf]); return { ok: true } } }
+  const tree = Drawer({ item: item({ folders: [] }), api, folders: FOLDERS })
+  const row = findAll(tree, 'bl-newfolder')[0]
+  await row.children.find((n) => n.type === 'button').props.onClick({ })
+  assert.deepEqual(sent, [], '没填名字不该发请求')
+})
+
+test('collect 失败的回显分两种：没记上 / 夹已经不在了', async () => {
+  const done = []
+  const api = { collect: async () => ({ ok: false, error: 'folder_gone', missing: [3] }) }
+  const tree = Drawer({ item: item({ folders: [] }), api, folders: FOLDERS, onDone: (r) => done.push(r.message) })
+  await findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')[2].props.onChange({ target: { checked: true } })
+  assert.match(done[0], /没记上/)
+  assert.match(done[0], /已经不在了/)
+})
+
+test('收藏动作不发出去时不给"忙"的样子，防连点叠请求', () => {
+  const tree = Drawer({ item: item({ folders: [] }), api: {}, folders: FOLDERS, collecting: true })
+  const boxes = findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')
+  assert.equal(boxes.every((b) => b.props.disabled === true), true)
+})
+
+test('改名后的按钮仍然只写 tuning：提示文案里出现「这源多来点」且带 +0.1', () => {
+  assert.match(feedbackHint('save'), /这源多来点/)
+  assert.match(feedbackHint('save'), /\+0\.1/)
+  assert.match(feedbackHint('save'), /不改你的主题词/)
+  assert.doesNotMatch(feedbackHint('save'), /^收藏/)
 })
