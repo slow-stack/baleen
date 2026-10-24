@@ -25,7 +25,10 @@ export const previewState = {
   gaps: {
     total_dropped: 23,
     by_reason: { 'no-match': 11, stale: 6, 'no-body': 4, 'too-short': 2 },
-    kept_with_flag: { burned_in: 1 }
+    kept_with_flag: { burned_in: 1 },
+    // 收藏钉住（D15）：这轮因收藏豁免没清的条数。夹具里仍活着且挂着夹的条目恰好两条
+    // （id 1、5；id 8 已归档走的是"不复活"那条路，不进这个桶），所以演 2 而不是随手写个数。
+    held: 2
   },
   sources: [
     { id: 'demo-longform', type: 'rss', url: 'https://example.invalid/a/feed', enabled: true, ok: true, error_class: null },

@@ -33,10 +33,15 @@ export function summaryLine(state) {
 export function gapText(gaps) {
   const by = gaps?.by_reason ?? {}
   const flags = gaps?.kept_with_flag ?? {}
-  if (!Object.keys(by).length && !Object.keys(flags).length) return '（还没有一轮记录）'
+  const held = n(gaps?.held)
+  // 空判断必须把 held 算进去：跑了一轮、有条目被收藏豁免，面板不能反过来咬"还没有一轮记录"。
+  if (!Object.keys(by).length && !Object.keys(flags).length && !held) return '（还没有一轮记录）'
   const parts = Object.entries(by).map(([k, v]) => `${GAP_LABELS[k] ?? k} ${v}`)
   const kept = Object.entries(flags).map(([k, v]) => `${FLAG_LABELS[k] ?? k} ${v}`)
-  return [`丢弃 ${n(gaps.total_dropped)}`, ...parts, ...(kept.length ? [`保留待读：${kept.join(' / ')}`] : [])].join(' · ')
+  // 收藏钉住（D15）：豁免的丢弃没发生，不进 by_reason，单独一枚 chip，大于零才显示。
+  return [`丢弃 ${n(gaps.total_dropped)}`, ...parts,
+    ...(kept.length ? [`保留待读：${kept.join(' / ')}`] : []),
+    ...(held ? [`收藏钉住 ${held}`] : [])].join(' · ')
 }
 
 function sourceIssues(state) {

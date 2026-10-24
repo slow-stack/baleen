@@ -189,6 +189,9 @@ test('收过的条目第二轮过期不归档；没收过的照旧归档（豁�
   assert.equal(r.stats.archived, 1, '归档计数把被豁免的那条也算进去了')
   // 豁免只是"不改归档"，不是"重新送回候选"：这一轮两条都没过闸，候选必须还是 0。
   assert.equal(r.stats.candidates, 0, '被豁免的条目不算候选')
+  // 豁免不是静默："丢弃没发生"这件事要进汇报的第三个桶（用户 2026-10-25 批准），
+  // 否则面板永远看不见"今天有 N 条因收藏未清理"。
+  assert.equal(r.stats.gaps.held, 1, '被豁免的那条必须进收藏钉住计数')
 })
 
 test('移出夹之后，下一轮的过期清理照旧生效（钉住不等于永久免死）', async () => {
@@ -205,6 +208,9 @@ test('移出夹之后，下一轮的过期清理照旧生效（钉住不等于�
 
   setItemFolders(db, keepId, [])
   const C = fakeAdapter('rss', { slow: { items: twoStale() } })
-  await runOnce({ db, pref: p, now: () => 5000 + 16 * DAY, adapters: { rss: C } })
+  const r3 = await runOnce({ db, pref: p, now: () => 5000 + 16 * DAY, adapters: { rss: C } })
   assert.equal(statusOf(db, 'keep').status, 'archived', '移出后还免归档，说明豁免读的不是当前状态')
+  // 移出夹之后豁免不再生效：钉住计数归零，归档只这一条（drop 上一轮已归档，这轮 skip_seen 不重复计）。
+  assert.equal(r3.stats.gaps.held, 0, '移出夹之后钉住计数必须归零')
+  assert.equal(r3.stats.archived, 1, '最后一轮的归档只有移出夹的那条')
 })

@@ -50,6 +50,21 @@ test('空态不谎报：没有一轮记录时写"还没有一轮记录"', () => 
   assert.match(t, /还没有跑过一轮/)
 })
 
+test('因收藏豁免的条目进「收藏钉住」桶：豁免不等于没有一轮记录', () => {
+  const t = gapText({ by_reason: {}, kept_with_flag: {}, total_dropped: 0, held: 2 })
+  assert.match(t, /收藏钉住 2/)
+  assert.notEqual(t, '（还没有一轮记录）', '跑了一轮、有条目被豁免，面板不能说还没有一轮记录')
+  // 与其他成分同排出现，chip 排在「保留待读」之后
+  const mixed = gapText({ by_reason: { stale: 4 }, kept_with_flag: { burned_in: 1 }, total_dropped: 4, held: 3 })
+  assert.match(mixed, /保留待读：硬字幕读不到 1 · 收藏钉住 3/)
+})
+
+test('held 为 0 或缺省时不出现收藏钉住，输出与现状逐字一致', () => {
+  assert.equal(gapText({ by_reason: {}, kept_with_flag: {}, total_dropped: 0, held: 0 }), '（还没有一轮记录）')
+  assert.equal(gapText({ by_reason: { stale: 4 }, kept_with_flag: {}, total_dropped: 4 }), '丢弃 4 · 超龄 4')
+  assert.equal(gapText({ by_reason: { stale: 4 }, kept_with_flag: {}, total_dropped: 4, held: 0 }), '丢弃 4 · 超龄 4')
+})
+
 test('挂掉的源用文字说明原因，不是一个小圆点让人猜', () => {
   const t = text(TodayView({ state, items, onOpen: () => {} }))
   assert.match(t, /xhs 需要重新登录/)

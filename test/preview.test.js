@@ -59,6 +59,7 @@ test('预览用的是真视图函数：渲染结果里能找到视图自己的�
   const files = renderPreview({ outDir: tmp('real') })
   const read = (n) => fs.readFileSync(files.find((f) => f.endsWith(n)), 'utf8')
   assert.match(read('preview-today.html'), /过筛 .*→ 候选 .*→ 待判/)
+  assert.match(read('preview-today.html'), /收藏钉住 \d/, '「收藏钉住」chip 要在定稿前就看得见（明暗两块同源）')
   assert.match(read('preview-video.html'), /只能跳转|可在抽屉内播/)
   assert.match(read('preview-article.html'), /左边没有条目|读原文/)
   assert.match(read('preview-library.html'), /状态|形态|档位|来源/)
