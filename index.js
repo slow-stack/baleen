@@ -119,16 +119,23 @@ export function apply(ctx, config = {}) {
         if (!FOLDER_ACTIONS.has(body.action)) return json(res, 400, { ok: false, error: 'unknown_action' })
         try {
           let folder = null
+          let deleteResult = null
           if (body.action === 'create') folder = createFolder(db, body.name, now)
           else if (body.action === 'rename') folder = renameFolder(db, Number(body.id), body.name)
-          else deleteFolder(db, Number(body.id))
+          else deleteResult = deleteFolder(db, Number(body.id))
           // 夹名可能带个人色彩（"考研专业课"），日志只记动作与 id。
-          log({ level: 'info', event: 'folder', detail: `${body.action} #${body.id ?? folder?.id ?? ''}` })
+          // id 一律取 store 的返回值：create 根本不收 body.id，rename/delete 能走到这句就说明
+          // store 已按 Number(body.id) 命中过真夹。body.id 本身是客户端可控内容，不许进 detail。
+          const folderId = folder?.id ?? deleteResult?.folder_id
+          log({ level: 'info', event: 'folder', detail: `${body.action} #${folderId ?? ''}` })
           return json(res, 200, { ok: true, folder, folders: listFolders(db) })
         } catch (e) {
-          const code = FOLDER_ERRORS[String(e?.message)] ?? 500
-          if (code === 500) log({ level: 'error', event: 'folder_failed', detail: `${body.action}: ${String(e?.message).slice(0, 60)}` })
-          return json(res, code, { ok: false, error: code === 500 ? 'internal' : String(e?.message) })
+          const msg = String(e?.message)
+          // hasOwn 而不是裸查表：e.message 恰好等于 toString / constructor 这类原型键名时，
+          // 查表会拿到一个非数字的函数，再把它当状态码送进 writeHead。
+          const code = Object.hasOwn(FOLDER_ERRORS, msg) ? FOLDER_ERRORS[msg] : 500
+          if (code === 500) log({ level: 'error', event: 'folder_failed', detail: `${body.action}: ${msg.slice(0, 60)}` })
+          return json(res, code, { ok: false, error: code === 500 ? 'internal' : msg })
         }
       }
       if (sub === '/run' && req.method === 'POST') {

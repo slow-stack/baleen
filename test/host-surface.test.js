@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { setItemFolders } from '../lib/store.js'
 
 const freshHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-host-'))
 
@@ -279,7 +280,8 @@ test('删自建夹：条目一条不少，夹列表变短', async () => {
   baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status)
     VALUES ('s1', 'e1', 'article', 't', 'https://e.com/1', 'full', 1000, 'new')`).run()
   const iid = baleen.db.prepare('SELECT id FROM items').get().id
-  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [fid] }) }, fakeRes())
+  setItemFolders(baleen.db, iid, [fid])
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 1, '收藏关系没建起来，下面那句 folder_items == 0 就是永真')
   const del = fakeRes()
   await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'delete', id: fid }) }, del)
   assert.equal(del.code, 200)
@@ -290,13 +292,31 @@ test('删自建夹：条目一条不少，夹列表变短', async () => {
 
 test('folder 事件进日志时只有动作与夹 id，不含夹名也不含标题', async () => {
   const home = freshHome()
-  process.env.BALEEN_HOME = home
   const { h } = await apiOf(home)
   const res = fakeRes()
   await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '考研专业课' }) }, res)
   // 本仓日志固定落 <home>/logs/diagnostics.jsonl（lib/diag.js 的 makeLogger），不是 <home>/*.log
   const logFile = path.join(home, 'logs', 'diagnostics.jsonl')
   const blob = fs.readFileSync(logFile, 'utf8')
-  assert.match(blob, /folder/, '建夹没记日志')
+  // 钉死事件名：只匹配 "folder" 子串的话，一个只写 folder_failed 的实现也能过
+  assert.match(blob, /"event":"folder"/, '建夹没记日志')
   assert.doesNotMatch(blob, /考研专业课/, '日志里出现了夹名')
+})
+
+test('把夹名塞进 id 字段建夹：照样 200，但日志里只许出现 store 给的夹 id', async () => {
+  const home = freshHome()
+  const { h } = await apiOf(home)
+  const res = fakeRes()
+  // create 分支从不读 body.id（lib/store.js 的 createFolder 只有 db/raw/now 三个参数），
+  // 所以这个字段是纯客户端可控内容：它进了 detail 就是把夹名写进了 diagnostics.jsonl。
+  await h({
+    url: '/api/dsh-baleen/folder', method: 'POST',
+    ...bodyOf({ action: 'create', name: '考研专业课', id: '考研专业课' })
+  }, res)
+  assert.equal(res.code, 200)
+  assert.equal(JSON.parse(res.body).folder.name, '考研专业课')
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.match(blob, /"event":"folder"/, '建夹没记日志')
+  assert.doesNotMatch(blob, /考研专业课/, '客户端可控的 id 字段被原样写进了日志')
+  assert.match(blob, /"detail":"create #2"/, 'detail 里该是 store 返回的夹 id（默认夹占 1，新建的是 2）')
 })
