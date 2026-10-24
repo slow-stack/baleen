@@ -6,6 +6,7 @@
  */
 import { vnode } from '../vnode.js'
 import { matchInfo } from '../match.js'
+import { readbackMiss, foldersUnreadNote } from '../format.js'
 
 const DELTA = { dismiss: '-0.1', save: '+0.1' }
 /** 每种 body_state 一句说法：正文区与能力边界共用，别两处各写一遍再各自漂移 */
@@ -110,12 +111,15 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
     }
     // data 可能是 null（2xx 但 body 没读出来）：名字与归属都用"能读回什么"分支，读不到就回退到发出去的意图。
     const readFolders = res && res.ok && Array.isArray(res.data?.folders) ? res.data.folders : null
+    const readIds = res && res.ok && Array.isArray(res.data?.folder_ids) ? res.data.folder_ids : null
     const known = readFolders ?? folders
-    const after = res && res.ok ? (Array.isArray(res.data?.folder_ids) ? res.data.folder_ids : folderIds) : null
+    const after = res && res.ok ? (readIds ?? folderIds) : null
+    // 应答里既没带归属也没带夹表时不许光说"已放进"：那是没读回来，不是读到了（话术与收藏页同一句）。
+    const unreadTail = after && readIds === null && readFolders === null ? `（${readbackMiss('服务端确认的归属')}，这句是按你勾的说的）` : ''
     const message = after
-      ? `已放进：${namesOf(item, known, after)}`
+      ? `已放进：${namesOf(item, known, after)}${unreadTail}`
       : res && res.error === 'folder_gone'
-        ? `没记上：夹 ${res.missing?.join('、') ?? '（服务端没说是哪几个）'} 已经不在了，重新勾一次`
+        ? `没记上：${res.missing?.length ? `夹 ${res.missing.join('、')} 已经不在了` : `有夹已经不在了，但${readbackMiss('是哪几个')}`}，重新勾一次`
         : `没记上（${(res && res.error) || '宿主接口没应答'}）`
     onDone?.({ message, kind: 'collect', folderIds: after ?? undefined, folders: readFolders ?? undefined })
     return message
@@ -165,7 +169,7 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
       Section({
         title: '收藏到…',
         children: [
-          hasFolders ? null : vnode('p', { className: 'bl-missing' }, ['读不到夹（宿主接口没应答），这次没法收藏。']),
+          hasFolders ? null : vnode('p', { className: 'bl-missing' }, [`${foldersUnreadNote}，这次没法收藏。`]),
           // 这条 item 可能来自不带 folders 字段的查询（今天的三格）：那是"没读到"，不是"在 0 个夹里"，
           // 明说全量替换的后果，让用户知道自己勾的会被当成全部归属。
           Array.isArray(item.folders) ? null : vnode('p', { className: 'bl-note' }, ['这条当前在哪些夹里还没读到；下面以空勾起步，放进会把你勾的当成它的全部归属。']),

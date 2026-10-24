@@ -204,6 +204,25 @@ test('folder_gone 缺多个夹时把 id 挨个列出来', async () => {
   assert.match(done[0], /夹 2、3 已经不在了/)
 })
 
+// 统一"读回失败"话术（Task 8 裁定）：请求成了但内容没读回来，必须明说没读回来。
+test('collect 应答里什么都没读回来时不许光说"已放进"：得带上归属没读回来', async () => {
+  const done = []
+  const api = { collect: async () => ({ ok: true, data: null }) }
+  const tree = Drawer({ item: item({ folders: [] }), api, folders: FOLDERS, onDone: (r) => done.push(r.message) })
+  await findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')[0].props.onChange({ target: { checked: true } })
+  assert.match(done[0], /已放进/)
+  assert.match(done[0], /归属没读回来/, '把"没读回来"说成"已放进"是谎')
+})
+
+test('folder_gone 但应答没带 missing 时，说明是哪几个没读回来（与收藏页同一句骨架）', async () => {
+  const done = []
+  const api = { collect: async () => ({ ok: false, error: 'folder_gone' }) }
+  const tree = Drawer({ item: item({ folders: [] }), api, folders: FOLDERS, onDone: (r) => done.push(r.message) })
+  await findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')[1].props.onChange({ target: { checked: true } })
+  assert.match(done[0], /没记上/)
+  assert.match(done[0], /是哪几个没读回来/)
+})
+
 test('收藏动作不发出去时不给"忙"的样子，防连点叠请求', () => {
   const tree = Drawer({ item: item({ folders: [] }), api: {}, folders: FOLDERS, collecting: true })
   const boxes = findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')

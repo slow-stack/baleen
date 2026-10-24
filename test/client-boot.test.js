@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { clientExists, loadClient, exportsOf, flattenText, makeStubs } from '../tools/client-loader.mjs'
 import { findAll } from './helpers/tree.mjs'
 
@@ -145,8 +147,8 @@ test('持久化的视图决定首屏落在哪一格（重开面板不回今天�
   assert.match(flattenText(s.registered.find(r => r.slot === 'main').def.factory({})).join(' '), /还没跑过一轮/)
 })
 
-test('五个视图都接上了：面板里不该再有"占位"字样', () => {
-  for (const view of ['today', 'video', 'article', 'digest', 'library']) {
+test('六个视图都接上了：面板里不该再有"占位"字样', () => {
+  for (const view of ['today', 'video', 'article', 'digest', 'library', 'collections']) {
     const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view, filters: {}, selectedId: null, drawerItemId: null, scroll: 0 }) } })
     const ex = exportsOf(s)
     ex.apply(s.makeCtx(ex.inject))
@@ -200,6 +202,70 @@ test('筛选跟着视图走：持久化里的 video 筛选回填到视频区工�
   const tree = s.registered.find(r => r.slot === 'main').def.factory({})
   const tier = findAll(tree, 'bl-toolbar')[0].children.find((n) => n.type === 'select')
   assert.equal(tier.props.value, '可以看')
+})
+
+test('六格三处同名：VIEWS、NAV_ITEMS、VIEW_RENDER 一处不许少（少任何一格这条就红）', () => {
+  const t = exportsOf(loadClient()).__test
+  assert.deepEqual([...t.VIEWS], ['today', 'video', 'article', 'collections', 'digest', 'library'])
+  assert.deepEqual(t.NAV_ITEMS.map(([id]) => id), [...t.VIEWS])
+  assert.deepEqual(Object.keys(t.VIEW_RENDER), [...t.VIEWS])
+  for (const v of t.VIEWS) assert.equal(typeof t.VIEW_RENDER[v], 'function', `${v} 没有渲染器`)
+  assert.equal(typeof t.CollectionsView, 'function', '收藏页得能从装配层里拿到，预览门靠它')
+})
+
+// 绑定约束（Task 7 评审留下的洞）：装配层那次"过期归属"覆盖调用点此前没有任何测试钉住——
+// 把 drawerItemWithFolders(found, knownFolders) 改回裸 found，全量测试照样绿，
+// 而"连点两个勾互相抹掉"的 bug 会静默回归。纯函数那两条钉子测的是规则，
+// 这条测的是**接线**：源码级断言，不需要 React 测试替身。
+test('装配层真的把过期归属覆盖接在抽屉上（改回裸 found 这条就红）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
+  assert.match(src, /const drawerItem = drawerItemWithFolders\(found, knownFolders\)/,
+    '_footer.txt 里那次调用不见了：抽屉会拿没归属的条目去全量替换')
+  assert.doesNotMatch(src, /const drawerItem = found\b/, '覆盖层被退回裸 found')
+  const built = fs.readFileSync(path.join(process.cwd(), 'client.js'), 'utf8')
+  assert.equal(built.includes('const drawerItem = drawerItemWithFolders(found, knownFolders)'), true,
+    'client.js 是生成的：改了源没跑 node tools/build-client.mjs')
+})
+
+test('收藏页的取数形状：按夹筛、不限状态（收过的东西不会因归档就消失）', () => {
+  const t = exportsOf(loadClient()).__test
+  assert.deepEqual(t.viewQuery('collections', 3), { folder: 3, limit: 200 })
+  assert.equal('status' in t.viewQuery('collections', 3), false, '收藏格不许套"活着的那三格"的状态筛')
+  assert.deepEqual(t.viewQuery('collections', null), { limit: 200 }, '还没读到夹就不该假装筛了夹')
+  assert.deepEqual(t.viewQuery('video', 3), { status: 'new,judged,digest', limit: 200 })
+  assert.deepEqual(t.viewQuery('library', 3), { limit: 500 })
+})
+
+test('收藏页六个动作都接在装配层上（少一个就是"点了没反应"）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
+  const wired = [
+    ['onPickFolder', /onPickFolder: \([a-z]+\) => \{ setPendingDelete\(null\); dispatch\(\{ type: 'filter', view: 'collections', key: 'folder'/],
+    ['onCreate', /onCreate: \(name\) => runFolder\('create', \{ name \}/],
+    ['onRename', /onRename: \([a-z]+, name\) => runFolder\('rename'/],
+    ['onAskDelete', /onAskDelete: \(id\) => setPendingDelete\(id\)/],
+    ['onCancelDelete', /onCancelDelete: \(\) => setPendingDelete\(null\)/],
+    ['onDelete', /onDelete: \(id\) => runFolder\('delete', \{ id \}/]
+  ]
+  for (const [name, re] of wired) assert.match(src, re, `收藏页的 ${name} 没接上`)
+})
+
+test('收藏页的失败回显走 runFolder，不许 catch 掉（源码级）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
+  assert.match(src, /function runFolder\(action, args, okText\) \{/, 'runFolder 得是那个带 ok/error 分支的 helper')
+  assert.match(src, /setCollectNote\(r\.error === 'name_taken'/, 'name_taken 要说人话，不能只报错误码')
+  assert.doesNotMatch(src, /api\.folderOp\([^)]*\)\.catch\(\(\) => \{\}\)/, '夹操作失败不许静默')
+})
+
+test('面板落在收藏格：首屏说"夹列表没读回来"，不把读不到说成还没收藏', () => {
+  const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view: 'collections', filters: {}, selectedId: null, drawerItemId: null, scroll: 0 }) } })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const tree = s.registered.find(r => r.slot === 'main').def.factory({})
+  const t = flattenText(tree).join(' ')
+  assert.match(t, /夹列表没读回来/)
+  assert.doesNotMatch(t, /一条都还没收过/, '数据还没读回来就说"你还没收藏过"，是谎')
+  assert.equal(findAll(tree, 'bl-foldertab').length, 0)
+  assert.equal(findAll(tree, 'bl-collections').length, 1)
 })
 
 test('坏掉的 baleen.view 回落「今天」，不能把首屏炸成空白', () => {

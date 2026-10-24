@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
      * 每个视图的筛选各存各的：从视频区带着"档位=值得看"切去文章区，
      * 回来时那个筛选还在，但不会污染文章区的筛选。
      */
-    const VIEWS = ['today', 'video', 'article', 'digest', 'library']
+    const VIEWS = ['today', 'video', 'article', 'collections', 'digest', 'library']
 
     const DEFAULT_STATE = () => ({ view: 'today', filters: {}, drawerItemId: null, selectedId: null, scroll: 0 })
 
@@ -271,6 +271,16 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * 「读回失败」的统一话术：请求发出去了（甚至 2xx 了），但该读回来的内容没在应答里。
+     * 抽屉、收藏页、夹操作三处共用这一句骨架——话术只写一遍，就不会各处漂移成三种说法。
+     * 诚实底线：必须明说"没读回来"，不许写成"没有夹""你还没收藏过"那种把失败说成空的谎。
+     */
+    const readbackMiss = (what) => `${what}没读回来`
+
+    /** 收藏这套界面里最常见的一次读回失败：夹列表读不回来，于是整页的收藏关系都无从显示。 */
+    const foldersUnreadNote = `读不到夹（${readbackMiss('夹列表')}）`
+
     // ---- src/client/css.js ----
     /**
      * 面板样式。**这份 CSS 里一个颜色字面量都没有**：所有颜色都从宿主 token 取，
@@ -310,7 +320,7 @@ window.__ModuleLoader__.load({
     .bl-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));gap:12px;min-width:0}
     .bl-card,.bl-row{appearance:none;text-align:left;font-family:inherit;color:inherit;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:9px 10px;cursor:pointer;display:flex;flex-direction:column;gap:5px;min-height:32px;min-width:0}
     .bl-card:hover,.bl-row:hover,.bl-row[aria-selected="true"]{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
-    .bl-card:focus-visible,.bl-row:focus-visible,.bl-navitem:focus-visible,.bl-actions button:focus-visible,.bl-detail:focus-visible,.bl-dbtns button:focus-visible,.bl-dbar button:focus-visible,.bl-facets input:focus-visible,.bl-collect input:focus-visible,.bl-newfolder input:focus-visible,.bl-newfolder button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+    .bl-card:focus-visible,.bl-row:focus-visible,.bl-navitem:focus-visible,.bl-actions button:focus-visible,.bl-detail:focus-visible,.bl-dbtns button:focus-visible,.bl-dbar button:focus-visible,.bl-facets input:focus-visible,.bl-collect input:focus-visible,.bl-newfolder input:focus-visible,.bl-newfolder button:focus-visible,.bl-foldertab:focus-visible,.bl-confirm button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
     .bl-card-title,.bl-row-title{font-size:13px;line-height:1.4;color:var(--dsw-alias-label-primary)}
     .bl-card-meta,.bl-row-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);display:flex;gap:6px;flex-wrap:wrap}
     .bl-why,.bl-row-why{font-size:12px;color:var(--dsw-alias-label-secondary);border-left:2px solid var(--dsw-alias-border-l2);padding-left:7px;margin-top:auto}
@@ -330,6 +340,18 @@ window.__ModuleLoader__.load({
     .bl-facet{display:flex;flex-direction:column;gap:2px;min-width:0}
     .bl-facets h4{margin:0 0 4px;font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary)}
     .bl-facets label{display:flex;gap:6px;align-items:center;min-height:32px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+    .bl-collections{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;align-items:start;min-width:0}
+    .bl-folderlist{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .bl-foldertab{appearance:none;font-family:inherit;text-align:left;font-size:12px;min-height:32px;padding:6px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+    .bl-foldertab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+    .bl-foldertab[aria-current="page"]{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font-weight:500}
+    .bl-collection-body{display:flex;flex-direction:column;gap:10px;min-width:0}
+    .bl-in{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+    .bl-confirm{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:9px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-size:12px;color:var(--dsw-alias-label-primary)}
+    .bl-confirm p{margin:0;flex:1;min-width:180px}
+    .bl-confirm button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 10px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
+    .bl-confirm button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+    .bl-confirm .bl-danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
     .bl-empty-state{padding:18px 16px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;font-size:12px;color:var(--dsw-alias-label-secondary)}
     .bl-dsum{padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:5px}
     .bl-dsum h3{margin:0;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}
@@ -364,7 +386,7 @@ window.__ModuleLoader__.load({
     .bl-dbtns button{flex:1;appearance:none;font-family:inherit;font-size:12px;min-height:32px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
     .bl-dbtns button:hover{background:var(--dsw-alias-interactive-bg-hover)}
     .bl-dbtns .bl-save{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
-    @media (max-width:820px){.bl-two,.bl-library{grid-template-columns:minmax(0,1fr)}}
+    @media (max-width:820px){.bl-two,.bl-library,.bl-collections{grid-template-columns:minmax(0,1fr)}}
     @media (prefers-reduced-motion:reduce){.bl-root *{transition:none;animation:none}}
     `
 
@@ -386,7 +408,7 @@ window.__ModuleLoader__.load({
 
     // ---- src/client/views/shell.js ----
     /**
-     * 面板外壳：顶部导航（门户式五格）+ 全局异常带 + 渲染失败的降级块。
+     * 面板外壳：顶部导航（门户式六格）+ 全局异常带 + 渲染失败的降级块。
      *
      * 导航是"像网站那样"的主要载体，所以它和视图一样是可测的纯函数——
      * 预览器（tools/preview.mjs）渲染的就是这同一个 Nav，
@@ -394,7 +416,7 @@ window.__ModuleLoader__.load({
      */
 
     /** id 与 view-state 的 VIEWS 一字不差；顺序就是点击顺序。 */
-    const NAV_ITEMS = [['today', '今天'], ['video', '视频'], ['article', '文章'], ['digest', '汇报'], ['library', '库']]
+    const NAV_ITEMS = [['today', '今天'], ['video', '视频'], ['article', '文章'], ['collections', '收藏'], ['digest', '汇报'], ['library', '库']]
 
     function Nav({ view, pending = 0, onPick }) {
       return vnode('nav', { className: 'bl-nav', 'aria-label': '主导航' }, [
@@ -887,12 +909,15 @@ window.__ModuleLoader__.load({
         }
         // data 可能是 null（2xx 但 body 没读出来）：名字与归属都用"能读回什么"分支，读不到就回退到发出去的意图。
         const readFolders = res && res.ok && Array.isArray(res.data?.folders) ? res.data.folders : null
+        const readIds = res && res.ok && Array.isArray(res.data?.folder_ids) ? res.data.folder_ids : null
         const known = readFolders ?? folders
-        const after = res && res.ok ? (Array.isArray(res.data?.folder_ids) ? res.data.folder_ids : folderIds) : null
+        const after = res && res.ok ? (readIds ?? folderIds) : null
+        // 应答里既没带归属也没带夹表时不许光说"已放进"：那是没读回来，不是读到了（话术与收藏页同一句）。
+        const unreadTail = after && readIds === null && readFolders === null ? `（${readbackMiss('服务端确认的归属')}，这句是按你勾的说的）` : ''
         const message = after
-          ? `已放进：${namesOf(item, known, after)}`
+          ? `已放进：${namesOf(item, known, after)}${unreadTail}`
           : res && res.error === 'folder_gone'
-            ? `没记上：夹 ${res.missing?.join('、') ?? '（服务端没说是哪几个）'} 已经不在了，重新勾一次`
+            ? `没记上：${res.missing?.length ? `夹 ${res.missing.join('、')} 已经不在了` : `有夹已经不在了，但${readbackMiss('是哪几个')}`}，重新勾一次`
             : `没记上（${(res && res.error) || '宿主接口没应答'}）`
         onDone?.({ message, kind: 'collect', folderIds: after ?? undefined, folders: readFolders ?? undefined })
         return message
@@ -942,7 +967,7 @@ window.__ModuleLoader__.load({
           Section({
             title: '收藏到…',
             children: [
-              hasFolders ? null : vnode('p', { className: 'bl-missing' }, ['读不到夹（宿主接口没应答），这次没法收藏。']),
+              hasFolders ? null : vnode('p', { className: 'bl-missing' }, [`${foldersUnreadNote}，这次没法收藏。`]),
               // 这条 item 可能来自不带 folders 字段的查询（今天的三格）：那是"没读到"，不是"在 0 个夹里"，
               // 明说全量替换的后果，让用户知道自己勾的会被当成全部归属。
               Array.isArray(item.folders) ? null : vnode('p', { className: 'bl-note' }, ['这条当前在哪些夹里还没读到；下面以空勾起步，放进会把你勾的当成它的全部归属。']),
@@ -981,6 +1006,123 @@ window.__ModuleLoader__.load({
       ])
     }
 
+    // ---- src/client/views/collections.js ----
+    /**
+     * 「收藏」页：左列是夹，右区是这个夹里收过的条目。
+     *
+     * 三条诚实规矩：
+     *  1. 已归档的条目照样列出并写明原因——"我收过的东西不会凭空消失"（spec D15）；
+     *  2. 夹上的数字与点进去的条数同源（都来自 folder_items 的 COUNT，不筛状态），
+     *     所以这里绝不再按 status 滤一遍，否则"写着 3 条点进去 2 条"；
+     *  3. 一个夹都没读回来时不许假装：不画标签栏、不画卡片，也不说"你一条都还没收过"
+     *     ——把读回失败说成"空的"是谎（话术与抽屉共用 format.js 里那一句）。
+     *
+     * 纯函数：不发请求、不读 window，产 {type, props, children}，由装配层经 toElement 桥给 React。
+     */
+
+    /** 只给顺序，不改数据：默认夹永远第一，其余按 id（与服务端 listFolders 的次序同源）。 */
+    const folderTabs = (folders) => (folders ?? []).slice()
+      .sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0) || a.id - b.id)
+
+    /** 夹 id 说回人能认的名字；列表里查不到就明写"这个夹已经没了"，不编一个名字。 */
+    const nameOf = (folders, id) =>
+      (folders ?? []).find((f) => f.id === id)?.name ?? `#${id}（这个夹已经没了）`
+
+    /**
+     * 这一屏看的是哪个夹：筛选里那个夹**在读回的列表里认得出**才算，否则落到默认夹（folderTabs 的第一个）。
+     * "认不出就回落"不是敷衍：筛选里的 id 很可能是另一格刚删掉的夹，把已消失的夹当成当前夹会继续
+     * 拿它去取数（恒空），页面就成了"这个夹还是空的"那种谎。
+     * 一个夹都没读回来时返回 null —— 装配层据此连 folder 参数都不发，
+     * 免得把"没筛夹"捞回来的一堆条目当成收藏关系画出来。
+     */
+    const currentFolderId = (folders, filters) => {
+      const list = folders ?? []
+      const wanted = Number(filters?.folder)
+      if (wanted && list.some((f) => f.id === wanted)) return wanted
+      return folderTabs(list)[0]?.id ?? null
+    }
+
+    function CollectedCard({ item, folders, onOpen }) {
+      const alsoIn = (item.folders ?? []).length
+        ? vnode('span', { className: 'bl-in' }, ['还在：' + item.folders.map((id) => nameOf(folders, id)).join(' / ')])
+        : null
+      return vnode('button', { type: 'button', className: 'bl-card', key: item.id, onClick: () => onOpen?.(item.id) }, [
+        vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
+        vnode('span', { className: 'bl-card-meta' }, [
+          item.source_id || '（没来源）',
+          item.kind === 'note' ? '图文笔记' : item.kind === 'video' ? '视频' : '文章',
+          // 收进来的时间，不是发布时间：这页回答的是"我什么时候存的"
+          '收进来：' + fmtTime(item.added_at)
+        ]),
+        item.status === 'archived'
+          ? vnode('span', { className: 'bl-missing' }, [`已归档：${item.archived_reason || '原因没记'}（收藏不会让它重新出现在今天）`])
+          : null,
+        alsoIn
+      ].filter(Boolean))
+    }
+
+    function CollectionsView({
+      items = [], folders = [], filters = {}, pendingDelete = null, note,
+      newFolderName = '', currentName = '', onNewFolderNameChange = () => {}, onCurrentNameChange = () => {},
+      onPickFolder, onCreate, onRename, onAskDelete, onCancelDelete, onDelete, onOpen
+    }) {
+      const list = folders ?? []
+      const tabs = folderTabs(list)
+      const cur = currentFolderId(list, filters)
+      // 当前夹就是 currentFolderId 认下来的那一个：与装配层取数用的是同一个 id，页面不会自相矛盾。
+      const curFolder = list.find((y) => y.id === cur) ?? null
+      const total = list.reduce((sum, f) => sum + (Number(f.count) || 0), 0)
+      const unread = !list.length
+      // 二次确认只跟着"当前正在看的那个夹"：pendingDelete 指向别的夹时不该拦住这一夹的工具条
+      const confirming = pendingDelete != null && curFolder != null && pendingDelete === curFolder.id
+      // 改名框：装配层给的草稿优先，没草稿就回填服务端读到的夹名（不是空框让人猜）
+      const renameValue = currentName || curFolder?.name || ''
+
+      const emptyText = unread
+        ? `${foldersUnreadNote}。这一页列不出收藏关系，但你收过的条目一条都没少——回到「今天」再点一次收藏，或者刷新这格。`
+        : total === 0
+          ? '你一条都还没收过。在「今天」或「视频」里点开一条，抽屉下方有「收藏到…」。'
+          : `这个夹还是空的（「${curFolder?.name ?? '当前夹'}」里一条都没有）。左边的数字是别的夹里的，点别的夹看看。`
+
+      return vnode('div', { className: 'bl-collections' }, [
+        unread ? null : vnode('aside', { className: 'bl-folderlist', 'aria-label': '收藏夹' },
+          tabs.map((f) => vnode('button', {
+            type: 'button', key: f.id, className: 'bl-foldertab', 'data-folder': f.id,
+            'aria-current': f.id === cur ? 'page' : 'false',
+            onClick: () => onPickFolder?.(f.id)
+          }, [`${f.name}${f.is_default ? '（默认）' : ''} ${Number(f.count) || 0} 条`]))),
+        vnode('div', { className: 'bl-collection-body' }, [
+          confirming
+            ? vnode('div', { className: 'bl-confirm', role: 'alertdialog', 'aria-label': '确认删除夹' }, [
+              vnode('p', {}, [`确认删除「${curFolder.name}」？只删收藏关系，条目本身不动——里面 ${Number(curFolder.count) || 0} 条还会在「库」里看得到。`]),
+              vnode('button', { type: 'button', onClick: () => onCancelDelete?.() }, ['取消']),
+              vnode('button', { type: 'button', className: 'bl-danger', onClick: () => onDelete?.(curFolder.id) }, ['确认删除'])
+            ])
+            : vnode('div', { className: 'bl-toolbar' }, [
+              vnode('input', {
+                type: 'text', 'aria-label': '新建夹名', placeholder: '新建收藏夹（1-40 字）', maxLength: 40,
+                value: newFolderName, onChange: (e) => onNewFolderNameChange?.(e?.target?.value ?? '')
+              }),
+              vnode('button', { type: 'button', onClick: () => onCreate?.(newFolderName) }, ['建夹']),
+              vnode('input', {
+                type: 'text', 'aria-label': '当前夹名', value: renameValue,
+                onChange: (e) => onCurrentNameChange?.(e?.target?.value ?? ''),
+                onKeyDown: (e) => { if (e?.key === 'Enter') onRename?.(cur, e?.target?.value ?? renameValue) }
+              }),
+              vnode('button', { type: 'button', onClick: () => onRename?.(cur, renameValue) }, ['改名']),
+              curFolder && !curFolder.is_default
+                ? vnode('button', { type: 'button', onClick: () => onAskDelete?.(cur) }, ['删除这个夹'])
+                : null
+            ].filter(Boolean)),
+          note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
+          // 读不到夹的时候 items 是"没筛夹"捞回来的全量，跟收藏关系无关，一张卡都不许画
+          !unread && items.length
+            ? vnode('div', { className: 'bl-grid' }, items.map((i) => CollectedCard({ item: i, folders: list, onOpen })))
+            : vnode('p', { className: 'bl-empty' }, [emptyText])
+        ])
+      ])
+    }
+
 
     /**
      * 视图只产 {type, props, children} 这种纯数据（不碰 React，才能在 Node 里断言），
@@ -1014,11 +1156,27 @@ window.__ModuleLoader__.load({
       try { return (clientCtx && clientCtx.layout) || null } catch { return null }
     }
 
-    /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。 */
-    const VIEW_RENDER = { today: TodayView, video: VideoView, article: ArticleView, digest: DigestView, library: LibraryView }
+    /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。
+     *  六个值全是视图本身：收藏页要多带的夹列表、草稿与二次确认态由 Panel 在调用时并进 props
+     *  （那些 state 只存在于组件里，包在 VIEW_RENDER 里反而取不到）。 */
+    const VIEW_RENDER = {
+      today: TodayView, video: VideoView, article: ArticleView,
+      collections: CollectionsView, digest: DigestView, library: LibraryView
+    }
 
     /** 面板里"活着"的条目：归档的只在「库」里看。一次 IN 查询，不靠多次请求拼。 */
     const LIVE_STATUS = 'new,judged,digest'
+
+    /**
+     * 每个视图自己的取数形状（提到 Panel 外面，这样能被测试直接调，不用假 React）。
+     * 收藏格两条特例：① 按当前夹筛（folderId 为 null 时连参数都不发——那是"没读到夹"，
+     * 不是"筛了个空夹"）；② 不带 status 筛——收过的条目就算归档了也要在这页看得见（spec D15）。
+     */
+    function viewQuery(view, folderId) {
+      if (view === 'library') return { limit: 500 }
+      if (view === 'collections') return { ...(folderId == null ? {} : { folder: folderId }), limit: 200 }
+      return { status: LIVE_STATUS, limit: 200 }
+    }
 
     function Panel() {
       // api 与首屏状态都得只建一次：useState 的惰性初始化是唯一入口（useMemo 在桩里等价于直接调）
@@ -1034,6 +1192,11 @@ window.__ModuleLoader__.load({
       const [newFolderName, setNewFolderName] = React.useState('')
       const [collecting, setCollecting] = React.useState(false)
       const [knownFolders, setKnownFolders] = React.useState(null)
+      // 收藏页的瞬时态（一律不进 reducer：刷新就没的输入草稿 + 一次二次确认 + 一行回显）。
+      // renameId 记着"这份草稿是改哪个夹的"，换夹就丢掉，不许把上一个夹的半截名字带过去。
+      const [pendingDelete, setPendingDelete] = React.useState(null)
+      const [folderDraft, setFolderDraft] = React.useState({ createName: '', renameId: null, renameName: '' })
+      const [collectNote, setCollectNote] = React.useState('')
 
       const pickView = (v) => dispatch({ type: 'pick-view', view: v })
       function dispatch(action) {
@@ -1042,17 +1205,26 @@ window.__ModuleLoader__.load({
         try { globalThis.localStorage.setItem(VIEW_KEY, encodeState(next)) } catch { /* 存不上不影响这一屏 */ }
       }
 
-      // 「库」要看得归档条目，所以它的查询不限状态；其余三格只要活着的那些。
-      const query = (view) => (view === 'library' ? { limit: 500 } : { status: LIVE_STATUS, limit: 200 })
+      /**
+       * 取数：先读夹表，再按"这一屏真正看的是哪个夹"读条目。
+       * 顺序是有原因的——收藏格的 folder 参数要从刚读回的夹表里解析；
+       * 用上一帧的 folders 解析会在首帧拿到 null，于是捞回一批"没筛夹"的全量条目，
+       * 而那一屏马上就有东西可画了，读回失败被悄悄说成"这个夹里有内容"。
+       * 夹表读不到时 setFolders([])：视图据此说"夹列表没读回来"，不假装是空的。
+       */
       function refresh(view = snap.view) {
-        return Promise.all([api.state(), api.items(query(view)), api.folders()])
-          .then(([s, it, fo]) => {
-            setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok })
-            // 夹列表一律按 res.ok 分支；"ok 但 data 没读出来"算读回失败，回空表让抽屉去说读不到。
-            setFolders(fo && fo.ok && fo.data && Array.isArray(fo.data.folders) ? fo.data.folders : [])
-          })
+        const f = snap.filters[view] || {}
+        return api.folders().then((fo) => {
+          const list = fo && fo.ok && Array.isArray(fo.data?.folders) ? fo.data.folders : []
+          setFolders(list)
+          const folderId = view === 'collections' ? currentFolderId(list, f) : null
+          return Promise.all([api.state(), api.items(viewQuery(view, folderId))])
+            .then(([s, it]) => {
+              setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok })
+            })
+        })
       }
-      React.useEffect(() => { refresh() }, [snap.view])
+      React.useEffect(() => { refresh() }, [snap.view, snap.filters.collections?.folder])
 
       function onRun() {
         setBusy(true)
@@ -1066,7 +1238,51 @@ window.__ModuleLoader__.load({
       const st = data.state
       const pending = (st && st.counts && st.counts.new) || 0
       const render = VIEW_RENDER[view]
-      const body = render({
+      // 收藏页的当前夹与改名草稿都按"刚读回的夹表"解析，视图与装配层用同一个 helper，不会两处各算一套
+      const curFolderId = view === 'collections' ? currentFolderId(folders, snap.filters[view] || {}) : null
+      /**
+       * 夹的增删改名。两条硬规矩：
+       *  1. 失败必须回显（按 res.ok / res.error 分支），不许 .catch(() => {})——点了不知道有没有记上，
+       *     等于把黑盒交给用户；
+       *  2. 2xx 但应答里没带夹表（{ok:true, data:null}）算"没读回来"，不许把 okText 当真成功。
+       */
+      function runFolder(action, args, okText) {
+        return api.folderOp(action, args).then((r) => {
+          if (r.ok) {
+            const list = Array.isArray(r.data?.folders) ? r.data.folders : null
+            if (list) setFolders(list)
+            setCollectNote(list ? okText : `没确认成：${action === 'delete' ? '删夹' : action === 'rename' ? '改名' : '建夹'}的请求发出去了，但${readbackMiss('服务端读回的夹表')}——左边还是上一次读到的那份`)
+            if (action === 'delete') setPendingDelete(null)
+            setFolderDraft({ createName: '', renameId: null, renameName: '' })
+            return refresh()
+          }
+          setCollectNote(r.error === 'name_taken' ? '已经有这个夹了'
+            : r.error === 'name_too_long' ? '夹名最多 40 个字'
+              : r.error === 'bad_name' ? '夹名不能是空的'
+                : r.error === 'default_folder' ? '默认夹删不掉（它是随手一收的落点）'
+                  : r.error === 'no_folder' ? '这个夹已经没了（可能是另一格刚删的）'
+                    : `没记上（${r.error || '宿主接口没应答'}）`)
+          return undefined
+        })
+      }
+      // 收藏页专属的那一叠：夹表、二次确认态、两个输入框的草稿与一行回显。
+      // 这份对象每帧都建（只是几个闭包），但只并进收藏格的 props，别的视图拿到也不认。
+      const collectionsProps = {
+        folders,
+        pendingDelete,
+        note: collectNote,
+        newFolderName: folderDraft.createName,
+        currentName: folderDraft.renameId === curFolderId ? folderDraft.renameName : '',
+        onNewFolderNameChange: (v) => setFolderDraft((d) => ({ ...d, createName: v })),
+        onCurrentNameChange: (v) => setFolderDraft((d) => ({ ...d, renameId: curFolderId, renameName: v })),
+        onPickFolder: (id) => { setPendingDelete(null); dispatch({ type: 'filter', view: 'collections', key: 'folder', value: id }) },
+        onCreate: (name) => runFolder('create', { name }, `建好了：${name}`),
+        onRename: (id, name) => runFolder('rename', { id, name }, `已改名为「${name}」`),
+        onAskDelete: (id) => setPendingDelete(id),
+        onCancelDelete: () => setPendingDelete(null),
+        onDelete: (id) => runFolder('delete', { id }, '夹删了，里面的条目一条都没动')
+      }
+      const baseProps = {
         state: st,
         items: data.items,
         filters: snap.filters[view] || {},
@@ -1080,7 +1296,8 @@ window.__ModuleLoader__.load({
         onSelect: (id) => dispatch({ type: 'select', id }),
         onOpen: (id) => dispatch({ type: 'open-drawer', id }),
         onPickView: pickView
-      })
+      }
+      const body = render(view === 'collections' ? { ...baseProps, ...collectionsProps } : baseProps)
       const drawerOpen = snap.drawerItemId != null
       const found = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
       // 抽屉里那条可能来自不带 folders 字段的查询（今天的三格）。/collect 是全量替换，
@@ -1169,9 +1386,9 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     exports.inject = inject
     exports.__test = {
-      PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER,
+      PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER, viewQuery, NAV_ITEMS,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
-      reduce, encodeState, decodeState, TodayView, Drawer
+      reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView
     }
     return module.exports
   }

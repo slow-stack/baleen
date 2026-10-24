@@ -3,7 +3,7 @@
  * 每个视图的筛选各存各的：从视频区带着"档位=值得看"切去文章区，
  * 回来时那个筛选还在，但不会污染文章区的筛选。
  */
-export const VIEWS = ['today', 'video', 'article', 'digest', 'library']
+export const VIEWS = ['today', 'video', 'article', 'collections', 'digest', 'library']
 
 const DEFAULT_STATE = () => ({ view: 'today', filters: {}, drawerItemId: null, selectedId: null, scroll: 0 })
 

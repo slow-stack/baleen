@@ -4,16 +4,16 @@ import { Nav, TopBar, NotReady, NAV_ITEMS } from '../src/client/views/shell.js'
 import { VIEWS } from '../src/client/view-state.js'
 import { text, findAll } from './helpers/tree.mjs'
 
-test('导航五格与 VIEWS 一字不差，顺序就是点击顺序', () => {
+test('导航六格与 VIEWS 一字不差，顺序就是点击顺序（收藏格在文章之后、汇报之前）', () => {
   assert.deepEqual(NAV_ITEMS.map(([id]) => id), [...VIEWS])
-  assert.deepEqual(NAV_ITEMS.map(([, l]) => l), ['今天', '视频', '文章', '汇报', '库'])
+  assert.deepEqual(NAV_ITEMS.map(([, l]) => l), ['今天', '视频', '文章', '收藏', '汇报', '库'])
 })
 
 test('当前格带 aria-current，别的格没有；品牌名在导航里', () => {
   const tree = Nav({ view: 'article', pending: 0, onPick: () => {} })
   const items = findAll(tree, 'bl-navitem')
-  assert.equal(items.length, 5)
-  assert.deepEqual(items.map((n) => n.props['aria-current']), ['false', 'false', 'page', 'false', 'false'])
+  assert.equal(items.length, 6)
+  assert.deepEqual(items.map((n) => n.props['aria-current']), ['false', 'false', 'page', 'false', 'false', 'false'])
   assert.match(text(tree), /Baleen/)
 })
 
@@ -29,6 +29,14 @@ test('点导航格子交出的是视图 id', () => {
   const items = findAll(Nav({ view: 'today', pending: 0, onPick: (v) => picked.push(v) }), 'bl-navitem')
   items[2].props.onClick()
   assert.deepEqual(picked, ['article'])
+})
+
+test('收藏格在导航里点得到：第四格，交出 collections', () => {
+  const picked = []
+  const items = findAll(Nav({ view: 'collections', pending: 0, onPick: (v) => picked.push(v) }), 'bl-navitem')
+  items[3].props.onClick()
+  assert.deepEqual(picked, ['collections'])
+  assert.equal(items[3].props['aria-current'], 'page')
 })
 
 test('异常带：没问题时什么都不渲染，有问题时逐条说', () => {
