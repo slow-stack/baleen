@@ -71,7 +71,6 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 
 ## 还没做
 
-- M2 三区面板（门户式顶部导航，明暗双主题）
 - M3 headless 判断轮 + 每轮增量汇报
 - M4 B 站（vendored bilibili-mcp）/ 小红书（扫码 MCP，需先做代码审查）/ YouTube
 - M5 DSH 设置页四页签
