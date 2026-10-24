@@ -102,6 +102,27 @@ test('GET /items 消毒查询参数；未知路由 404；不把宿主拖崩', as
   assert.equal(r3.code, 404)
 })
 
+// 终审 #11 的防回退钉子：既有 /items 测试全是空库断言 []，limit 的语义根本没被罩住。
+// num() 现状即正确（缺席走默认 100，limit=0 明确取空），这两条首发即绿，钉住别退。
+test('GET /items 不带 limit 时非空：缺席走默认值，不是被 Number(null) 收成 0', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  seedItem(baleen, { external_id: 'a' })
+  seedItem(baleen, { external_id: 'b' })
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/items', method: 'GET' }, res)
+  assert.equal(res.code, 200)
+  assert.equal(JSON.parse(res.body).items.length, 2, '不带 limit 拿到空列表，列表页就成了白纸')
+})
+
+test('GET /items?limit=0 明确取空：0 是合法的限量值，不是被当成缺席', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  seedItem(baleen)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/items?limit=0', method: 'GET' }, res)
+  assert.equal(res.code, 200)
+  assert.deepEqual(JSON.parse(res.body).items, [])
+})
+
 test('POST /run 走一次调度；没有源时也是 done，且没有网络请求', async () => {
   const home = freshHome()
   const ctx = makeCtx(home)
@@ -393,6 +414,24 @@ test('/collect 的失败路径：夹没了、条目没了、载荷坏了各说�
   assert.equal(JSON.parse(r5.body).error, 'bad_name')
 })
 
+// 终审 #7：missing 是要回显给面板"哪些夹没了"的清单，同一 id 写两遍就念两遍。
+// 去重保首次出现顺序；既有断言 missing: [goneId, 999] 的语义不变。
+test('/collect 的 missing 去重：同一夹 id 重复出现只报一次，保首次出现顺序', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const mk = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '五' }) }, mk)
+  const goneId = JSON.parse(mk.body).folder.id
+  const iid = seedItem(baleen)
+  const del = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'delete', id: goneId }) }, del)
+  assert.equal(del.code, 200, '前置删除没成功，goneId 不是"没了的夹"')
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [goneId, goneId, 999] }) }, res)
+  assert.equal(res.code, 410)
+  assert.deepEqual(JSON.parse(res.body).missing, [goneId, 999], '重复的夹 id 原样带出，面板会念两遍')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0, '失败的那次写出了半套关系')
+})
+
 test('/collect 没带 folder_ids、new_folder 又是空串：400，不清空已有收藏', async () => {
   const { h, baleen } = await apiOf(freshHome())
   const iid = seedItem(baleen)
@@ -417,6 +456,21 @@ test('/collect 的 item_id 要整数：true 不再被 Number 收成 1 号条目'
   assert.equal(res.code, 400)
   assert.equal(JSON.parse(res.body).error, 'bad_payload')
   assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0, 'true 被当成 1 号条目写进了收藏')
+})
+
+// 终审 #6：folder_ids 的元素此前仍走 .map(Number)，[true] 会被收成"1 号夹"。
+// JSON 客户端与面板 view-api 都发数字，字符串与布尔一律响亮拒绝，不做脏转换。
+test('/collect 的 folder_ids 元素要整数：true 与字符串 id 一律响亮拒绝', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const iid = seedItem(baleen)
+  for (const bad of [[true], ['1']]) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: bad }) }, res)
+    assert.equal(res.code, 400, JSON.stringify(bad))
+    assert.equal(JSON.parse(res.body).error, 'bad_payload', JSON.stringify(bad))
+  }
+  // Number(true) === 1、Number('1') === 1：默认夹恰好是 1 号，脏转换放行就是静默收进默认夹
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0, '脏元素被 Number 收成了真夹写进收藏')
 })
 
 test('GET /items?folder= 取该夹条目并带上所属夹，归档的也列得出', async () => {

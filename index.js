@@ -21,6 +21,14 @@ const FOLDER_ACTIONS = new Set(['create', 'rename', 'delete'])
 /** store 抛的是短码（name_taken / bad_name / …），这里只负责翻成 HTTP 语义 */
 const FOLDER_ERRORS = { name_taken: 409, name_too_long: 400, bad_name: 400, no_folder: 404, default_folder: 403 }
 
+/**
+ * /collect 自己的夹错误契约：no_folder 对齐 missing 扫描的 410（folder_gone 同源），
+ * 不沿用 /folder 路由的 404。当前实际不可达——missing 扫描在前拦截，能把
+ * setItemFolders 逼出 no_folder 的夹 id 都已验证过存在；钉住这一行是防将来把
+ * 校验重排进 store 时，契约静默退回 404。
+ */
+const COLLECT_ERRORS = { ...FOLDER_ERRORS, no_folder: 410 }
+
 function readBody(req) {
   if (typeof req?.rawBody === 'string') return Promise.resolve(req.rawBody)
   if (!req || typeof req.on !== 'function') return Promise.resolve('')
@@ -128,7 +136,14 @@ export function apply(ctx, config = {}) {
         // 收成 1 号条目——比 /feedback 的松散写法更严是 controller 拍板接受的代价。
         if (!Number.isInteger(body.item_id)) return json(res, 400, { ok: false, error: 'bad_payload' })
         const itemId = body.item_id
-        const wanted = Array.isArray(body.folder_ids) ? body.folder_ids.map((x) => Number(x)) : null
+        const rawIds = Array.isArray(body.folder_ids) ? body.folder_ids : null
+        // 元素也从严（终审 #6）：Number(true) === 1，先转换再验会把 [true] 收成"1 号夹"。
+        // JSON 客户端与面板 view-api 都发数字：字符串与布尔一律响亮拒绝，不做脏转换。
+        if (rawIds !== null && rawIds.some((x) => !Number.isInteger(x))) {
+          return json(res, 400, { ok: false, error: 'bad_payload' })
+        }
+        // 走到这里元素全是整数，.map(Number) 的脏转换不再需要，NaN 也就进不了 missing。
+        const wanted = rawIds
         // 只放行"有内容"的请求：folder_ids 缺席时 new_folder 必须是真名字。
         // 放过去空串就会跳过建夹、再把 wanted ?? [] 当全量替换——静默清空该条目的收藏，
         // 正是裁定 2 在 store 层堵掉的那个破坏性默认，路由层不许重新打开。
@@ -140,7 +155,11 @@ export function apply(ctx, config = {}) {
         if (!db.prepare('SELECT 1 FROM items WHERE id = ? LIMIT 1').get(itemId)) {
           return json(res, 404, { ok: false, error: 'no_item' })
         }
-        const missing = wanted === null ? [] : wanted.filter((id) => !Number.isInteger(id) || !db.prepare('SELECT 1 FROM folders WHERE id = ? LIMIT 1').get(id))
+        // 元素严格化之后这里只剩"夹存在不存在"一种检查；Set 去重保首次出现顺序，
+        // 否则面板会把同一个夹 id 念两遍（终审 #7）。
+        const missing = wanted === null
+          ? []
+          : [...new Set(wanted.filter((id) => !db.prepare('SELECT 1 FROM folders WHERE id = ? LIMIT 1').get(id)))]
         if (missing.length) {
           // 面板上一秒看的夹可能已经被另一格删掉。说清是哪几个，别静默丢掉那部分意图。
           return json(res, 410, { ok: false, error: 'folder_gone', missing })
@@ -158,7 +177,8 @@ export function apply(ctx, config = {}) {
         } catch (e) {
           const msg = String(e?.message)
           // hasOwn 与 /folder 路由同理：短码撞原型键名时不能把函数当状态码用。
-          const code = msg === 'no_item' ? 404 : (Object.hasOwn(FOLDER_ERRORS, msg) ? FOLDER_ERRORS[msg] : 500)
+          // 映射用 COLLECT_ERRORS 而不是 FOLDER_ERRORS：这里 no_folder 的契约是 410。
+          const code = msg === 'no_item' ? 404 : (Object.hasOwn(COLLECT_ERRORS, msg) ? COLLECT_ERRORS[msg] : 500)
           if (code === 500) log({ level: 'error', event: 'collect_failed', detail: msg.slice(0, 60) })
           return json(res, code, { ok: false, error: code === 500 ? 'internal' : msg })
         }
