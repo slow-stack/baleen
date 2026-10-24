@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback } from './lib/store.js'
+import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
@@ -14,6 +14,12 @@ const API_ROUTE = '/api/dsh-baleen'
 
 /** 面板两个按钮允许的动作，与客户端白名单一致；值就是对来源权重的增量 */
 const ALLOWED_ACTIONS = { dismiss: -0.1, save: 0.1 }
+
+/** 夹操作是白名单而不是 if 链：新加动作时漏了枚举就直接 400，不会悄悄走进某个分支 */
+const FOLDER_ACTIONS = new Set(['create', 'rename', 'delete'])
+
+/** store 抛的是短码（name_taken / bad_name / …），这里只负责翻成 HTTP 语义 */
+const FOLDER_ERRORS = { name_taken: 409, name_too_long: 400, bad_name: 400, no_folder: 404, default_folder: 403 }
 
 function readBody(req) {
   if (typeof req?.rawBody === 'string') return Promise.resolve(req.rawBody)
@@ -31,8 +37,13 @@ function json(res, code, payload) {
   res.end(JSON.stringify(payload))
 }
 
-/** 查询参数一律消毒：`?limit=abc` 应该按默认值走，而不是把路由打成 500。 */
+/**
+ * 查询参数一律消毒：`?limit=abc` 应该按默认值走，而不是把路由打成 500。
+ * 参数缺席（null）也必须走默认值——Number(null) === 0，不挡住就会把"没传 limit"
+ * 变成"limit=0"，收藏页不带 limit 取数时会拿到空列表（老测试库全是空的，从没暴露过这条）。
+ */
 function num(v, dflt, max) {
+  if (v == null || v === '') return dflt
   const n = Number(v)
   return Number.isInteger(n) && n >= 0 ? Math.min(max, n) : dflt
 }
@@ -97,13 +108,87 @@ export function apply(ctx, config = {}) {
       if (sub === '/state' && req.method === 'GET') return json(res, 200, { ok: true, ...state() })
       if (sub === '/items' && req.method === 'GET') {
         const q = url.searchParams
-        return json(res, 200, {
-          ok: true,
-          items: listItems(db, {
-            status: q.get('status') || null, kind: q.get('kind') || null, tier: q.get('tier') || null,
-            limit: num(q.get('limit'), 100, 500), offset: num(q.get('offset'), 0, 100000)
-          })
-        })
+        const opts = {
+          status: q.get('status') || null, kind: q.get('kind') || null, tier: q.get('tier') || null,
+          limit: num(q.get('limit'), 100, 500), offset: num(q.get('offset'), 0, 100000)
+        }
+        // 脏值不许原样喂给 store：Number('') === 0、Number(true) === 1，
+        // 不校验就成了"筛 0 号夹（恒空）"或"筛 1 号夹"这种静默错位。边界校验归 HTTP 层。
+        const folderRaw = q.get('folder')
+        if (folderRaw != null && /^\d+$/.test(folderRaw)) opts.folder = Number(folderRaw)
+        // 收藏页要一次拿到"这条还在哪些夹里"；其余视图沿用不带夹信息的取数，
+        // 不该多背一次关系表全读。
+        return json(res, 200, { ok: true, items: opts.folder == null ? listItems(db, opts) : itemsWithFolders(db, opts) })
+      }
+      if (sub === '/collect' && req.method === 'POST') {
+        let body
+        try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        // item_id 必须先自身是整数再谈别的：Number(true) === 1，先转再验会把 true
+        // 收成 1 号条目——比 /feedback 的松散写法更严是 controller 拍板接受的代价。
+        if (!Number.isInteger(body.item_id)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        const itemId = body.item_id
+        const wanted = Array.isArray(body.folder_ids) ? body.folder_ids.map((x) => Number(x)) : null
+        // 只放行"有内容"的请求：folder_ids 缺席时 new_folder 必须是真名字。
+        // 放过去空串就会跳过建夹、再把 wanted ?? [] 当全量替换——静默清空该条目的收藏，
+        // 正是裁定 2 在 store 层堵掉的那个破坏性默认，路由层不许重新打开。
+        if (wanted == null && !(typeof body.new_folder === 'string' && body.new_folder.trim())) {
+          return json(res, 400, { ok: false, error: 'bad_payload' })
+        }
+        // 条目先于夹：收藏的动作主语是这条条目。条目都没了却报 410"夹没了"，
+        // 会把面板引去修错误的那一头。
+        if (!db.prepare('SELECT 1 FROM items WHERE id = ? LIMIT 1').get(itemId)) {
+          return json(res, 404, { ok: false, error: 'no_item' })
+        }
+        const missing = wanted === null ? [] : wanted.filter((id) => !Number.isInteger(id) || !db.prepare('SELECT 1 FROM folders WHERE id = ? LIMIT 1').get(id))
+        if (missing.length) {
+          // 面板上一秒看的夹可能已经被另一格删掉。说清是哪几个，别静默丢掉那部分意图。
+          return json(res, 410, { ok: false, error: 'folder_gone', missing })
+        }
+        try {
+          let created = null
+          // 空串当"没想起来要建"，跳过；纯空格是坏名字，交给 createFolder 报 bad_name。
+          if (typeof body.new_folder === 'string' && body.new_folder.length) {
+            created = createFolder(db, body.new_folder, now)
+          }
+          const ids = [...new Set([...(wanted ?? []), ...(created ? [created.id] : [])])]
+          const resOf = setItemFolders(db, itemId, ids, now)
+          log({ level: 'info', event: 'collect', detail: `item#${itemId} → ${ids.length} 个夹` })
+          return json(res, 200, { ok: true, item_id: itemId, folder_ids: resOf.folder_ids, folders: listFolders(db) })
+        } catch (e) {
+          const msg = String(e?.message)
+          // hasOwn 与 /folder 路由同理：短码撞原型键名时不能把函数当状态码用。
+          const code = msg === 'no_item' ? 404 : (Object.hasOwn(FOLDER_ERRORS, msg) ? FOLDER_ERRORS[msg] : 500)
+          if (code === 500) log({ level: 'error', event: 'collect_failed', detail: msg.slice(0, 60) })
+          return json(res, code, { ok: false, error: code === 500 ? 'internal' : msg })
+        }
+      }
+      if (sub === '/folders' && req.method === 'GET') {
+        return json(res, 200, { ok: true, folders: listFolders(db) })
+      }
+      if (sub === '/folder' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req)) || '{}') || {}
+        if (!FOLDER_ACTIONS.has(body.action)) return json(res, 400, { ok: false, error: 'unknown_action' })
+        try {
+          let folder = null
+          let deleteResult = null
+          if (body.action === 'create') folder = createFolder(db, body.name, now)
+          else if (body.action === 'rename') folder = renameFolder(db, Number(body.id), body.name)
+          else deleteResult = deleteFolder(db, Number(body.id))
+          // 夹名可能带个人色彩（"考研专业课"），日志只记动作与 id。
+          // id 一律取 store 的返回值：create 根本不收 body.id，rename/delete 能走到这句就说明
+          // store 已按 Number(body.id) 命中过真夹。body.id 本身是客户端可控内容，不许进 detail。
+          const folderId = folder?.id ?? deleteResult?.folder_id
+          log({ level: 'info', event: 'folder', detail: `${body.action} #${folderId ?? ''}` })
+          return json(res, 200, { ok: true, folder, folders: listFolders(db) })
+        } catch (e) {
+          const msg = String(e?.message)
+          // hasOwn 而不是裸查表：e.message 恰好等于 toString / constructor 这类原型键名时，
+          // 查表会拿到一个非数字的函数，再把它当状态码送进 writeHead。
+          const code = Object.hasOwn(FOLDER_ERRORS, msg) ? FOLDER_ERRORS[msg] : 500
+          if (code === 500) log({ level: 'error', event: 'folder_failed', detail: `${body.action}: ${msg.slice(0, 60)}` })
+          return json(res, code, { ok: false, error: code === 500 ? 'internal' : msg })
+        }
       }
       if (sub === '/run' && req.method === 'POST') {
         const r = await scheduler.triggerNow()
@@ -132,7 +217,13 @@ export function apply(ctx, config = {}) {
 
   const baleen = {
     state,
+    folders: () => listFolders(db),
     list: (opts) => listItems(db, opts),
+    // 服务入口不代劳建夹：/collect 路由自己先 createFolder 再 setItemFolders，
+    // 别的插件要用服务入口就自己先建夹——少一个参数就少一条"谁负责校验"的路径。
+    // 注意 folders() 返回裸数组，与 HTTP 路由的 {ok, folders} 信封不同（与 list 同形）。
+    collect: (itemId, folderIds) => setItemFolders(db, itemId, folderIds, now),
+    foldersOf: (itemId) => foldersOfItem(db, itemId),
     runNow: () => scheduler.triggerNow(),
     tick: () => scheduler.tick(),
     db,

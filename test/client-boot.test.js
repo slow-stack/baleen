@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { clientExists, loadClient, exportsOf, flattenText, makeStubs } from '../tools/client-loader.mjs'
-import { findAll } from './helpers/tree.mjs'
+import { text, findAll } from './helpers/tree.mjs'
 
 test('桩的 ctx 复刻宿主 Proxy：未声明服务一律抛', () => {
   const s = makeStubs()
@@ -145,8 +147,8 @@ test('持久化的视图决定首屏落在哪一格（重开面板不回今天�
   assert.match(flattenText(s.registered.find(r => r.slot === 'main').def.factory({})).join(' '), /还没跑过一轮/)
 })
 
-test('五个视图都接上了：面板里不该再有"占位"字样', () => {
-  for (const view of ['today', 'video', 'article', 'digest', 'library']) {
+test('六个视图都接上了：面板里不该再有"占位"字样', () => {
+  for (const view of ['today', 'video', 'article', 'digest', 'library', 'collections']) {
     const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view, filters: {}, selectedId: null, drawerItemId: null, scroll: 0 }) } })
     const ex = exportsOf(s)
     ex.apply(s.makeCtx(ex.inject))
@@ -200,6 +202,272 @@ test('筛选跟着视图走：持久化里的 video 筛选回填到视频区工�
   const tree = s.registered.find(r => r.slot === 'main').def.factory({})
   const tier = findAll(tree, 'bl-toolbar')[0].children.find((n) => n.type === 'select')
   assert.equal(tier.props.value, '可以看')
+})
+
+test('六格三处同名：VIEWS、NAV_ITEMS、VIEW_RENDER 一处不许少（少任何一格这条就红）', () => {
+  const t = exportsOf(loadClient()).__test
+  assert.deepEqual([...t.VIEWS], ['today', 'video', 'article', 'collections', 'digest', 'library'])
+  assert.deepEqual(t.NAV_ITEMS.map(([id]) => id), [...t.VIEWS])
+  assert.deepEqual(Object.keys(t.VIEW_RENDER), [...t.VIEWS])
+  for (const v of t.VIEWS) assert.equal(typeof t.VIEW_RENDER[v], 'function', `${v} 没有渲染器`)
+  assert.equal(typeof t.CollectionsView, 'function', '收藏页得能从装配层里拿到，预览门靠它')
+})
+
+// 绑定约束（Task 7 评审留下的洞）：装配层那次"过期归属"覆盖调用点此前没有任何测试钉住——
+// 把 drawerItemWithFolders(found, knownFolders) 改回裸 found，全量测试照样绿，
+// 而"连点两个勾互相抹掉"的 bug 会静默回归。纯函数那两条钉子测的是规则，
+// 这条测的是**接线**：源码级断言，不需要 React 测试替身。
+test('装配层真的把过期归属覆盖接在抽屉上（改回裸 found 这条就红）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
+  assert.match(src, /const drawerItem = drawerItemWithFolders\(found, knownFolders\)/,
+    '_footer.txt 里那次调用不见了：抽屉会拿没归属的条目去全量替换')
+  assert.doesNotMatch(src, /const drawerItem = found\b/, '覆盖层被退回裸 found')
+  const built = fs.readFileSync(path.join(process.cwd(), 'client.js'), 'utf8')
+  assert.equal(built.includes('const drawerItem = drawerItemWithFolders(found, knownFolders)'), true,
+    'client.js 是生成的：改了源没跑 node tools/build-client.mjs')
+})
+
+/**
+ * 真挂钩子的小 runtime（Important 3）：client-loader 的桩 useState 永不触发重渲染、useEffect 从不执行，
+ * 所以光注入 fetchImpl 面板也永远停在初始空态——"数据被装配层消费了"这件事桩测不出来。
+ * 这里把 useState/useEffect 补在桩的共享 React 对象上（测完立刻还原：该对象同文件跨测试共用），
+ * 手动渲染 Panel：首渲染跑 effects → 冲掉取数 promise（setter 已写进槽位）→ 再渲染拿到有数据的树。
+ * useEffect 按 React 的规矩认 deps：依赖变了就重跑（首渲染那次照旧在挂载时执行）。
+ * 没有这条，连点两个夹永远开不出第二个在途请求，取数竞态根本演不出来。
+ * 钉的是"消费"不是"字符串还在"：删掉 ...collectionsProps、把抽屉覆盖调用改回裸 found，
+ * 这里画出来的树当场就变——grep 式断言两种都抓不到（上面的源码级钉子继续留着，它便宜且能抓删除）。
+ */
+function hookRuntime(React, Panel) {
+  const orig = { useState: React.useState, useEffect: React.useEffect }
+  const states = []
+  const pending = []
+  let cursor = 0
+  let mounted = false
+  let lastDeps = null
+  let refire = null
+  const sameDeps = (a, b) => Array.isArray(a) && Array.isArray(b)
+    && a.length === b.length && a.every((x, i) => x === b[i])
+  React.useState = (init) => {
+    const i = cursor++
+    if (!(i in states)) states[i] = typeof init === 'function' ? init() : init
+    return [states[i], (v) => { states[i] = typeof v === 'function' ? v(states[i]) : v }]
+  }
+  React.useEffect = (fn, deps) => {
+    if (!mounted) { pending.push(fn); lastDeps = deps; return }
+    if (!sameDeps(deps, lastDeps)) { lastDeps = deps; refire = fn }
+  }
+  return {
+    render() {
+      cursor = 0
+      refire = null
+      const tree = Panel()
+      if (!mounted) {
+        mounted = true
+        for (const fn of pending.splice(0)) fn()
+      } else if (refire) {
+        refire()
+      }
+      return tree
+    },
+    flush: () => new Promise((r) => setTimeout(r, 0)),
+    restore() { Object.assign(React, orig) }
+  }
+}
+
+const collectionsFetch = ({ folders, items }) => async (url) => {
+  const key = String(url).replace('/api/dsh-baleen', '').split('?')[0]
+  const json = key === '/folders' ? { ok: true, folders }
+    : key === '/items' ? { ok: true, items }
+    : { ok: true, counts: { new: 0, judged: 0, digest: 0, archived: 0, total: items.length }, sources: [], preference_errors: [], last_run: null, digest_count: 0 }
+  return { ok: true, status: 200, json: async () => json }
+}
+
+test('收藏格真的消费注入的取数：三夹两卡上页，删掉 ...collectionsProps 这条就红', async () => {
+  const persisted = JSON.stringify({ v: 1, view: 'collections', filters: { collections: { folder: 2 } }, selectedId: null, drawerItemId: null, scroll: 0 })
+  const folders = [
+    { id: 1, name: '默认', is_default: 1, count: 1 },
+    { id: 2, name: '公共管理', is_default: 0, count: 2 },
+    { id: 3, name: '空夹', is_default: 0, count: 0 }
+  ]
+  const collected = (id, added_at) => ({
+    id, kind: 'article', source_id: 'demo', title: '一条收过的文章 ' + id, status: 'new', body_state: 'full',
+    verdict_tier: null, match_json: '{}', url: 'https://example.invalid/' + id,
+    folders: [2], folder_names: ['公共管理'], added_at
+  })
+  const s = loadClient({ storage: { 'baleen.view': persisted }, fetchImpl: collectionsFetch({ folders, items: [collected(11, 7000), collected(12, 8000)] }) })
+  const rt = hookRuntime(s.React, exportsOf(s).__test.Panel)
+  try {
+    rt.render()
+    await rt.flush()
+    const tree = rt.render()
+    const tabs = findAll(tree, 'bl-foldertab')
+    assert.equal(tabs.length, 3, 'folders 只经 ...collectionsProps 进视图：spread 没了就退回默认 []，这里该是 0 个夹加"读不到夹"')
+    assert.equal(tabs.find((x) => x.props['aria-current'] === 'page').props['data-folder'], 2, '筛选里的当前夹也得是装配层解析后交下去的那一个')
+    const cards = findAll(tree, 'bl-card')
+    assert.equal(cards.length, 2, 'items 是 fetch 回来的数据经 setData 再渲染的：空壳说明取数没被消费')
+    assert.match(text(cards[0]), /一条收过的文章 11/)
+    assert.match(text(tree), /收进来：\d{4}/)
+    assert.doesNotMatch(text(tree), /时间未知/, 'added_at 断在链路上任何一环，卡片都会说（时间未知）')
+  } finally { rt.restore() }
+})
+
+/**
+ * 连点多个夹的取数竞态（终审 C14）：几个 refresh 同时在途，谁后到谁回填的话，
+ * 先点的那份旧响应会把后点的夹盖掉——左列高亮新夹、右区还是旧夹的条目。
+ * 受控 fetch 手动排 settle 顺序：最后一次落地的是**中间那次**（更旧）请求的夹表与条目。
+ * 不用"两次"而用"三次"，是因为首屏那次取数必须先落地、左列才有夹可点——
+ * 它的夹表响应没法排到最后；竞态形状不变：比最新请求旧的响应落地时必须整份丢弃。
+ * 断言两面都钉：夹表（setFolders）与条目（setData）各坏一半也是坏。
+ */
+test('连点多个夹：比最新请求旧的响应落地时整份丢弃，右区与左列都归后点的夹（请求序号守卫）', async () => {
+  const persisted = JSON.stringify({ v: 1, view: 'collections', filters: { collections: { folder: 1 } }, selectedId: null, drawerItemId: null, scroll: 0 })
+  const baseFolders = [
+    { id: 1, name: '默认', is_default: 1, count: 1 },
+    { id: 2, name: '公共管理', is_default: 0, count: 1 },
+    { id: 3, name: '空夹', is_default: 0, count: 0 }
+  ]
+  // 第三次读夹表比第二次"新"：两次取数之间刚建了个夹。夹表不同源，过期回填才看得见。
+  const newerFolders = [...baseFolders, { id: 4, name: '刚建的夹', is_default: 0, count: 0 }]
+  const itemOf = (id, title, folderIds) => ({
+    id, kind: 'article', source_id: 'demo', title, status: 'new', body_state: 'full',
+    verdict_tier: null, match_json: '{}', url: 'https://example.invalid/' + id,
+    folders: folderIds, folder_names: folderIds.map(() => ''), added_at: 7000
+  })
+  // 夹 2 的条目只存在于过期响应里；夹 3 是空夹，右区该是诚实的一句话
+  const staleItems = [itemOf(22, '过期请求里的条目', [2])]
+  // 首屏那次取数（夹 1）的条目：它过了夹表那道门、items 请求已发出，响应拖到最后才落地——
+  // setData 那半守卫就是给这种情况的（夹表守卫拦不住已发出的请求）
+  const mountStale = [itemOf(21, '首屏过期条目', [1])]
+  const gates = {}
+  const open = (name) => new Promise((resolve) => { gates[name] = resolve })
+  const reply = (json) => ({ ok: true, status: 200, json: async () => json })
+  let foldersCalls = 0
+  const fetchImpl = async (url) => {
+    const u = String(url)
+    const key = u.replace('/api/dsh-baleen', '').split('?')[0]
+    if (key === '/folders') {
+      foldersCalls++
+      const n = foldersCalls
+      if (n === 1) return reply({ ok: true, folders: baseFolders }) // 首屏夹表先到，左列才有得点
+      const payload = n === 2 ? baseFolders : newerFolders
+      return open('folders' + n).then(() => reply({ ok: true, folders: payload }))
+    }
+    if (key === '/items') {
+      const n = Number((/[?&]folder=(\d+)/.exec(u) || [])[1])
+      const payload = n === 1 ? mountStale : n === 2 ? staleItems : []
+      return open('items' + n).then(() => reply({ ok: true, items: payload }))
+    }
+    return reply({ ok: true, counts: { new: 0, judged: 0, digest: 0, archived: 0, total: 0 }, sources: [], preference_errors: [], last_run: null, digest_count: 0 })
+  }
+  const s = loadClient({ storage: { 'baleen.view': persisted }, fetchImpl })
+  const rt = hookRuntime(s.React, exportsOf(s).__test.Panel)
+  const tabAt = (tree, id) => findAll(tree, 'bl-foldertab').find((x) => x.props['data-folder'] === id)
+  try {
+    rt.render()
+    await rt.flush()
+    // 连点：夹 2 → 夹 3。effect 在渲染之后才跑（真 React 亦然），所以每次点击后要再渲染一次，
+    // 那次取数才发出去；两次的夹表都还扣着，两个 refresh 同时在途
+    tabAt(rt.render(), 2).props.onClick()
+    tabAt(rt.render(), 3).props.onClick()
+    rt.render()
+    // 最新的那次（夹 3）先整个落地：夹表（带刚建的夹）与空条目
+    gates.folders3()
+    await rt.flush()
+    gates.items3()
+    await rt.flush()
+    // 然后中间那次（夹 2，已过期）的夹表与条目才落地——不许回填任何一半
+    gates.folders2()
+    await rt.flush()
+    if (gates.items2) { gates.items2(); await rt.flush() }
+    // 首屏那次（夹 1）的条目响应最后落地：过期的 setData 也不许回填
+    gates.items1()
+    await rt.flush()
+    const tree = rt.render()
+    assert.equal(findAll(tree, 'bl-foldertab').length, 4, '过期的夹表落地不许把「刚建的夹」从左列抹掉（setFolders 这半也要罩住）')
+    assert.match(text(tree), /刚建的夹/)
+    assert.equal(tabAt(tree, 3).props['aria-current'], 'page', '高亮是后点的夹 3')
+    assert.equal(findAll(tree, 'bl-card').length, 0, '过期请求里的条目（夹 2 那份或首屏夹 1 那份）不许盖住空夹的右区（setData 这半）')
+    assert.doesNotMatch(text(tree), /过期请求里的条目/)
+    assert.doesNotMatch(text(tree), /首屏过期条目/)
+    assert.match(text(tree), /这个夹还是空的/, '夹 3 就是空的：空态照说，不许拿旧条目充数')
+  } finally { rt.restore() }
+})
+
+test('抽屉的过期归属覆盖真的消费读回数据：点一个勾再渲染，那个夹就成了已勾选；改回裸 found 这条就红', async () => {
+  const persisted = JSON.stringify({ v: 1, view: 'today', filters: {}, selectedId: null, drawerItemId: 7, scroll: 0 })
+  // 今天三格的取数不带 folders 字段——这正是 drawerItemWithFolders 要兜的那个形状
+  const item7 = { id: 7, kind: 'article', source_id: 'demo', title: '今天里的一条', status: 'new', body_state: 'full', verdict_tier: null, match_json: '{}', url: 'https://example.invalid/7' }
+  const known = [
+    { id: 1, name: '默认', is_default: 1, count: 0 },
+    { id: 2, name: '考研', is_default: 0, count: 1 }
+  ]
+  const s = loadClient({
+    storage: { 'baleen.view': persisted },
+    fetchImpl: async (url) => {
+      const key = String(url).replace('/api/dsh-baleen', '').split('?')[0]
+      const json = key === '/folders' ? { ok: true, folders: known.map((f) => ({ ...f, count: 0 })) }
+        : key === '/items' ? { ok: true, items: [item7] }
+        : key === '/collect' ? { ok: true, item_id: 7, folder_ids: [2], folders: known }
+        : { ok: true, counts: { new: 1, judged: 0, digest: 0, archived: 0, total: 1 }, sources: [], preference_errors: [], last_run: null, digest_count: 0 }
+      return { ok: true, status: 200, json: async () => json }
+    }
+  })
+  const rt = hookRuntime(s.React, exportsOf(s).__test.Panel)
+  const boxOf = (tree, label) => findAll(tree, 'bl-collect')[0].children
+    .filter((n) => n.type === 'input').find((n) => n.props['aria-label'] === label)
+  try {
+    rt.render()
+    await rt.flush()
+    const first = rt.render()
+    assert.equal(boxOf(first, '放进：考研').props.checked, false, '归属还没读回时起步必须是空勾')
+    boxOf(first, '放进：考研').props.onChange({ target: { checked: true } })
+    await rt.flush()
+    const second = rt.render()
+    assert.equal(boxOf(second, '放进：考研').props.checked, true,
+      'collect 读回的 folder_ids 必须经 drawerItemWithFolders 覆盖到抽屉条目上：调用点改回裸 found，这条永远是 false，下一次点勾会从"没归属"起步把刚放进的抹掉')
+    assert.match(text(findAll(second, 'bl-drawer')[0]), /已放进：考研/)
+  } finally { rt.restore() }
+})
+
+test('收藏页的取数形状：按夹筛、不限状态（收过的东西不会因归档就消失）', () => {
+  const t = exportsOf(loadClient()).__test
+  assert.deepEqual(t.viewQuery('collections', 3), { folder: 3, limit: 200 })
+  assert.equal('status' in t.viewQuery('collections', 3), false, '收藏格不许套"活着的那三格"的状态筛')
+  assert.deepEqual(t.viewQuery('collections', null), { limit: 200 }, '还没读到夹就不该假装筛了夹')
+  assert.deepEqual(t.viewQuery('video', 3), { status: 'new,judged,digest', limit: 200 })
+  assert.deepEqual(t.viewQuery('library', 3), { limit: 500 })
+})
+
+test('收藏页六个动作都接在装配层上（少一个就是"点了没反应"）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
+  const wired = [
+    ['onPickFolder', /onPickFolder: \([a-z]+\) => \{ setPendingDelete\(null\); dispatch\(\{ type: 'filter', view: 'collections', key: 'folder'/],
+    ['onCreate', /onCreate: \(name\) => runFolder\('create', \{ name \}/],
+    ['onRename', /onRename: \([a-z]+, name\) => runFolder\('rename'/],
+    ['onAskDelete', /onAskDelete: \(id\) => setPendingDelete\(id\)/],
+    ['onCancelDelete', /onCancelDelete: \(\) => setPendingDelete\(null\)/],
+    ['onDelete', /onDelete: \(id\) => runFolder\('delete', \{ id \}/]
+  ]
+  for (const [name, re] of wired) assert.match(src, re, `收藏页的 ${name} 没接上`)
+})
+
+test('收藏页的失败回显走 runFolder，不许 catch 掉（源码级）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
+  assert.match(src, /function runFolder\(action, args, okText\) \{/, 'runFolder 得是那个带 ok/error 分支的 helper')
+  assert.match(src, /setCollectNote\(r\.error === 'name_taken'/, 'name_taken 要说人话，不能只报错误码')
+  assert.doesNotMatch(src, /api\.folderOp\([^)]*\)\.catch\(\(\) => \{\}\)/, '夹操作失败不许静默')
+})
+
+test('面板落在收藏格：首屏说"夹列表没读回来"，不把读不到说成还没收藏', () => {
+  const s = loadClient({ storage: { 'baleen.view': JSON.stringify({ v: 1, view: 'collections', filters: {}, selectedId: null, drawerItemId: null, scroll: 0 }) } })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const tree = s.registered.find(r => r.slot === 'main').def.factory({})
+  const t = flattenText(tree).join(' ')
+  assert.match(t, /夹列表没读回来/)
+  assert.doesNotMatch(t, /一条都还没收过/, '数据还没读回来就说"你还没收藏过"，是谎')
+  assert.equal(findAll(tree, 'bl-foldertab').length, 0)
+  assert.equal(findAll(tree, 'bl-collections').length, 1)
 })
 
 test('坏掉的 baleen.view 回落「今天」，不能把首屏炸成空白', () => {

@@ -20,3 +20,13 @@ export function fmtTime(ms) {
     return new Date(t).toISOString()
   }
 }
+
+/**
+ * 「读回失败」的统一话术：请求发出去了（甚至 2xx 了），但该读回来的内容没在应答里。
+ * 抽屉、收藏页、夹操作三处共用这一句骨架——话术只写一遍，就不会各处漂移成三种说法。
+ * 诚实底线：必须明说"没读回来"，不许写成"没有夹""你还没收藏过"那种把失败说成空的谎。
+ */
+export const readbackMiss = (what) => `${what}没读回来`
+
+/** 收藏这套界面里最常见的一次读回失败：夹列表读不回来，于是整页的收藏关系都无从显示。 */
+export const foldersUnreadNote = `读不到夹（${readbackMiss('夹列表')}）`

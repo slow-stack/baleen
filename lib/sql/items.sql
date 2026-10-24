@@ -76,3 +76,18 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS folders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS folder_items (
+  folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  added_at INTEGER NOT NULL,
+  PRIMARY KEY (folder_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS ix_folder_items_item ON folder_items (item_id);

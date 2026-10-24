@@ -1,0 +1,4 @@
+*.js text eol=lf
+client.js -text
+src/client/_header.txt text eol=lf
+src/client/_footer.txt text eol=lf

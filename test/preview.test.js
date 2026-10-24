@@ -4,13 +4,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { renderPreview, toHtml } from '../tools/preview.mjs'
+import { previewItems, previewFolders } from './fixtures/preview-data.js'
 
 // 写到系统临时目录，不往仓库里堆产物
 const tmp = (tag) => fs.mkdtempSync(path.join(os.tmpdir(), `baleen-preview-${tag}-`))
-const NAMES = ['preview-article.html', 'preview-digest.html', 'preview-drawer.html', 'preview-library.html',
-  'preview-today.html', 'preview-trouble.html', 'preview-video.html']
+const NAMES = ['preview-article.html', 'preview-collections.html', 'preview-digest.html', 'preview-drawer.html',
+  'preview-library.html', 'preview-today.html', 'preview-trouble.html', 'preview-video.html']
 
-test('五个视图 + 抽屉 + 出问题那一屏都出 HTML，每页明暗两块', () => {
+test('六个视图 + 抽屉 + 出问题那一屏都出 HTML，每页明暗两块', () => {
   const files = renderPreview({ outDir: tmp('ok') })
   assert.deepEqual(files.map((f) => path.basename(f)).sort(), NAMES)
   for (const f of files) {
@@ -58,6 +59,7 @@ test('预览用的是真视图函数：渲染结果里能找到视图自己的�
   const files = renderPreview({ outDir: tmp('real') })
   const read = (n) => fs.readFileSync(files.find((f) => f.endsWith(n)), 'utf8')
   assert.match(read('preview-today.html'), /过筛 .*→ 候选 .*→ 待判/)
+  assert.match(read('preview-today.html'), /收藏钉住 \d/, '「收藏钉住」chip 要在定稿前就看得见（明暗两块同源）')
   assert.match(read('preview-video.html'), /只能跳转|可在抽屉内播/)
   assert.match(read('preview-article.html'), /左边没有条目|读原文/)
   assert.match(read('preview-library.html'), /状态|形态|档位|来源/)
@@ -72,6 +74,7 @@ test('空态在预览里也看得见（不许只渲染有数据的版本）', ()
   assert.match(read('preview-video.html'), /库里还没有视频/)
   assert.match(read('preview-article.html'), /左边没有条目/)
   assert.match(read('preview-library.html'), /库里还没有条目/)
+  assert.match(read('preview-collections.html'), /读不到夹/, '夹列表读不回来时收藏页不许把失败装成空')
 })
 
 test('汇报页在预览里就是空态，不许塞假简报充数', () => {
@@ -96,4 +99,44 @@ test('toHtml 转义文本与属性，坏数据不会变成脚本', () => {
   assert.equal(toHtml(null), '')
   assert.equal(toHtml([1, 2]), '12')
   assert.equal(toHtml({ type: 'input', props: { type: 'search', onClick: () => {}, checked: false }, children: [] }), '<input type="search">')
+})
+
+test('收藏页预览：左列夹带条数，右区带「还在哪些夹里」与一个归档条目', () => {
+  const files = renderPreview({ outDir: tmp('collections') })
+  const html = fs.readFileSync(files.find((f) => f.endsWith('preview-collections.html')), 'utf8')
+  assert.match(html, /默认（默认）/)
+  assert.match(html, /还在：/)
+  assert.match(html, /不会让它重新出现在今天/, '归档条目要写明收藏不会让它重新出现在今天')
+  assert.match(html, /class="bl-foldertab"/)
+  assert.match(html, /aria-current="page"/, '当前夹要有选中标记')
+})
+
+test('抽屉页里能看到「收藏到…」多选，且「这源多来点」已改名', () => {
+  const files = renderPreview({ outDir: tmp('drawer2') })
+  const html = fs.readFileSync(files.find((f) => f.endsWith('preview-drawer.html')), 'utf8')
+  assert.match(html, /收藏到…/)
+  assert.match(html, /放进：默认/)
+  assert.match(html, /这源多来点/)
+  // 导航六格里本来就有一格叫「收藏」，旧按钮的防回退断言只能盯抽屉本体那一块，
+  // 否则会拿导航那格当证据假红。
+  const drawerHtml = html.match(/<aside class="bl-drawer"[\s\S]*?<\/aside>/)?.[0] ?? ''
+  assert.notEqual(drawerHtml, '', '抽屉页里该找得到抽屉本体')
+  assert.doesNotMatch(drawerHtml, />收藏</, '旧名字的按钮还在抽屉里')
+})
+
+test('夹具自洽：每个夹的 count 必须等于实际挂着它的条数', () => {
+  // 夹上的数字与点进去看到的条数不一致，收藏页就成了谎报覆盖面的那一格。
+  // 这条不测渲染，测的是夹具自己别写错——写错夹具比写错视图更难查。
+  for (const f of previewFolders) {
+    const n = previewItems.filter((i) => (i.folders ?? []).includes(f.id)).length
+    assert.equal(f.count, n, `${f.name} 的 count 是 ${f.count}，实际挂着 ${n} 条`)
+  }
+})
+
+test('导航六格，收藏在文章之后汇报之前', () => {
+  const files = renderPreview({ outDir: tmp('nav6') })
+  const html = fs.readFileSync(files.find((f) => f.endsWith('preview-today.html')), 'utf8')
+  // 「今天」那格带待判徽章（"今天 ·待判5"），钉顺序前先剥掉；type 属性排在 class 前面，锚点不能写 <button class=
+  const labels = [...html.matchAll(/<button[^>]*class="bl-navitem"[^>]*>([^<]*)</g)].map((m) => m[1].replace(/ ·待判\d+$/, ''))
+  assert.deepEqual([...new Set(labels)], ['今天', '视频', '文章', '收藏', '汇报', '库'])
 })

@@ -31,11 +31,30 @@
       try { return (clientCtx && clientCtx.layout) || null } catch { return null }
     }
 
-    /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。 */
-    const VIEW_RENDER = { today: TodayView, video: VideoView, article: ArticleView, digest: DigestView, library: LibraryView }
+    /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。
+     *  六个值全是视图本身：收藏页要多带的夹列表、草稿与二次确认态由 Panel 在调用时并进 props
+     *  （那些 state 只存在于组件里，包在 VIEW_RENDER 里反而取不到）。 */
+    const VIEW_RENDER = {
+      today: TodayView, video: VideoView, article: ArticleView,
+      collections: CollectionsView, digest: DigestView, library: LibraryView
+    }
 
     /** 面板里"活着"的条目：归档的只在「库」里看。一次 IN 查询，不靠多次请求拼。 */
     const LIVE_STATUS = 'new,judged,digest'
+
+    /**
+     * 每个视图自己的取数形状（提到 Panel 外面，这样能被测试直接调，不用假 React）。
+     * 收藏格两条特例：① 按当前夹筛（folderId 为 null 时连参数都不发——那是"没读到夹"，
+     * 不是"筛了个空夹"）；② 不带 status 筛——收过的条目就算归档了也要在这页看得见（spec D15）。
+     */
+    function viewQuery(view, folderId) {
+      if (view === 'library') return { limit: 500 }
+      if (view === 'collections') return { ...(folderId == null ? {} : { folder: folderId }), limit: 200 }
+      return { status: LIVE_STATUS, limit: 200 }
+    }
+
+    /** 取数的请求序号（终审 C14）：只在工厂作用域，Panel 每帧重跑不能把它清零。 */
+    let refreshSeq = 0
 
     function Panel() {
       // api 与首屏状态都得只建一次：useState 的惰性初始化是唯一入口（useMemo 在桩里等价于直接调）
@@ -45,6 +64,17 @@
       const [busy, setBusy] = React.useState(false)
       const [runError, setRunError] = React.useState('')
       const [feedbackMsg, setFeedbackMsg] = React.useState('')
+      // 抽屉的收藏多选：夹列表跟着数据一起刷；新夹名是装配层持有的瞬时输入（不进 reducer）；
+      // collecting 防连点叠请求；knownFolders 记收藏成功后服务端读回的归属（按条目 id 用）。
+      const [folders, setFolders] = React.useState([])
+      const [newFolderName, setNewFolderName] = React.useState('')
+      const [collecting, setCollecting] = React.useState(false)
+      const [knownFolders, setKnownFolders] = React.useState(null)
+      // 收藏页的瞬时态（一律不进 reducer：刷新就没的输入草稿 + 一次二次确认 + 一行回显）。
+      // renameId 记着"这份草稿是改哪个夹的"，换夹就丢掉，不许把上一个夹的半截名字带过去。
+      const [pendingDelete, setPendingDelete] = React.useState(null)
+      const [folderDraft, setFolderDraft] = React.useState({ createName: '', renameId: null, renameName: '' })
+      const [collectNote, setCollectNote] = React.useState('')
 
       const pickView = (v) => dispatch({ type: 'pick-view', view: v })
       function dispatch(action) {
@@ -53,13 +83,33 @@
         try { globalThis.localStorage.setItem(VIEW_KEY, encodeState(next)) } catch { /* 存不上不影响这一屏 */ }
       }
 
-      // 「库」要看得归档条目，所以它的查询不限状态；其余三格只要活着的那些。
-      const query = (view) => (view === 'library' ? { limit: 500 } : { status: LIVE_STATUS, limit: 200 })
+      /**
+       * 取数：先读夹表，再按"这一屏真正看的是哪个夹"读条目。
+       * 顺序是有原因的——收藏格的 folder 参数要从刚读回的夹表里解析；
+       * 用上一帧的 folders 解析会在首帧拿到 null，于是捞回一批"没筛夹"的全量条目，
+       * 而那一屏马上就有东西可画了，读回失败被悄悄说成"这个夹里有内容"。
+       * 夹表读不到时 setFolders([])：视图据此说"夹列表没读回来"，不假装是空的。
+       * 连点两个夹会有多个 refresh 同时在途：谁后到谁回填，先点的那份旧响应就会盖掉后点的夹
+       * （左列高亮新夹、右区还是旧夹的条目）。所以每次自增请求序号，响应落地前比对，
+       * 过期的整份丢弃——setFolders 与 setData 都要罩住，只罩一半就各坏一半；
+       * runFolder 成功后的 setFolders(r.data.folders) 是动作应答不是取数，不走也不受这条管。
+       */
       function refresh(view = snap.view) {
-        return Promise.all([api.state(), api.items(query(view))])
-          .then(([s, it]) => setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok }))
+        const myReq = ++refreshSeq
+        const f = snap.filters[view] || {}
+        return api.folders().then((fo) => {
+          if (myReq !== refreshSeq) return undefined
+          const list = fo && fo.ok && Array.isArray(fo.data?.folders) ? fo.data.folders : []
+          setFolders(list)
+          const folderId = view === 'collections' ? currentFolderId(list, f) : null
+          return Promise.all([api.state(), api.items(viewQuery(view, folderId))])
+            .then(([s, it]) => {
+              if (myReq !== refreshSeq) return undefined
+              setData({ state: s.data, items: (it.data && it.data.items) || [], stale: !s.ok })
+            })
+        })
       }
-      React.useEffect(() => { refresh() }, [snap.view])
+      React.useEffect(() => { refresh() }, [snap.view, snap.filters.collections?.folder])
 
       function onRun() {
         setBusy(true)
@@ -73,7 +123,51 @@
       const st = data.state
       const pending = (st && st.counts && st.counts.new) || 0
       const render = VIEW_RENDER[view]
-      const body = render({
+      // 收藏页的当前夹与改名草稿都按"刚读回的夹表"解析，视图与装配层用同一个 helper，不会两处各算一套
+      const curFolderId = view === 'collections' ? currentFolderId(folders, snap.filters[view] || {}) : null
+      /**
+       * 夹的增删改名。两条硬规矩：
+       *  1. 失败必须回显（按 res.ok / res.error 分支），不许 .catch(() => {})——点了不知道有没有记上，
+       *     等于把黑盒交给用户；
+       *  2. 2xx 但应答里没带夹表（{ok:true, data:null}）算"没读回来"，不许把 okText 当真成功。
+       */
+      function runFolder(action, args, okText) {
+        return api.folderOp(action, args).then((r) => {
+          if (r.ok) {
+            const list = Array.isArray(r.data?.folders) ? r.data.folders : null
+            if (list) setFolders(list)
+            setCollectNote(list ? okText : `没确认成：${action === 'delete' ? '删夹' : action === 'rename' ? '改名' : '建夹'}的请求发出去了，但${readbackMiss('服务端读回的夹表')}——左边还是上一次读到的那份`)
+            if (action === 'delete') setPendingDelete(null)
+            setFolderDraft({ createName: '', renameId: null, renameName: '' })
+            return refresh()
+          }
+          setCollectNote(r.error === 'name_taken' ? '已经有这个夹了'
+            : r.error === 'name_too_long' ? '夹名最多 40 个字'
+              : r.error === 'bad_name' ? '夹名不能是空的'
+                : r.error === 'default_folder' ? '默认夹删不掉（它是随手一收的落点）'
+                  : r.error === 'no_folder' ? '这个夹已经没了（可能是另一格刚删的）'
+                    : `没记上（${r.error || '宿主接口没应答'}）`)
+          return undefined
+        })
+      }
+      // 收藏页专属的那一叠：夹表、二次确认态、两个输入框的草稿与一行回显。
+      // 这份对象每帧都建（只是几个闭包），但只并进收藏格的 props，别的视图拿到也不认。
+      const collectionsProps = {
+        folders,
+        pendingDelete,
+        note: collectNote,
+        newFolderName: folderDraft.createName,
+        currentName: folderDraft.renameId === curFolderId ? folderDraft.renameName : '',
+        onNewFolderNameChange: (v) => setFolderDraft((d) => ({ ...d, createName: v })),
+        onCurrentNameChange: (v) => setFolderDraft((d) => ({ ...d, renameId: curFolderId, renameName: v })),
+        onPickFolder: (id) => { setPendingDelete(null); dispatch({ type: 'filter', view: 'collections', key: 'folder', value: id }) },
+        onCreate: (name) => runFolder('create', { name }, `建好了：${name}`),
+        onRename: (id, name) => runFolder('rename', { id, name }, `已改名为「${name}」`),
+        onAskDelete: (id) => setPendingDelete(id),
+        onCancelDelete: () => setPendingDelete(null),
+        onDelete: (id) => runFolder('delete', { id }, '夹删了，里面的条目一条都没动')
+      }
+      const baseProps = {
         state: st,
         items: data.items,
         filters: snap.filters[view] || {},
@@ -87,9 +181,22 @@
         onSelect: (id) => dispatch({ type: 'select', id }),
         onOpen: (id) => dispatch({ type: 'open-drawer', id }),
         onPickView: pickView
-      })
+      }
+      const body = render(view === 'collections' ? { ...baseProps, ...collectionsProps } : baseProps)
       const drawerOpen = snap.drawerItemId != null
-      const drawerItem = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
+      const found = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
+      // 抽屉里那条可能来自不带 folders 字段的查询（今天的三格）。/collect 是全量替换，
+      // 所以收藏成功后要把服务端读回的归属覆盖上去——只覆盖抽屉这一条的展示，不改 data.items。
+      // 覆盖规则抽成纯函数 drawerItemWithFolders（views/drawer.js），连点不互抹的不变量由测试钉住。
+      const drawerItem = drawerItemWithFolders(found, knownFolders)
+      // 包一层 collecting：点一下即生效意味着连点会叠请求，全量替换下后到的旧集合会盖掉新决定。
+      function runCollect(...args) {
+        setCollecting(true)
+        return api.collect(...args).then(
+          (r) => { setCollecting(false); return r },
+          (e) => { setCollecting(false); throw e }
+        )
+      }
       return h('div', { className: 'bl-root' }, [
         // 外壳三件（Nav / TopBar / NotReady）与视图同构，都产纯对象，所以一律经 toElement，
         // 不能 h(Nav)：函数组件返回普通对象的话，真 React 会直接抛"Objects are not valid as a React child"。
@@ -99,10 +206,22 @@
         drawerOpen
           ? toElement(Drawer({
             item: drawerItem,
-            api,
+            api: { ...api, collect: runCollect },
             note: feedbackMsg,
-            onClose: () => { setFeedbackMsg(''); dispatch({ type: 'close-drawer' }) },
-            onDone: (r) => setFeedbackMsg(r.message)
+            folders,
+            collecting,
+            newFolderName,
+            onNewFolderName: setNewFolderName,
+            onClose: () => { setFeedbackMsg(''); setNewFolderName(''); dispatch({ type: 'close-drawer' }) },
+            onDone: (r) => {
+              setFeedbackMsg(r.message)
+              // 只有成功（带读回的 folderIds）才清输入框并覆盖归属；失败留住名字好重试。
+              if (r.kind === 'collect' && r.folderIds) {
+                setNewFolderName('')
+                if (drawerItem) setKnownFolders({ itemId: drawerItem.id, folder_ids: r.folderIds })
+                if (Array.isArray(r.folders)) setFolders(r.folders)
+              }
+            }
           }))
           : null
       ])
@@ -152,9 +271,9 @@
     exports.apply = apply
     exports.inject = inject
     exports.__test = {
-      PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER,
+      PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER, viewQuery, NAV_ITEMS,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
-      reduce, encodeState, decodeState, TodayView, Drawer
+      reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView
     }
     return module.exports
   }

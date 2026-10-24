@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { setItemFolders } from '../lib/store.js'
 
 const freshHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-host-'))
 
@@ -218,4 +219,271 @@ test('tick 在窗外不抓取；runNow 无视窗', async () => {
   assert.deepEqual(baleen.tick(), { skipped: true, why: 'window' })
   const r = await baleen.runNow()
   assert.equal(r.skipped, false)
+})
+
+const apiOf = async (home) => {
+  const ctx = makeCtx(home)
+  const { apply } = await import('../index.js')
+  const baleen = apply(ctx, { now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval })
+  return { h: ctx.registered[0].handler, baleen, ctx }
+}
+
+test('GET /folders 至少带回那个删不掉的默认夹', async () => {
+  const { h } = await apiOf(freshHome())
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/folders', method: 'GET' }, res)
+  const body = JSON.parse(res.body)
+  assert.equal(res.code, 200)
+  assert.equal(body.ok, true)
+  assert.deepEqual(body.folders, [{ id: 1, name: '默认', is_default: 1, count: 0 }])
+})
+
+test('POST /folder 建夹：成功就回整个列表', async () => {
+  const { h } = await apiOf(freshHome())
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '公共管理' }) }, res)
+  const body = JSON.parse(res.body)
+  assert.equal(res.code, 200)
+  assert.equal(body.folder.name, '公共管理')
+  assert.equal(body.folder.is_default, 0)
+  assert.deepEqual(body.folders.map(f => f.name), ['默认', '公共管理'])
+})
+
+test('建夹的失败路径给的是人话状态码，不是 500', async () => {
+  const { h } = await apiOf(freshHome())
+  const cases = [
+    [{ action: 'create', name: '  ' }, 400, 'bad_name'],
+    [{ action: 'create', name: 'x'.repeat(41) }, 400, 'name_too_long'],
+    [{ action: 'create', name: '默认' }, 409, 'name_taken'],
+    [{ action: 'nope' }, 400, 'unknown_action'],
+    [{ action: 'delete', id: 1 }, 403, 'default_folder'],
+    [{ action: 'delete', id: 999 }, 404, 'no_folder'],
+    [{ action: 'rename', id: 999, name: 'x' }, 404, 'no_folder'],
+    [{}, 400, 'unknown_action'],
+    [{ action: 'create' }, 400, 'bad_name']
+  ]
+  for (const [payload, code, error] of cases) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf(payload) }, res)
+    assert.equal(res.code, code, JSON.stringify(payload) + ' 的状态码不对')
+    assert.equal(JSON.parse(res.body).error, error, JSON.stringify(payload))
+    assert.equal(JSON.parse(res.body).ok, false)
+  }
+})
+
+test('删自建夹：条目一条不少，夹列表变短', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home)
+  const created = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '要精读' }) }, created)
+  const fid = JSON.parse(created.body).folder.id
+  baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status)
+    VALUES ('s1', 'e1', 'article', 't', 'https://e.com/1', 'full', 1000, 'new')`).run()
+  const iid = baleen.db.prepare('SELECT id FROM items').get().id
+  setItemFolders(baleen.db, iid, [fid])
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 1, '收藏关系没建起来，下面那句 folder_items == 0 就是永真')
+  const del = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'delete', id: fid }) }, del)
+  assert.equal(del.code, 200)
+  assert.equal(JSON.parse(del.body).folders.length, 1)
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM items').get().n, 1, '删夹把条目删了')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0)
+})
+
+test('folder 事件进日志时只有动作与夹 id，不含夹名也不含标题', async () => {
+  const home = freshHome()
+  const { h } = await apiOf(home)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '考研专业课' }) }, res)
+  // 本仓日志固定落 <home>/logs/diagnostics.jsonl（lib/diag.js 的 makeLogger），不是 <home>/*.log
+  const logFile = path.join(home, 'logs', 'diagnostics.jsonl')
+  const blob = fs.readFileSync(logFile, 'utf8')
+  // 钉死事件名：只匹配 "folder" 子串的话，一个只写 folder_failed 的实现也能过
+  assert.match(blob, /"event":"folder"/, '建夹没记日志')
+  assert.doesNotMatch(blob, /考研专业课/, '日志里出现了夹名')
+})
+
+test('把夹名塞进 id 字段建夹：照样 200，但日志里只许出现 store 给的夹 id', async () => {
+  const home = freshHome()
+  const { h } = await apiOf(home)
+  const res = fakeRes()
+  // create 分支从不读 body.id（lib/store.js 的 createFolder 只有 db/raw/now 三个参数），
+  // 所以这个字段是纯客户端可控内容：它进了 detail 就是把夹名写进了 diagnostics.jsonl。
+  await h({
+    url: '/api/dsh-baleen/folder', method: 'POST',
+    ...bodyOf({ action: 'create', name: '考研专业课', id: '考研专业课' })
+  }, res)
+  assert.equal(res.code, 200)
+  assert.equal(JSON.parse(res.body).folder.name, '考研专业课')
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.match(blob, /"event":"folder"/, '建夹没记日志')
+  assert.doesNotMatch(blob, /考研专业课/, '客户端可控的 id 字段被原样写进了日志')
+  assert.match(blob, /"detail":"create #2"/, 'detail 里该是 store 返回的夹 id（默认夹占 1，新建的是 2）')
+})
+
+const seedItem = (baleen, over = {}) => {
+  baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status)
+    VALUES ('s1', @external_id, 'article', 't', 'https://e.com/x', 'full', 1000, 'new')`)
+    .run({ external_id: over.external_id ?? 'e1' })
+  return baleen.db.prepare('SELECT id FROM items ORDER BY id DESC LIMIT 1').get().id
+}
+
+test('POST /collect 是全量替换，重复提交同一集合结果不变', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const mk = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '一' }) }, mk)
+  const oneId = JSON.parse(mk.body).folder.id
+  const iid = seedItem(baleen)
+  const r1 = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [oneId] }) }, r1)
+  assert.equal(r1.code, 200)
+  assert.deepEqual(JSON.parse(r1.body).folder_ids, [oneId])
+  const r2 = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [oneId, oneId] }) }, r2)
+  assert.deepEqual(JSON.parse(r2.body).folder_ids, [oneId], '重复 id 没去重')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 1)
+})
+
+test('/collect 的 new_folder 与收藏在同一次请求里做完，不留空夹', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const iid = seedItem(baleen)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [], new_folder: '新起的' }) }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  const created = body.folders.find((f) => f.name === '新起的')
+  assert.ok(created, '夹没建成')
+  assert.deepEqual(body.folder_ids, [created.id], '夹建好了但条目没进去')
+})
+
+test('/collect 的失败路径：夹没了、条目没了、载荷坏了各说各话', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const mk = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '二' }) }, mk)
+  const goneId = JSON.parse(mk.body).folder.id
+  const iid = seedItem(baleen)
+  // 先删掉它，goneId 才真的是"没了的夹"：下面 410 报的 missing 里才有它。
+  // 简报把这一步 delete 写在 r5 之前才执行，可那样 r1 时 goneId 还活着，missing 永远凑不出 [goneId, 999]。
+  const del = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'delete', id: goneId }) }, del)
+  assert.equal(del.code, 200, '前置删除没成功，goneId 不是"没了的夹"')
+  const r1 = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [goneId, 999] }) }, r1)
+  assert.equal(r1.code, 410)
+  assert.deepEqual(JSON.parse(r1.body).missing, [goneId, 999])
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0, '失败的那次写出了半套关系')
+
+  const r2 = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: 99999, folder_ids: [goneId] }) }, r2)
+  assert.equal(r2.code, 404)
+  assert.equal(JSON.parse(r2.body).error, 'no_item')
+
+  const r3 = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid }) }, r3)
+  assert.equal(r3.code, 400)
+  assert.equal(JSON.parse(r3.body).error, 'bad_payload')
+
+  const r4 = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf('坏掉的') }, r4)
+  assert.equal(r4.code, 400)
+
+  const r5 = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [], new_folder: '  ' }) }, r5)
+  assert.equal(r5.code, 400)
+  assert.equal(JSON.parse(r5.body).error, 'bad_name')
+})
+
+test('/collect 没带 folder_ids、new_folder 又是空串：400，不清空已有收藏', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const iid = seedItem(baleen)
+  const seed = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [1] }) }, seed)
+  assert.equal(seed.code, 200, '前置收藏没建起来')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items WHERE item_id = ?').get(iid).n, 1)
+  // 空串 new_folder 不是"要建夹"，folder_ids 缺席也不是"清空"。这种没内容的请求必须响：
+  // 放过去就是 wanted ?? [] 全量替换——静默抹掉该条目的全部收藏。
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, new_folder: '' }) }, res)
+  assert.equal(res.code, 400)
+  assert.equal(JSON.parse(res.body).error, 'bad_payload')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items WHERE item_id = ?').get(iid).n, 1, '坏请求把收藏清空了')
+})
+
+test('/collect 的 item_id 要整数：true 不再被 Number 收成 1 号条目', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  seedItem(baleen) // 1 号条目：Number(true) === 1 泄漏时收藏被写到的就是它
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: true, folder_ids: [1] }) }, res)
+  assert.equal(res.code, 400)
+  assert.equal(JSON.parse(res.body).error, 'bad_payload')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0, 'true 被当成 1 号条目写进了收藏')
+})
+
+test('GET /items?folder= 取该夹条目并带上所属夹，归档的也列得出', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const mk = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '三' }) }, mk)
+  const fid = JSON.parse(mk.body).folder.id
+  const keep = seedItem(baleen, { external_id: 'keep' })
+  const other = seedItem(baleen, { external_id: 'other' })
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: keep, folder_ids: [fid] }) }, fakeRes())
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: other, folder_ids: [fid] }) }, fakeRes())
+  baleen.db.prepare("UPDATE items SET status='archived', archived_reason='stale:20 天前' WHERE id=?").run(other)
+  const res = fakeRes()
+  await h({ url: `/api/dsh-baleen/items?folder=${fid}`, method: 'GET' }, res)
+  const body = JSON.parse(res.body)
+  assert.equal(res.code, 200)
+  assert.equal(body.items.length, 2, '归档的条目从收藏页消失了')
+  assert.deepEqual(body.items.map((i) => i.folders).sort(), [[fid], [fid]])
+  assert.deepEqual(body.items[0].folder_names, ['三'])
+})
+
+test('/items?folder= 的应答真的带收藏时间：added_at 来自 folder_items 的投影，不是视图自造', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const mk = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '收过' }) }, mk)
+  const fid = JSON.parse(mk.body).folder.id
+  const iid = seedItem(baleen)
+  const c = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [fid] }) }, c)
+  assert.equal(c.code, 200, '前置收藏没建起来')
+  // 把关系时间改成与 fetched_at(1000) 不同的值：added_at 若是从条目列"顺手抄来"的，这里就露馅
+  baleen.db.prepare('UPDATE folder_items SET added_at = 4321 WHERE item_id = ?').run(iid)
+  const res = fakeRes()
+  await h({ url: `/api/dsh-baleen/items?folder=${fid}`, method: 'GET' }, res)
+  const body = JSON.parse(res.body)
+  const item = body.items.find((i) => i.id === iid)
+  assert.ok(item, '条目没在这一夹的应答里')
+  assert.equal(typeof item.added_at, 'number', '视图读 item.added_at；取数路径不投影这个字段，每张卡都只能显示（时间未知）')
+  assert.equal(item.added_at, 4321, '收藏时间必须是 folder_items.added_at 本身，不是任何条目列的化名')
+})
+
+test('/items 的脏 folder 参数当没带，不把 Number 的脏转换喂给 store', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const mk = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '四' }) }, mk)
+  const fid = JSON.parse(mk.body).folder.id
+  const iid = seedItem(baleen)
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [fid] }) }, fakeRes())
+  // 1 号是默认夹：往里再放一条。folder 若被 Number(true) 之类的脏收成 1，列表会从
+  // "全量"缩成这一条——下面的脏值迭代这才真抓得到泄漏，而不是只靠 store 的兜底。
+  const inDefault = seedItem(baleen, { external_id: 'def' })
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: inDefault, folder_ids: [1] }) }, fakeRes())
+  const one = fakeRes()
+  await h({ url: '/api/dsh-baleen/items?folder=1', method: 'GET' }, one)
+  assert.equal(one.code, 200)
+  assert.deepEqual(JSON.parse(one.body).items.map((i) => i.id), [inDefault], 'folder=1 的正路过滤本身不对')
+  // Number('') === 0、Number(true) === 1：脏值不校验就进 store，'' 会变成"筛 0 号夹"（恒空）、
+  // 'true' 会变成"筛 1 号夹"。脏值必须当这个参数不存在——视图与不带 folder 时一致。
+  for (const dirty of ['', 'true', '-1', '1.5', 'abc']) {
+    const res = fakeRes()
+    await h({ url: `/api/dsh-baleen/items?folder=${encodeURIComponent(dirty)}`, method: 'GET' }, res)
+    assert.equal(res.code, 200, dirty)
+    assert.equal(JSON.parse(res.body).items.length, 2, `脏值 folder=${dirty} 被当成了过滤条件`)
+  }
+})
+
+test('collect 不注册成 agent 工具：宿主半的 inject 仍然只有 webServer', async () => {
+  const host = await import('../index.js')
+  assert.deepEqual(host.inject, ['webServer'])
 })

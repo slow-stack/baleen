@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import os from 'node:os'
-import { openStore, migrate, listSources, getCursor, candidates, counts } from '../lib/store.js'
+import { openStore, migrate, listSources, getCursor, candidates, counts, createFolder, setItemFolders } from '../lib/store.js'
 import { runOnce, syncSources, planJobs } from '../lib/runner.js'
 import { fakeAdapter, rawOf, timeoutError } from './helpers/fake-adapter.js'
 
@@ -162,4 +162,55 @@ test('日志不含家目录，失败源有记录', async () => {
   assert.ok(!/[A-Za-z]:[\\/]{2}Users/i.test(blob), blob.slice(0, 200))
   assert.ok(lines.some(l => /"event":"source_failed"/.test(l)))
   assert.ok(lines.some(l => /"event":"run_end"/.test(l)))
+})
+
+const DAY = 86400000
+const staleSource = () => ({ ...pref, sources: [{ id: 'slow', type: 'rss', url: 'https://e.com/slow', enabled: true, interval_min: 60, weight: 1 }] })
+const twoStale = () => [
+  rawOf('slow', { external_id: 'keep', title: 'DSH 的存货', published_at: 5000 - 100 * DAY }),
+  rawOf('slow', { external_id: 'drop', title: 'DSH 的另一份存货', published_at: 5000 - 100 * DAY })
+]
+const statusOf = (db, eid) => db.prepare('SELECT status, archived_reason FROM items WHERE external_id = ?').get(eid)
+
+test('收过的条目第二轮过期不归档；没收过的照旧归档（豁免不是关掉清理）', async () => {
+  const db = dbOf()
+  const p = staleSource()
+  const A = fakeAdapter('rss', { slow: { items: twoStale() } })
+  await runOnce({ db, pref: p, now: () => 5000, adapters: { rss: A } })   // 首轮 backlog：两条都入库且不看过期
+  const keepId = db.prepare("SELECT id FROM items WHERE external_id='keep'").get().id
+  setItemFolders(db, keepId, [createFolder(db, '留档').id])
+
+  const B = fakeAdapter('rss', { slow: { items: twoStale() } })
+  const r = await runOnce({ db, pref: p, now: () => 5000 + 15 * DAY, adapters: { rss: B } })
+
+  assert.equal(statusOf(db, 'keep').status, 'new', '收过的被误归档了')
+  assert.equal(statusOf(db, 'drop').status, 'archived', '没收的那条该照旧归档')
+  assert.match(statusOf(db, 'drop').archived_reason, /^stale:/)
+  assert.equal(r.stats.archived, 1, '归档计数把被豁免的那条也算进去了')
+  // 豁免只是"不改归档"，不是"重新送回候选"：这一轮两条都没过闸，候选必须还是 0。
+  assert.equal(r.stats.candidates, 0, '被豁免的条目不算候选')
+  // 豁免不是静默："丢弃没发生"这件事要进汇报的第三个桶（用户 2026-10-25 批准），
+  // 否则面板永远看不见"今天有 N 条因收藏未清理"。
+  assert.equal(r.stats.gaps.held, 1, '被豁免的那条必须进收藏钉住计数')
+})
+
+test('移出夹之后，下一轮的过期清理照旧生效（钉住不等于永久免死）', async () => {
+  const db = dbOf()
+  const p = staleSource()
+  const A = fakeAdapter('rss', { slow: { items: twoStale() } })
+  await runOnce({ db, pref: p, now: () => 5000, adapters: { rss: A } })
+  const keepId = db.prepare("SELECT id FROM items WHERE external_id='keep'").get().id
+  const f = createFolder(db, '留档').id
+  setItemFolders(db, keepId, [f])
+  const B = fakeAdapter('rss', { slow: { items: twoStale() } })
+  await runOnce({ db, pref: p, now: () => 5000 + 15 * DAY, adapters: { rss: B } })
+  assert.equal(statusOf(db, 'keep').status, 'new')
+
+  setItemFolders(db, keepId, [])
+  const C = fakeAdapter('rss', { slow: { items: twoStale() } })
+  const r3 = await runOnce({ db, pref: p, now: () => 5000 + 16 * DAY, adapters: { rss: C } })
+  assert.equal(statusOf(db, 'keep').status, 'archived', '移出后还免归档，说明豁免读的不是当前状态')
+  // 移出夹之后豁免不再生效：钉住计数归零，归档只这一条（drop 上一轮已归档，这轮 skip_seen 不重复计）。
+  assert.equal(r3.stats.gaps.held, 0, '移出夹之后钉住计数必须归零')
+  assert.equal(r3.stats.archived, 1, '最后一轮的归档只有移出夹的那条')
 })

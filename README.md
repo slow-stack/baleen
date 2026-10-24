@@ -4,7 +4,7 @@
 >
 > 名字来自鲸须——须鲸的滤食结构。这个产品做的同一件事。
 
-**当前状态：M1（摄取侧）已完成；M2（面板）代码写完、正停在预览门等你看图点头；还没装进 DSH。** 摄取侧做的事是：按计划抓 RSS 源 → 规范化入库 → 两级去重 → 本地预筛 → 记账。面板侧五格（今天/视频/文章/汇报/库）+ 抽屉已能用假数据渲染（`node tools/preview.mjs`）。判断轮（模型读正文给三档）、B 站/小红书通道在 M3/M4，设置页在 M5。
+**当前状态：M1（摄取侧）已完成；M2（面板）与 M2.5（收藏页、抽屉多选收进夹）代码写完、正停在预览门等你看图点头；还没装进 DSH。** 摄取侧做的事是：按计划抓 RSS 源 → 规范化入库 → 两级去重 → 本地预筛 → 记账。面板侧六格（今天/视频/文章/收藏/汇报/库）+ 抽屉已能用假数据渲染（`node tools/preview.mjs`，八页预览）。判断轮（模型读正文给三档）、B 站/小红书通道在 M3/M4，设置页在 M5。
 
 ## 看面板长什么样（不装 DSH、不联网）
 
@@ -20,7 +20,7 @@ open out/preview-today.html # 浏览器直接打开即可
 
 ```bash
 npm install            # 唯一依赖：yaml（纯 JS，无 install 脚本）
-npm test               # 255 个测试，node --test，不需要网络
+npm test               # 359 个测试，node --test，不需要网络
 cp preference.example.yaml ~/baleen-trial/preference.yaml   # 先自己建目录
 BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮公开 feed
 ```
@@ -71,7 +71,6 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 
 ## 还没做
 
-- M2 三区面板（门户式顶部导航，明暗双主题）
 - M3 headless 判断轮 + 每轮增量汇报
 - M4 B 站（vendored bilibili-mcp）/ 小红书（扫码 MCP，需先做代码审查）/ YouTube
 - M5 DSH 设置页四页签

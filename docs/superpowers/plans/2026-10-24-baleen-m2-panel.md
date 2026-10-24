@@ -2131,6 +2131,8 @@ git commit -m "docs: M2 真机装载与面板验收记录"
 34. `fmtDuration` / `fmtTime` 提到 `src/client/format.js`。起因是预览截图上今天区的时间徽章写着 `1102`——`today.js` 当时直接 `String(duration_sec)`，而 `video.js` 有 mm:ss，两份实现漂移了。`digestTime` 一并并成 `fmtTime`。加视图请从这里 import，别再造第三个版本。
 35. 预览多出一页 **`preview-trouble.html`**：异常带（接口没答上 + 手动那轮失败 + 偏好文件报错）、失败源文案、空轨道文案，平时要等真坏了才看得见，预览里先演一遍给你看。抽屉那页也不再孤零零一个框，背后是面板。
 36. `out/shots/` 的无头 Edge 截图在这台机器上不稳定（同一条命令有时 rc=0 却不落文件，本机还开着她自己的 Edge，21 个 msedge 进程在场）。**交付物改成 HTML 本体**（浏览器直接打开就是明暗两块），截图不作为验收项。真机那一步另说。
+37. **M2.5（`2026-10-24-baleen-collections-m25.md`）落地后，本计划几处验收口径变了；判据原文保留不撤——它们是 M2 当时的验收记录**：交付判据 2 的「六份 HTML」如今是八份（M2 落地时偏差 35 已多出 `preview-trouble.html`，M2.5 再加收藏页 `preview-collections.html`）；顶部导航从五格变六格（新增「收藏」格）；抽屉里那颗原计划叫「收藏」的 `bl-save` 按钮改名「这源多来点」（M2.5 Task 7，改名缘由见该计划）。另记 M2.5 Task 5 的一条评审裁定：spec `2026-10-24-baleen-collections-design.md` §7 错误表原写「400 `item_gone`」，与代码、计划的 `404 no_item` 不符，已统一为后者。
+38. **M2.5 终审（D2）**：spec `2026-10-24-baleen-collections-design.md` §4 把「收藏页上『移出本夹』」列为 `/collect` 全量替换覆盖的动作，收藏页实现里没有这颗按钮——移出走抽屉取消勾选（同一次提交语义）。binding 的 §6.2 UI 清单（工具条三件事 + 卡面信息）本就没列它，实现符合 §6.2，属 spec 两段措辞不咬合；以 §6.2 为准，不改 spec、不改代码。
 
 ## 交付判据
 

@@ -1,5 +1,5 @@
 /**
- * 面板外壳：顶部导航（门户式五格）+ 全局异常带 + 渲染失败的降级块。
+ * 面板外壳：顶部导航（门户式六格）+ 全局异常带 + 渲染失败的降级块。
  *
  * 导航是"像网站那样"的主要载体，所以它和视图一样是可测的纯函数——
  * 预览器（tools/preview.mjs）渲染的就是这同一个 Nav，
@@ -8,7 +8,7 @@
 import { vnode } from '../vnode.js'
 
 /** id 与 view-state 的 VIEWS 一字不差；顺序就是点击顺序。 */
-export const NAV_ITEMS = [['today', '今天'], ['video', '视频'], ['article', '文章'], ['digest', '汇报'], ['library', '库']]
+export const NAV_ITEMS = [['today', '今天'], ['video', '视频'], ['article', '文章'], ['collections', '收藏'], ['digest', '汇报'], ['library', '库']]
 
 export function Nav({ view, pending = 0, onPick }) {
   return vnode('nav', { className: 'bl-nav', 'aria-label': '主导航' }, [

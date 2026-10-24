@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { VIEWS, initialView, reduce, encodeState, decodeState } from '../src/client/view-state.js'
 
-test('五个视图固定，落点是今天', () => {
-  assert.deepEqual(VIEWS, ['today', 'video', 'article', 'digest', 'library'])
+test('六个视图固定，落点是今天（收藏格在文章之后、汇报之前）', () => {
+  assert.deepEqual(VIEWS, ['today', 'video', 'article', 'collections', 'digest', 'library'])
   assert.equal(initialView().view, 'today')
 })
 
@@ -69,6 +69,15 @@ test('阅读选中项与抽屉是两件事：点一行只换右栏，不弹抽�
   assert.equal(decodeState('{"selectedId":"x"}').selectedId, null)
   assert.equal(JSON.parse(encodeState(reduce(initialView(), { type: 'select', id: 9 }))).selectedId, 9)
   assert.equal(decodeState(encodeState(reduce(initialView(), { type: 'select', id: 9 }))).selectedId, 9)
+})
+
+test('收藏页的"当前看哪个夹"走标量 filter：切走再切回来还停在那个夹', () => {
+  let s = reduce(initialView(), { type: 'filter', view: 'collections', key: 'folder', value: 3 })
+  assert.equal(s.filters.collections.folder, 3)
+  s = reduce(s, { type: 'pick-view', view: 'today' })
+  s = reduce(s, { type: 'pick-view', view: 'collections' })
+  assert.equal(s.filters.collections.folder, 3, '那个夹的选择该跟着收藏格自己存')
+  assert.equal(decodeState(encodeState(s)).filters.collections.folder, 3, '重开面板要落回同一个夹')
 })
 
 test('facet 是数组筛选：勾上加入、取消移除、清空即删键', () => {
