@@ -18,6 +18,7 @@ Baleen 是一个 DSH（DeepSeek Harness 桌面版）插件：定时把信息源�
 8. **两个粗调按钮只写 `tuning`**，永远不改 `themes` / `follow` / `sources`。
 9. 测试只用 `node --test`。不引入 jest / vitest。**注意 `node --test test/` 在 Windows 上会把目录当模块解析而报错**，一律写 `node --test "test/*.test.js"`（`npm test` 已经是这个形式）。
 10. 提交信息用中文；一个任务一次提交。
+11. **收藏只写本机 sqlite**：`collect` / `folder` 三条路由只走面板 → 宿主，**绝不注册成 agent 工具**，也绝不碰平台的收藏/点赞接口（B 站恰好有个同名真动作）。默认夹可改名不可删（路由与 store 两层都拒）；夹名超长是**拒绝**而不是截断；已收藏的条目豁免 `runner.js` 的过期再归档，但移出后下一轮照旧清理。
 
 ## 本机的坑（已实证，别再撞）
 
