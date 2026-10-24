@@ -43,6 +43,23 @@ test('一个夹都没读到时不画空标签栏，直接说读不到', () => {
   const t = text(tree)
   assert.match(t, /读不到夹/)
   assert.equal(findAll(tree, 'bl-foldertab').length, 0)
+  // 终审 #16：读不到夹时工具条只留「建夹」自救——建夹不依赖夹表，是读回失败时唯一的出路；
+  // 改名与删除控件对着不存在的"当前夹"，点了只会得到"这个夹已经没了（可能是另一格刚删的）"
+  // 那种对不存在场景编造的竞态解释，所以根本不渲染。
+  const toolbar = findAll(tree, 'bl-toolbar')[0]
+  assert.equal(toolbar.children.filter((n) => n.type === 'input').length, 1, '只该剩新建夹输入框')
+  assert.deepEqual(toolbar.children.filter((n) => n.type === 'button').map((n) => text(n)), ['建夹'], '改名与删除控件不该渲染')
+  const created = []
+  const rescue = CollectionsView({ items: [], folders: [], filters: {}, newFolderName: '重建的夹', onCreate: (n) => created.push(n) })
+  findAll(rescue, 'bl-toolbar')[0].children.find((n) => n.type === 'button').props.onClick()
+  assert.deepEqual(created, ['重建的夹'], '建夹是读回失败时的自救路径，得能把名字交出去')
+})
+
+test('改名草稿清空成空串时输入框保持空：空串是草稿，不是"没草稿"（终审 #15）', () => {
+  const tree = CollectionsView({ items: [], folders: FOLDERS, filters: { folder: 2 }, currentName: '' })
+  const inputs = findAll(tree, 'bl-toolbar')[0].children.filter((n) => n.type === 'input')
+  assert.equal(inputs[1].props.value, '', '清空的草稿被服务端名填回去了')
+  assert.notEqual(inputs[1].props.value, '公共管理')
 })
 
 test('右区显示这个夹里的条目，"还在"只列当前夹之外的归属（spec §6.2"还在哪些别的夹里"）', () => {
@@ -178,6 +195,28 @@ test('建夹/改名的失败回显走同一行 note，不静默', () => {
   const t = text(CollectionsView({ items: [], folders: FOLDERS, filters: {}, note: '已经有这个夹了' }))
   assert.match(t, /已经有这个夹了/)
   assert.equal(findAll(CollectionsView({ items: [], folders: FOLDERS, filters: {} }), 'bl-feedback').length, 0, '没有话要说时不占一行')
+})
+
+test('建夹/改名/删除防连点：busy 时按钮禁用、改名框不提交（输入不禁）（终审 #18）', () => {
+  const renamed = []
+  const busy = CollectionsView({
+    items: [], folders: FOLDERS, filters: { folder: 2 }, folderBusy: true, onRename: (id, n) => renamed.push([id, n])
+  })
+  const bar = findAll(busy, 'bl-toolbar')[0]
+  const btns = bar.children.filter((n) => n.type === 'button')
+  assert.deepEqual(btns.map((n) => text(n)), ['建夹', '改名', '删除这个夹'])
+  assert.equal(btns.every((b) => b.props.disabled === true), true, 'busy 时按钮还能点，双击就会叠请求')
+  const input = bar.children.filter((n) => n.type === 'input')[1]
+  input.props.onKeyDown({ key: 'Enter', target: { value: 'busy 里回车' } })
+  assert.equal(renamed.length, 0, 'busy 时改名框不许提交')
+  assert.equal(input.props.disabled, undefined, '挡提交不禁输入：busy 期间还能继续打字改草稿')
+  // 真正发删除请求的是确认框里那颗按钮（工具条的「删除这个夹」只负责开确认），同样要挡
+  const confirming = CollectionsView({ items: [], folders: FOLDERS, filters: { folder: 2 }, pendingDelete: 2, folderBusy: true })
+  const del = findAll(confirming, 'bl-confirm')[0].children.filter((b) => b.type === 'button').find((b) => text(b).includes('确认删除'))
+  assert.equal(del.props.disabled, true, '确认删除连点会把第二次发成 no_folder 的编造解释')
+  const idle = CollectionsView({ items: [], folders: FOLDERS, filters: { folder: 2 } })
+  const idleBtns = findAll(idle, 'bl-toolbar')[0].children.filter((n) => n.type === 'button')
+  assert.equal(idleBtns.every((b) => !b.props.disabled), true, '不忙时不许摆出禁用的样子')
 })
 
 test('点卡片交出条目 id（抽屉靠它打开）', () => {

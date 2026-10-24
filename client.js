@@ -925,7 +925,12 @@ window.__ModuleLoader__.load({
           ? `已放进：${namesOf(item, known, after)}${unreadTail}`
           : res && res.error === 'folder_gone'
             ? `没记上：${res.missing?.length ? `夹 ${res.missing.join('、')} 已经不在了` : `有夹已经不在了，但${readbackMiss('是哪几个')}`}，重新勾一次`
-            : `没记上（${(res && res.error) || '宿主接口没应答'}）`
+            : res && res.error === 'name_taken'
+              // 新建重名夹是用户真会踩到的失败（终审 D1）：说人话，别把英文短码直出给用户。
+              // 与收藏页 runFolder 的映射逐字一致；bad_name/name_too_long 在抽屉不可达
+              // （空串不发请求、maxLength=40 挡输入），不用映射。
+              ? '已经有这个夹了'
+              : `没记上（${(res && res.error) || '宿主接口没应答'}）`
         onDone?.({ message, kind: 'collect', folderIds: after ?? undefined, folders: readFolders ?? undefined })
         return message
       }
@@ -1073,7 +1078,8 @@ window.__ModuleLoader__.load({
 
     function CollectionsView({
       items = [], folders = [], filters = {}, pendingDelete = null, note,
-      newFolderName = '', currentName = '', onNewFolderNameChange = () => {}, onCurrentNameChange = () => {},
+      newFolderName = '', currentName = null, folderBusy = false,
+      onNewFolderNameChange = () => {}, onCurrentNameChange = () => {},
       onPickFolder, onCreate, onRename, onAskDelete, onCancelDelete, onDelete, onOpen
     }) {
       const list = folders ?? []
@@ -1085,8 +1091,12 @@ window.__ModuleLoader__.load({
       const unread = !list.length
       // 二次确认只跟着"当前正在看的那个夹"：pendingDelete 指向别的夹时不该拦住这一夹的工具条
       const confirming = pendingDelete != null && curFolder != null && pendingDelete === curFolder.id
-      // 改名框：装配层给的草稿优先，没草稿就回填服务端读到的夹名（不是空框让人猜）
-      const renameValue = currentName || curFolder?.name || ''
+      // 改名框：装配层的草稿优先（null 才是"没草稿"，回落到服务端读到的夹名，不是空框让人猜）。
+      // 空串是"用户清空了草稿"，得保持空——用 || 会把清空误当没草稿，一松手就被旧名填回（终审 #15）。
+      const renameValue = currentName ?? curFolder?.name ?? ''
+      // 建夹/改名/删除的在途标记（终审 #18，照抄抽屉 collecting 的规矩）：忙时按钮禁用、
+      // 改名框不提交——双击建夹第二次会拿到 name_taken，回显对着刚建好的夹说"已经有这个夹了"。
+      const busy = Boolean(folderBusy)
 
       const emptyText = unread
         ? `${foldersUnreadNote}。这一页列不出收藏关系，但你收过的条目一条都没少——回到「今天」再点一次收藏，或者刷新这格。`
@@ -1106,22 +1116,25 @@ window.__ModuleLoader__.load({
             ? vnode('div', { className: 'bl-confirm', role: 'alertdialog', 'aria-label': '确认删除夹' }, [
               vnode('p', {}, [`确认删除「${curFolder.name}」？只删收藏关系，条目本身不动——里面 ${Number(curFolder.count) || 0} 条还会在「库」里看得到。`]),
               vnode('button', { type: 'button', onClick: () => onCancelDelete?.() }, ['取消']),
-              vnode('button', { type: 'button', className: 'bl-danger', onClick: () => onDelete?.(curFolder.id) }, ['确认删除'])
+              vnode('button', { type: 'button', className: 'bl-danger', disabled: busy, onClick: () => onDelete?.(curFolder.id) }, ['确认删除'])
             ])
             : vnode('div', { className: 'bl-toolbar' }, [
               vnode('input', {
                 type: 'text', 'aria-label': '新建夹名', placeholder: '新建收藏夹（1-40 字）', maxLength: 40,
                 value: newFolderName, onChange: (e) => onNewFolderNameChange?.(e?.target?.value ?? '')
               }),
-              vnode('button', { type: 'button', onClick: () => onCreate?.(newFolderName) }, ['建夹']),
-              vnode('input', {
+              vnode('button', { type: 'button', disabled: busy, onClick: () => onCreate?.(newFolderName) }, ['建夹']),
+              // 读不到夹表时（unread）只留「建夹」自救——建夹不依赖夹表，是读回失败时唯一的出路；
+              // 改名与删除控件对着不存在的"当前夹"，点了只会得到对不存在场景编造的竞态解释（终审 #16）。
+              unread ? null : vnode('input', {
                 type: 'text', 'aria-label': '当前夹名', value: renameValue,
                 onChange: (e) => onCurrentNameChange?.(e?.target?.value ?? ''),
-                onKeyDown: (e) => { if (e?.key === 'Enter') onRename?.(cur, e?.target?.value ?? renameValue) }
+                // 忙时挡提交不禁输入：请求在途还能继续打字改草稿，只是不许再叠一个请求
+                onKeyDown: (e) => { if (e?.key === 'Enter' && !busy) onRename?.(cur, e?.target?.value ?? renameValue) }
               }),
-              vnode('button', { type: 'button', onClick: () => onRename?.(cur, renameValue) }, ['改名']),
-              curFolder && !curFolder.is_default
-                ? vnode('button', { type: 'button', onClick: () => onAskDelete?.(cur) }, ['删除这个夹'])
+              unread ? null : vnode('button', { type: 'button', disabled: busy, onClick: () => onRename?.(cur, renameValue) }, ['改名']),
+              unread ? null : curFolder && !curFolder.is_default
+                ? vnode('button', { type: 'button', disabled: busy, onClick: () => onAskDelete?.(cur) }, ['删除这个夹'])
                 : null
             ].filter(Boolean)),
           note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
@@ -1204,6 +1217,9 @@ window.__ModuleLoader__.load({
       const [folders, setFolders] = React.useState([])
       const [newFolderName, setNewFolderName] = React.useState('')
       const [collecting, setCollecting] = React.useState(false)
+      // 建夹/改名/删除的在途标记（终审 #18，照抄 collecting 的规矩）：没有它，双击建夹
+      // 第二次会拿到 name_taken，回显对着刚建好的夹说"已经有这个夹了"。
+      const [folderBusy, setFolderBusy] = React.useState(false)
       const [knownFolders, setKnownFolders] = React.useState(null)
       // 收藏页的瞬时态（一律不进 reducer：刷新就没的输入草稿 + 一次二次确认 + 一行回显）。
       // renameId 记着"这份草稿是改哪个夹的"，换夹就丢掉，不许把上一个夹的半截名字带过去。
@@ -1267,7 +1283,11 @@ window.__ModuleLoader__.load({
        *  2. 2xx 但应答里没带夹表（{ok:true, data:null}）算"没读回来"，不许把 okText 当真成功。
        */
       function runFolder(action, args, okText) {
+        // 发请求前置忙、then 回调第一行复位（终审 #18）：folderOp 是 post 包装、从不 reject
+        // （view-api.js 的 post 全程 try/catch），所以复位不用 finally，更不许补一个静默 catch。
+        setFolderBusy(true)
         return api.folderOp(action, args).then((r) => {
+          setFolderBusy(false)
           if (r.ok) {
             const list = Array.isArray(r.data?.folders) ? r.data.folders : null
             if (list) setFolders(list)
@@ -1290,9 +1310,12 @@ window.__ModuleLoader__.load({
       const collectionsProps = {
         folders,
         pendingDelete,
+        folderBusy,
         note: collectNote,
         newFolderName: folderDraft.createName,
-        currentName: folderDraft.renameId === curFolderId ? folderDraft.renameName : '',
+        // 无草稿传 null（不是空串）：视图靠 null 回落服务端夹名；空串是"用户清空了草稿"，
+        // 传成空串会把清空误当没草稿，一松手就被旧名填回（终审 #15）。
+        currentName: folderDraft.renameId === curFolderId ? folderDraft.renameName : null,
         onNewFolderNameChange: (v) => setFolderDraft((d) => ({ ...d, createName: v })),
         onCurrentNameChange: (v) => setFolderDraft((d) => ({ ...d, renameId: curFolderId, renameName: v })),
         onPickFolder: (id) => { setPendingDelete(null); dispatch({ type: 'filter', view: 'collections', key: 'folder', value: id }) },

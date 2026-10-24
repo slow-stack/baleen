@@ -194,6 +194,15 @@ test('collect 失败的回显分两种：没记上 / 夹已经不在了', async 
   assert.doesNotMatch(done[0], /有 \d+ 个夹/)
 })
 
+test('新建重名夹：抽屉把 name_taken 说成人话，不直出英文短码（终审 D1）', async () => {
+  const done = []
+  const api = { collect: async () => ({ ok: false, error: 'name_taken' }) }
+  const tree = Drawer({ item: item({ folders: [] }), api, folders: FOLDERS, newFolderName: '默认', onDone: (r) => done.push(r.message) })
+  await findAll(tree, 'bl-newfolder')[0].children.find((n) => n.type === 'button').props.onClick()
+  assert.match(done[0], /已经有这个夹了/)
+  assert.doesNotMatch(done[0], /name_taken/, '英文短码直出给用户了')
+})
+
 test('folder_gone 缺多个夹时把 id 挨个列出来', async () => {
   const done = []
   const api = { collect: async () => ({ ok: false, error: 'folder_gone', missing: [2, 3] }) }

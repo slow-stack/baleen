@@ -308,6 +308,10 @@ test('收藏格真的消费注入的取数：三夹两卡上页，删掉 ...coll
     assert.match(text(cards[0]), /一条收过的文章 11/)
     assert.match(text(tree), /收进来：\d{4}/)
     assert.doesNotMatch(text(tree), /时间未知/, 'added_at 断在链路上任何一环，卡片都会说（时间未知）')
+    // 终审 #15 的接线半边（首发即绿的钉子）：没草稿时装配层传 null、视图回落服务端夹名——
+    // 装配层若退回把"无草稿"传成空串，这里画出来的改名框就是空的，服务端名再也回不来
+    const renameInput = findAll(tree, 'bl-toolbar')[0].children.filter((n) => n.type === 'input')[1]
+    assert.equal(renameInput.props.value, '公共管理')
   } finally { rt.restore() }
 })
 
@@ -456,6 +460,16 @@ test('收藏页的失败回显走 runFolder，不许 catch 掉（源码级）', 
   assert.match(src, /function runFolder\(action, args, okText\) \{/, 'runFolder 得是那个带 ok/error 分支的 helper')
   assert.match(src, /setCollectNote\(r\.error === 'name_taken'/, 'name_taken 要说人话，不能只报错误码')
   assert.doesNotMatch(src, /api\.folderOp\([^)]*\)\.catch\(\(\) => \{\}\)/, '夹操作失败不许静默')
+})
+
+// 终审 #18 的接线半边：folderBusy 是装配层持有的瞬时 state，三个动作经 runFolder 置忙/复位，
+// 再经 collectionsProps 传给视图——少任何一环，views-collections 里那颗禁用断言就是摆设。
+test('建夹/改名/删除防连点接在装配层上：置忙、复位、busy 下传（源码级）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
+  assert.match(src,
+    /setFolderBusy\(true\)\r?\n\s*return api\.folderOp\(action, args\)\.then\(\(r\) => \{\r?\n\s*setFolderBusy\(false\)/,
+    '发请求前置忙、then 回调第一行复位：folderOp 是 post 包装从不 reject，不许补静默 catch 也不许漏复位')
+  assert.match(src, /folderBusy,\r?\n\s*note: collectNote/, 'busy 没经 collectionsProps 下传，按钮禁用就不会生效')
 })
 
 test('面板落在收藏格：首屏说"夹列表没读回来"，不把读不到说成还没收藏', () => {

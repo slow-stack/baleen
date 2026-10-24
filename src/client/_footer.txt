@@ -69,6 +69,9 @@
       const [folders, setFolders] = React.useState([])
       const [newFolderName, setNewFolderName] = React.useState('')
       const [collecting, setCollecting] = React.useState(false)
+      // 建夹/改名/删除的在途标记（终审 #18，照抄 collecting 的规矩）：没有它，双击建夹
+      // 第二次会拿到 name_taken，回显对着刚建好的夹说"已经有这个夹了"。
+      const [folderBusy, setFolderBusy] = React.useState(false)
       const [knownFolders, setKnownFolders] = React.useState(null)
       // 收藏页的瞬时态（一律不进 reducer：刷新就没的输入草稿 + 一次二次确认 + 一行回显）。
       // renameId 记着"这份草稿是改哪个夹的"，换夹就丢掉，不许把上一个夹的半截名字带过去。
@@ -132,7 +135,11 @@
        *  2. 2xx 但应答里没带夹表（{ok:true, data:null}）算"没读回来"，不许把 okText 当真成功。
        */
       function runFolder(action, args, okText) {
+        // 发请求前置忙、then 回调第一行复位（终审 #18）：folderOp 是 post 包装、从不 reject
+        // （view-api.js 的 post 全程 try/catch），所以复位不用 finally，更不许补一个静默 catch。
+        setFolderBusy(true)
         return api.folderOp(action, args).then((r) => {
+          setFolderBusy(false)
           if (r.ok) {
             const list = Array.isArray(r.data?.folders) ? r.data.folders : null
             if (list) setFolders(list)
@@ -155,9 +162,12 @@
       const collectionsProps = {
         folders,
         pendingDelete,
+        folderBusy,
         note: collectNote,
         newFolderName: folderDraft.createName,
-        currentName: folderDraft.renameId === curFolderId ? folderDraft.renameName : '',
+        // 无草稿传 null（不是空串）：视图靠 null 回落服务端夹名；空串是"用户清空了草稿"，
+        // 传成空串会把清空误当没草稿，一松手就被旧名填回（终审 #15）。
+        currentName: folderDraft.renameId === curFolderId ? folderDraft.renameName : null,
         onNewFolderNameChange: (v) => setFolderDraft((d) => ({ ...d, createName: v })),
         onCurrentNameChange: (v) => setFolderDraft((d) => ({ ...d, renameId: curFolderId, renameName: v })),
         onPickFolder: (id) => { setPendingDelete(null); dispatch({ type: 'filter', view: 'collections', key: 'folder', value: id }) },

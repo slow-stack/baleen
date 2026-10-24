@@ -120,7 +120,12 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
       ? `已放进：${namesOf(item, known, after)}${unreadTail}`
       : res && res.error === 'folder_gone'
         ? `没记上：${res.missing?.length ? `夹 ${res.missing.join('、')} 已经不在了` : `有夹已经不在了，但${readbackMiss('是哪几个')}`}，重新勾一次`
-        : `没记上（${(res && res.error) || '宿主接口没应答'}）`
+        : res && res.error === 'name_taken'
+          // 新建重名夹是用户真会踩到的失败（终审 D1）：说人话，别把英文短码直出给用户。
+          // 与收藏页 runFolder 的映射逐字一致；bad_name/name_too_long 在抽屉不可达
+          // （空串不发请求、maxLength=40 挡输入），不用映射。
+          ? '已经有这个夹了'
+          : `没记上（${(res && res.error) || '宿主接口没应答'}）`
     onDone?.({ message, kind: 'collect', folderIds: after ?? undefined, folders: readFolders ?? undefined })
     return message
   }
