@@ -33,6 +33,42 @@ test('旧库补列是幂等的：先建无 gaps_json 的 runs，migrate 后能�
   db.close()
 })
 
+// f7fdfb8 往 DDL 里加了 max_age_days 却没配 PRAGMA/ALTER 回填：291d55d 或更早建的库
+// 过得了 migrate（CREATE TABLE IF NOT EXISTS 整表 no-op），upsertSource 一写就炸
+// "no column named max_age_days"——任何老库升级都会踩。列集考古自 git show 291d55d:lib/sql/items.sql。
+test('老库补列：291d55d 时代的 sources 没有 max_age_days，migrate 后 upsertSource 能写', () => {
+  const { db } = openStore(':memory:')
+  db.exec(`CREATE TABLE sources (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    url TEXT,
+    label TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    interval_min INTEGER NOT NULL DEFAULT 720,
+    weight REAL NOT NULL DEFAULT 1.0,
+    cursor TEXT,
+    last_error_class TEXT,
+    last_error TEXT,
+    last_ok_at INTEGER
+  )`)
+  assert.equal(db.prepare('PRAGMA table_info(sources)').all().some(r => r.name === 'max_age_days'), false)
+  migrate(db)
+  assert.equal(db.prepare('PRAGMA table_info(sources)').all().some(r => r.name === 'max_age_days'), true)
+  migrate(db)   // 再跑一次不能报"列已存在"
+  upsertSource(db, { id: 's1', type: 'rss', url: 'https://e.com/f', max_age_days: 30 })
+  upsertSource(db, { id: 's2', type: 'rss', url: 'https://e.com/g' })
+  const rows = listSources(db)
+  assert.equal(rows.find(r => r.id === 's1').max_age_days, 30, '带的值要落库')
+  assert.equal(rows.find(r => r.id === 's2').max_age_days, null, '不带的必须是 null，不许有假默认')
+  // 补出来的列与 DDL 同型：可空 INTEGER、无默认——NOT NULL 会让有老行的表 ALTER 直接炸，
+  // 带默认则把 null 说成假值，两种都算对覆盖面撒谎。
+  const col = db.prepare('PRAGMA table_info(sources)').all().find(r => r.name === 'max_age_days')
+  assert.equal(col.type, 'INTEGER')
+  assert.equal(col.notnull, 0)
+  assert.equal(col.dflt_value, null)
+  db.close()
+})
+
 test('游标按源存取，可覆盖，缺源返回 null', () => {
   const db = dbOf()
   assert.equal(getCursor(db, 's1'), null)
