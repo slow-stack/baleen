@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Drawer, boundaryNote, feedbackHint, collectSetOf } from '../src/client/views/drawer.js'
+import { Drawer, boundaryNote, feedbackHint, collectSetOf, drawerItemWithFolders } from '../src/client/views/drawer.js'
 import { text, findAll } from './helpers/tree.mjs'
 
 const item = (over = {}) => ({
@@ -140,6 +140,33 @@ test('collectSetOf 不靠夹列表的顺序反推，条目里多出来的未知�
   assert.deepEqual(collectSetOf(null, FOLDERS, 2, true), [2])
 })
 
+// 绑定约束（"连点两次互相抹掉"的钉子）：/collect 是全量替换，抽屉那条来自不带
+// folders 字段的查询时，第一次成功读回的归属必须覆盖回抽屉这一条，第二次点击才是在
+// 真集合上做增删。这里用纯函数钉住整条链路：点击1 → 提交集合 → 装配层写回
+// knownFolders → drawerItemWithFolders 覆盖 → 点击2 提交合并集合。
+// （选纯函数级而非装配级：Panel 在桩 React 下要驱动两次异步渲染才能复现连点，
+//   测的是脚手架不是不变量；overlay 的每个分支下面单独钉。）
+test('连点两个勾不互相抹掉：第一次读回覆盖后，第二次提交的是合并集合', () => {
+  const base = item() // 今天的三格查询不带 folders 字段：那是"没读到"，不是"在 0 个夹里"
+  const first = collectSetOf(base, FOLDERS, 1, true)
+  assert.deepEqual(first, [1])
+  const overlaid = drawerItemWithFolders(base, { itemId: base.id, folder_ids: first })
+  assert.deepEqual(overlaid.folders, [1], '读回的归属要覆盖到抽屉这一条上')
+  assert.deepEqual(collectSetOf(overlaid, FOLDERS, 2, true), [1, 2], '第二点该是 1+2，不是只有 2')
+  // 反例钉住"这层为什么必须在"：没有覆盖，第二次全量替换就会把第一次的放进整个抹掉
+  assert.deepEqual(collectSetOf(base, FOLDERS, 2, true), [2])
+})
+
+test('drawerItemWithFolders 只在"归属没读到且是同一条"时覆盖，其余原样', () => {
+  const base = item()
+  assert.equal(drawerItemWithFolders(null, { itemId: 1, folder_ids: [1] }), null, '没打开抽屉不该造出条目')
+  assert.equal(drawerItemWithFolders(base, null), base, '还没成功收藏过就原样')
+  // 条目自带 folders（比如收藏页的查询带字段）时以列表真相为准，不被旧读回盖掉
+  assert.deepEqual(drawerItemWithFolders(item({ folders: [2] }), { itemId: 1, folder_ids: [1] }).folders, [2])
+  // 别的条目的读回不许贴到这一条上（换条目开抽屉时必须从头算）
+  assert.equal(drawerItemWithFolders(base, { itemId: 99, folder_ids: [1] }), base)
+})
+
 test('没有夹列表时（路由缺席）说读不到，不给一组空勾', () => {
   const t = text(Drawer({ item: item(), api: {}, folders: [] }))
   assert.match(t, /读不到夹/)
@@ -162,6 +189,19 @@ test('collect 失败的回显分两种：没记上 / 夹已经不在了', async 
   await findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')[2].props.onChange({ target: { checked: true } })
   assert.match(done[0], /没记上/)
   assert.match(done[0], /已经不在了/)
+  // 绑定约束：folder_gone 要说清是哪几个夹没了，不是只报个数
+  assert.match(done[0], /夹 3 已经不在了/)
+  assert.doesNotMatch(done[0], /有 \d+ 个夹/)
+})
+
+test('folder_gone 缺多个夹时把 id 挨个列出来', async () => {
+  const done = []
+  const api = { collect: async () => ({ ok: false, error: 'folder_gone', missing: [2, 3] }) }
+  const tree = Drawer({ item: item({ folders: [] }), api, folders: FOLDERS, onDone: (r) => done.push(r.message) })
+  await findAll(tree, 'bl-collect')[0].children.filter((n) => n.type === 'input')[1].props.onChange({ target: { checked: true } })
+  assert.match(done[0], /没记上/)
+  assert.match(done[0], /已经不在了/)
+  assert.match(done[0], /夹 2、3 已经不在了/)
 })
 
 test('收藏动作不发出去时不给"忙"的样子，防连点叠请求', () => {

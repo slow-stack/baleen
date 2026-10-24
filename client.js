@@ -838,6 +838,18 @@ window.__ModuleLoader__.load({
       return on ? [...new Set([...cur, toggleId])] : cur.filter((x) => x !== toggleId)
     }
 
+    /**
+     * 装配层的"过期归属"覆盖：抽屉里那条来自不带 folders 字段的查询时（今天的三格），
+     * /collect 成功读回的归属按条目 id 覆盖回抽屉这一条——只改抽屉的展示，不动列表真相。
+     * 没有这层，连点两个勾各自从"没读到"算起，第二次全量替换会把第一次的放进整个抹掉。
+     * 只在 found 存在、自身没有 folders、knownFolders 指的是同一条时才覆盖，其余原样返回。
+     */
+    function drawerItemWithFolders(found, knownFolders) {
+      return found && !Array.isArray(found.folders) && knownFolders && knownFolders.itemId === found.id
+        ? { ...found, folders: knownFolders.folder_ids }
+        : found
+    }
+
     /** 夹 id 说回人能认的名字；列表里查不到就明写"这个夹已经没了"，不编一个 */
     const namesOf = (item, folders, ids) => (ids ?? []).map((id) =>
       (folders ?? []).find((f) => f.id === id)?.name ?? `#${id}（这个夹已经没了）`).join(' / ') || '（现在不在任何夹里）'
@@ -880,7 +892,7 @@ window.__ModuleLoader__.load({
         const message = after
           ? `已放进：${namesOf(item, known, after)}`
           : res && res.error === 'folder_gone'
-            ? `没记上：有 ${res.missing?.length ?? 0} 个夹已经不在了，重新勾一次`
+            ? `没记上：夹 ${res.missing?.join('、') ?? '（服务端没说是哪几个）'} 已经不在了，重新勾一次`
             : `没记上（${(res && res.error) || '宿主接口没应答'}）`
         onDone?.({ message, kind: 'collect', folderIds: after ?? undefined, folders: readFolders ?? undefined })
         return message
@@ -1073,9 +1085,8 @@ window.__ModuleLoader__.load({
       const found = drawerOpen ? data.items.find((i) => i.id === snap.drawerItemId) || null : null
       // 抽屉里那条可能来自不带 folders 字段的查询（今天的三格）。/collect 是全量替换，
       // 所以收藏成功后要把服务端读回的归属覆盖上去——只覆盖抽屉这一条的展示，不改 data.items。
-      const drawerItem = found && !Array.isArray(found.folders) && knownFolders && knownFolders.itemId === found.id
-        ? { ...found, folders: knownFolders.folder_ids }
-        : found
+      // 覆盖规则抽成纯函数 drawerItemWithFolders（views/drawer.js），连点不互抹的不变量由测试钉住。
+      const drawerItem = drawerItemWithFolders(found, knownFolders)
       // 包一层 collecting：点一下即生效意味着连点会叠请求，全量替换下后到的旧集合会盖掉新决定。
       function runCollect(...args) {
         setCollecting(true)
