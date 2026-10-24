@@ -148,6 +148,35 @@ window.__ModuleLoader__.load({
         return { ok: false, stale: true, data: readCached(), error: r.error }
       }
 
+      /**
+       * 写请求专用。与 get() 的分别：4xx/5xx 也要把响应体读出来——
+       * folder_gone 带的是"哪几个夹没了"，丢了就等于面板只能说"没记上"，
+       * 而用户真正需要知道的是那个夹已经被删了，换个夹再收一次。
+       */
+      async function post(urlPath, payload) {
+        try {
+          const res = await fetchImpl(API_BASE + urlPath, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+          const status = (res && res.status) ?? 0
+          let json = null
+          try { json = res && await res.json() } catch { json = null }
+          if (res && res.ok === false) {
+            return {
+              ok: false,
+              error: (json && json.error) || ('HTTP ' + status),
+              missing: (json && json.missing) || undefined,
+              data: json
+            }
+          }
+          return { ok: true, stale: false, data: json }
+        } catch (e) {
+          return { ok: false, stale: true, error: String((e && e.message) || e), data: null }
+        }
+      }
+
       return {
         snapshot: readCached,
         state: () => get(API_BASE + '/state'),
@@ -169,7 +198,20 @@ window.__ModuleLoader__.load({
           })
           if (!r.httpOk) return { ok: false, stale: true, data: readCached(), error: r.error }
           return { ok: true, stale: false, data: r.json }
-        }
+        },
+        folders: async () => {
+          try {
+            const res = await fetchImpl(API_BASE + '/folders', { cache: 'no-store' })
+            if (!res || res.ok === false) return { ok: false, stale: true, data: null }
+            return { ok: true, stale: false, data: await res.json() }
+          } catch { return { ok: false, stale: true, data: null } }
+        },
+        collect: (itemId, folderIds, newFolder) => post('/collect', {
+          item_id: itemId,
+          folder_ids: Array.isArray(folderIds) ? folderIds : [],
+          ...(typeof newFolder === 'string' && newFolder.trim() ? { new_folder: newFolder.trim() } : {})
+        }),
+        folderOp: (action, { id, name } = {}) => post('/folder', { action, ...(id != null ? { id } : {}), ...(name != null ? { name } : {}) }),
       }
     }
 
