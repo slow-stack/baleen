@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   openStore, migrate, createFolder, renameFolder, deleteFolder, listFolders, setStatus,
-  setItemFolders, foldersOfItem, isCollected, listItems
+  setItemFolders, foldersOfItem, isCollected, listItems, itemsWithFolders
 } from '../lib/store.js'
 
 const dbOf = () => { const { db } = openStore(':memory:'); migrate(db); return db }
@@ -268,5 +268,51 @@ test('写关系写到一半失败：旧关系原样退回，不会只剩"移出�
   // 失败不能把连接带坏：紧接着的正常提交照样管用
   assert.deepEqual(setItemFolders(db, a, [f2], () => 9000).folder_ids, [f2])
   assert.deepEqual(foldersOfItem(db, a), [f2])
+  db.close()
+})
+
+test('itemsWithFolders 每条都带 folders 与 folder_names，收藏页一次取数就够', () => {
+  const db = dbOf()
+  const a = insRow(db, { external_id: 'a' }).lastInsertRowid
+  const f1 = createFolder(db, '一').id
+  const f2 = createFolder(db, '二').id
+  setItemFolders(db, a, [f1, f2])
+  const rows = itemsWithFolders(db, { folder: f1 })
+  assert.equal(rows.length, 1)
+  assert.deepEqual([...rows[0].folders].sort((x, y) => x - y), [f1, f2].sort((x, y) => x - y))
+  assert.deepEqual(rows[0].folder_names.length, 2)
+  assert.equal(typeof rows[0].title, 'string')
+  db.close()
+})
+
+test('itemsWithFolders 的 folders 一定按 listFolders 的顺序，不是按加入时间', () => {
+  const db = dbOf()
+  const a = insRow(db, { external_id: 'a' }).lastInsertRowid
+  const z = createFolder(db, 'Z', () => 100).id
+  const y = createFolder(db, 'Y', () => 300).id
+  setItemFolders(db, a, [y, z])
+  assert.deepEqual(itemsWithFolders(db, {})[0].folders, foldersOfItem(db, a))
+  db.close()
+})
+
+test('setItemFolders 缺 folderIds 参数是报错，不是静默清空全部归属', () => {
+  const db = dbOf()
+  const a = insRow(db, { external_id: 'a' }).lastInsertRowid
+  const f = createFolder(db, '一').id
+  setItemFolders(db, a, [f])
+  // 第三参缺失若被当成 []，等于一次误操作把这条的收藏全抹了——必须响亮失败
+  assert.throws(() => setItemFolders(db, a), /bad_payload/)
+  assert.deepEqual(foldersOfItem(db, a), [f], '缺参的调用不该已经动过关系表')
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 1)
+  db.close()
+})
+
+test('setItemFolders 数组里混进非整数元素是报错，不是静默丢弃', () => {
+  const db = dbOf()
+  const a = insRow(db, { external_id: 'a' }).lastInsertRowid
+  const f = createFolder(db, '一').id
+  assert.throws(() => setItemFolders(db, a, [f, 'x']), /no_folder/)
+  assert.throws(() => setItemFolders(db, a, ['x']), /no_folder/)
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 0, '被拒的提交不该写出任何关系')
   db.close()
 })

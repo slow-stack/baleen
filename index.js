@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder } from './lib/store.js'
+import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
@@ -37,8 +37,13 @@ function json(res, code, payload) {
   res.end(JSON.stringify(payload))
 }
 
-/** 查询参数一律消毒：`?limit=abc` 应该按默认值走，而不是把路由打成 500。 */
+/**
+ * 查询参数一律消毒：`?limit=abc` 应该按默认值走，而不是把路由打成 500。
+ * 参数缺席（null）也必须走默认值——Number(null) === 0，不挡住就会把"没传 limit"
+ * 变成"limit=0"，收藏页不带 limit 取数时会拿到空列表（老测试库全是空的，从没暴露过这条）。
+ */
 function num(v, dflt, max) {
+  if (v == null || v === '') return dflt
   const n = Number(v)
   return Number.isInteger(n) && n >= 0 ? Math.min(max, n) : dflt
 }
@@ -103,13 +108,53 @@ export function apply(ctx, config = {}) {
       if (sub === '/state' && req.method === 'GET') return json(res, 200, { ok: true, ...state() })
       if (sub === '/items' && req.method === 'GET') {
         const q = url.searchParams
-        return json(res, 200, {
-          ok: true,
-          items: listItems(db, {
-            status: q.get('status') || null, kind: q.get('kind') || null, tier: q.get('tier') || null,
-            limit: num(q.get('limit'), 100, 500), offset: num(q.get('offset'), 0, 100000)
-          })
-        })
+        const opts = {
+          status: q.get('status') || null, kind: q.get('kind') || null, tier: q.get('tier') || null,
+          limit: num(q.get('limit'), 100, 500), offset: num(q.get('offset'), 0, 100000)
+        }
+        // 脏值不许原样喂给 store：Number('') === 0、Number(true) === 1，
+        // 不校验就成了"筛 0 号夹（恒空）"或"筛 1 号夹"这种静默错位。边界校验归 HTTP 层。
+        const folderRaw = q.get('folder')
+        if (folderRaw != null && /^\d+$/.test(folderRaw)) opts.folder = Number(folderRaw)
+        // 收藏页要一次拿到"这条还在哪些夹里"；其余视图沿用不带夹信息的取数，
+        // 不该多背一次关系表全读。
+        return json(res, 200, { ok: true, items: opts.folder == null ? listItems(db, opts) : itemsWithFolders(db, opts) })
+      }
+      if (sub === '/collect' && req.method === 'POST') {
+        let body
+        try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        const itemId = Number(body.item_id)
+        if (!Number.isInteger(itemId)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        const wanted = Array.isArray(body.folder_ids) ? body.folder_ids.map((x) => Number(x)) : null
+        if (wanted == null && typeof body.new_folder !== 'string') return json(res, 400, { ok: false, error: 'bad_payload' })
+        // 条目先于夹：收藏的动作主语是这条条目。条目都没了却报 410"夹没了"，
+        // 会把面板引去修错误的那一头。
+        if (!db.prepare('SELECT 1 FROM items WHERE id = ? LIMIT 1').get(itemId)) {
+          return json(res, 404, { ok: false, error: 'no_item' })
+        }
+        const missing = wanted === null ? [] : wanted.filter((id) => !Number.isInteger(id) || !db.prepare('SELECT 1 FROM folders WHERE id = ? LIMIT 1').get(id))
+        if (missing.length) {
+          // 面板上一秒看的夹可能已经被另一格删掉。说清是哪几个，别静默丢掉那部分意图。
+          return json(res, 410, { ok: false, error: 'folder_gone', missing })
+        }
+        try {
+          let created = null
+          // 空串当"没想起来要建"，跳过；纯空格是坏名字，交给 createFolder 报 bad_name。
+          if (typeof body.new_folder === 'string' && body.new_folder.length) {
+            created = createFolder(db, body.new_folder, now)
+          }
+          const ids = [...new Set([...(wanted ?? []), ...(created ? [created.id] : [])])]
+          const resOf = setItemFolders(db, itemId, ids, now)
+          log({ level: 'info', event: 'collect', detail: `item#${itemId} → ${ids.length} 个夹` })
+          return json(res, 200, { ok: true, item_id: itemId, folder_ids: resOf.folder_ids, folders: listFolders(db) })
+        } catch (e) {
+          const msg = String(e?.message)
+          // hasOwn 与 /folder 路由同理：短码撞原型键名时不能把函数当状态码用。
+          const code = msg === 'no_item' ? 404 : (Object.hasOwn(FOLDER_ERRORS, msg) ? FOLDER_ERRORS[msg] : 500)
+          if (code === 500) log({ level: 'error', event: 'collect_failed', detail: msg.slice(0, 60) })
+          return json(res, code, { ok: false, error: code === 500 ? 'internal' : msg })
+        }
       }
       if (sub === '/folders' && req.method === 'GET') {
         return json(res, 200, { ok: true, folders: listFolders(db) })
@@ -167,6 +212,11 @@ export function apply(ctx, config = {}) {
     state,
     folders: () => listFolders(db),
     list: (opts) => listItems(db, opts),
+    // 服务入口不代劳建夹：/collect 路由自己先 createFolder 再 setItemFolders，
+    // 别的插件要用服务入口就自己先建夹——少一个参数就少一条"谁负责校验"的路径。
+    // 注意 folders() 返回裸数组，与 HTTP 路由的 {ok, folders} 信封不同（与 list 同形）。
+    collect: (itemId, folderIds) => setItemFolders(db, itemId, folderIds, now),
+    foldersOf: (itemId) => foldersOfItem(db, itemId),
     runNow: () => scheduler.triggerNow(),
     tick: () => scheduler.tick(),
     db,
