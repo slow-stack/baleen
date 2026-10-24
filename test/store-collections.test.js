@@ -259,7 +259,9 @@ test('写关系写到一半失败：旧关系原样退回，不会只剩"移出�
   const f1 = createFolder(db, '一').id
   const f2 = createFolder(db, '二').id
   setItemFolders(db, a, [f1], () => 7000)
-  // 故障注入：added_at 拿到一个 node:sqlite 拒绝绑定的值，INSERT 必在 DELETE 之后炸。
+  // 故障注入：added_at 拿到一个 node:sqlite 拒绝绑定的值，INSERT 必炸。
+  // 注意差量实现下这次提交根本不跑 DELETE（f1 本来就要保留），失败的 INSERT 也没写过行，
+  // 所以"删了旧关系再失败"那半边由下一条来踩；这条还兼验失败没把连接带坏。
   // 这里验的不是"now 可以乱传"，是那句事务注释承诺的回滚性质。
   assert.throws(() => setItemFolders(db, a, [f1, f2], () => ({})), /cannot be bound/)
   assert.deepEqual(foldersOfItem(db, a), [f1], '回滚没生效：旧夹的归属被 DELETE 走了')
@@ -268,6 +270,26 @@ test('写关系写到一半失败：旧关系原样退回，不会只剩"移出�
   // 失败不能把连接带坏：紧接着的正常提交照样管用
   assert.deepEqual(setItemFolders(db, a, [f2], () => 9000).folder_ids, [f2])
   assert.deepEqual(foldersOfItem(db, a), [f2])
+  db.close()
+})
+
+// 差量应用（5754062）之后，上一条的注入场景里 DELETE 一次都不会跑，回滚性质空转了。
+// 这条换成真发生 DELETE 的那半边：提交 [f2] 让 DELETE 先把 f1 的旧关系删掉，随后的
+// INSERT 才炸——正是 SAVEPOINT 注释里"否则会出现移出了旧夹但没进新夹"要防的情形，
+// 这种半边事务必须整段退回，连已删行的 added_at 一起原样恢复。
+test('差量实现下删了旧关系再失败：已删的旧关系原样退回，added_at 不丢', () => {
+  const db = dbOf()
+  const a = insRow(db, { external_id: 'a' }).lastInsertRowid
+  const f1 = createFolder(db, '一').id
+  const f2 = createFolder(db, '二').id
+  setItemFolders(db, a, [f1], () => 7000)
+  // 故障注入同上一条（added_at 拿到 node:sqlite 拒绝绑定的值），但提交的是 [f2]：
+  // f1 不在 wanted 里，DELETE 先真实落地，随后的 INSERT 才炸。
+  assert.throws(() => setItemFolders(db, a, [f2], () => ({})), /cannot be bound/)
+  assert.deepEqual(foldersOfItem(db, a), [f1], '回滚没生效：旧夹的归属被 DELETE 走了')
+  const addedAt = db.prepare('SELECT added_at FROM folder_items WHERE item_id = ? AND folder_id = ?').get(a, f1)?.added_at
+  assert.equal(addedAt, 7000, '退回的不只是归属，还有它原本的收藏时间')
+  assert.equal(isCollected(db, a), true, '半途失败把条目变成了"没被收藏过"')
   db.close()
 })
 
