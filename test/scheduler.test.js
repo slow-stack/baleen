@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -13,7 +13,14 @@ const at = (hhmm) => {
 }
 const pref = { schedule: { windows: ['07:00-09:00', '12:30-13:30'], max_per_run: 10 } }
 const dbOf = () => { const { db } = openStore(':memory:'); migrate(db); return db }
-const dirOf = () => fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-sched-'))
+// 测试自清（终审 #21）：锁文件跟着目录一起删；库全是 :memory: 且各测试自己 close，无句柄残留。
+const tmpDirs = []
+after(() => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }) })
+const dirOf = () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-sched-'))
+  tmpDirs.push(d)
+  return d
+}
 
 test('时段窗：窗内真、窗外假、含起点不含终点、空窗不限', () => {
   assert.equal(withinWindow(['07:00-09:00'], at('07:00')), true)

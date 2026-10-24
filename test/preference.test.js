@@ -1,12 +1,19 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { loadPreference, validate, bumpTuning, bumpTuningFile, readTuning, ensurePreferenceFile, DEFAULTS } from '../lib/preference.js'
 
+// 测试自清（终审 #21）：目录登记进 tmpDirs，收尾钩子统一删——不往系统临时目录堆 baleen-* 残留。
+// 断言都在测试体内读目录，after 晚于它们跑，没有断言还要回头读这里。
+const tmpDirs = []
+after(() => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }) })
+
 function tmp() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-pref-'))
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-pref-'))
+  tmpDirs.push(d)
+  return d
 }
 
 test('文件缺失时用内置默认并标明来源', () => {

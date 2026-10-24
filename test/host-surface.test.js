@@ -1,11 +1,24 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setItemFolders } from '../lib/store.js'
 
-const freshHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-host-'))
+// 测试自清（终审 #21）：家目录登记进 homes；makeCtx 的 provide 顺手记下每次 apply 开出的
+// 库句柄——Windows 上 node:sqlite 句柄不关，rmSync 会 EPERM，所以收尾先关库再删目录。
+// 断言都在测试体内读目录，after 晚于它们跑，没有断言还要回头读这里。
+const homes = []
+const dbs = []
+const freshHome = () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-host-'))
+  homes.push(d)
+  return d
+}
+after(() => {
+  for (const db of dbs) db.close()
+  for (const home of homes) fs.rmSync(home, { recursive: true, force: true })
+})
 
 function fakeRes() {
   return {
@@ -30,7 +43,7 @@ function makeCtx(home, { withServer = true, timers = [] } = {}) {
     registered, provided, effects, disposes, logs, timers,
     get: (n) => (n === 'webServer' ? webServer : undefined),
     webServer,
-    provide: (n, v) => provided.set(n, v),
+    provide: (n, v) => { provided.set(n, v); if (n === 'baleen' && v && v.db) dbs.push(v.db) },
     effect: (fn, label) => {
       const d = fn()
       effects.push(label)

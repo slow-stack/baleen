@@ -1,9 +1,14 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openStore, migrate, setMeta, getMeta } from '../lib/store.js'
+
+// 测试自清（终审 #21）：落盘的库只在"建在给定目录"那条用到真目录，登记后收尾钩子统一删
+// （那条测试自己 close 了库句柄——Windows 上不先关，rmSync 会 EPERM）。
+const tmpDirs = []
+after(() => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }) })
 
 test('migrate 建出五张表且可重复执行', () => {
   const { db } = openStore(':memory:')
@@ -49,6 +54,7 @@ test('必填列缺值时直接抛，不写半成品', () => {
 
 test('openStore 把库文件建在给定目录下（含不存在的父目录）', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'baleen-store-'))
+  tmpDirs.push(dir)
   const { db, file } = openStore(path.join(dir, 'nested', 'baleen.sqlite'))
   migrate(db)
   db.prepare("INSERT INTO items (source_id, external_id, kind, title, url, body_state, status, fetched_at) VALUES ('s','e','article','t','u','full','new',1)").run()

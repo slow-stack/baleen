@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -6,8 +6,14 @@ import path from 'node:path'
 import { renderPreview, toHtml } from '../tools/preview.mjs'
 import { previewItems, previewFolders } from './fixtures/preview-data.js'
 
-// 写到系统临时目录，不往仓库里堆产物
-const tmp = (tag) => fs.mkdtempSync(path.join(os.tmpdir(), `baleen-preview-${tag}-`))
+// 写到系统临时目录，不往仓库里堆产物；测试自清（终审 #21）：登记进 tmpDirs，收尾钩子统一删。
+const tmpDirs = []
+after(() => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }) })
+const tmp = (tag) => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), `baleen-preview-${tag}-`))
+  tmpDirs.push(d)
+  return d
+}
 const NAMES = ['preview-article.html', 'preview-collections.html', 'preview-digest.html', 'preview-drawer.html',
   'preview-library.html', 'preview-today.html', 'preview-trouble.html', 'preview-video.html']
 
