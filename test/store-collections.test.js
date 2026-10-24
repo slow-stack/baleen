@@ -295,6 +295,58 @@ test('itemsWithFolders 的 folders 一定按 listFolders 的顺序，不是按�
   db.close()
 })
 
+// 跨边界钉子（Task 8 评审 Critical 1）：视图读 item.added_at，但 ITEM_COLS 里根本没这列——
+// 收藏时间长在 folder_items 关系表上，必须由 itemsWithFolders 投影出来。
+// 视图测试里那个 added_at: 5000 是 fixture 自造的，测不到生产者/消费者的接缝；这两条测的就是接缝。
+test('itemsWithFolders 把收藏时间投影成 added_at：带 folder 筛时取这个夹的关系时间', () => {
+  const db = dbOf()
+  const a = insRow(db, { external_id: 'a' }).lastInsertRowid
+  const f1 = createFolder(db, '一').id
+  const f2 = createFolder(db, '二').id
+  setItemFolders(db, a, [f1], () => 7000)
+  setItemFolders(db, a, [f1, f2], () => 9000)
+  const inF1 = itemsWithFolders(db, { folder: f1 })
+  assert.equal(inF1[0].added_at, 7000, '收藏页看的是"进这个夹"的时间，不是最后一次改名单的时间')
+  const inF2 = itemsWithFolders(db, { folder: f2 })
+  assert.equal(inF2[0].added_at, 9000, 'f2 的关系是 9000 写的，投影要取到它')
+  db.close()
+})
+
+test('itemsWithFolders 不带 folder 筛时收藏时间取最早归属（MIN），没收藏过的条目不编时间', () => {
+  const db = dbOf()
+  const a = insRow(db, { external_id: 'a' }).lastInsertRowid
+  const f1 = createFolder(db, '一').id
+  const f2 = createFolder(db, '二').id
+  setItemFolders(db, a, [f1], () => 7000)
+  setItemFolders(db, a, [f1, f2], () => 9000)
+  const b = insRow(db, { external_id: 'b' }).lastInsertRowid
+  const rows = itemsWithFolders(db, {})
+  assert.equal(rows.find((r) => r.external_id === 'a').added_at, 7000,
+    '不限夹时"收进来"只能是第一次决定留下的那一刻（MIN），取 MAX 会把"最后一次加夹"说成整条的收藏时间')
+  assert.equal(rows.find((r) => r.external_id === 'b').added_at, null, '一条没收过的条目没有收藏时间，不许拿 fetched_at 冒充')
+  void b
+  db.close()
+})
+
+test('加第二个夹不许抹掉第一个夹的收藏时间；移出再收回是新决定，拿新时间', () => {
+  const db = dbOf()
+  const a = insRow(db, { external_id: 'a' }).lastInsertRowid
+  const fA = createFolder(db, 'A').id
+  const fB = createFolder(db, 'B').id
+  const addedAt = (fid) => db.prepare('SELECT added_at FROM folder_items WHERE item_id = ? AND folder_id = ?').get(a, fid)?.added_at
+  setItemFolders(db, a, [fA], () => 7000)
+  setItemFolders(db, a, [fA, fB], () => 8000)
+  assert.equal(addedAt(fA), 7000, 'spec §6.2 承诺卡上显示"我什么时候决定留下的"：补一个 B 不许把 A 的时间重写成 now')
+  assert.equal(addedAt(fB), 8000, '新增的配对才该拿 now()')
+  setItemFolders(db, a, [fA, fB], () => 9000)
+  assert.equal(addedAt(fA), 7000, '重复提交同一集合不该动任何时间')
+  assert.equal(addedAt(fB), 8000)
+  setItemFolders(db, a, [], () => 9500)
+  setItemFolders(db, a, [fA], () => 10000)
+  assert.equal(addedAt(fA), 10000, '移出再收回来是新的决定，该拿新时间（否则"现在还在收"显示成很久以前）')
+  db.close()
+})
+
 test('setItemFolders 缺 folderIds 参数是报错，不是静默清空全部归属', () => {
   const db = dbOf()
   const a = insRow(db, { external_id: 'a' }).lastInsertRowid

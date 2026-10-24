@@ -70,6 +70,11 @@ test('可点目标不低于 32px，焦点可见，且尊重 reduced-motion', () 
   assert.match(CSS, /\.bl-navitem\{[^}]*min-height:32px/)
   assert.match(CSS, /\.bl-dbtns button\{[^}]*min-height:32px/)
   assert.match(CSS, /\.bl-facets label\{[^}]*min-height:32px/)
+  // 收藏页是第一次往 .bl-toolbar 里放 <button>（建夹/改名/删除这个夹）——
+  // 只 reset select 与 input 的话，这三颗会掉回 UA 默认（约 21px、字体不继承），
+  // 成为整个面板里唯一没被重置的点击目标。这两条断言防的就是这个洞悄悄回来。
+  assert.match(CSS, /\.bl-toolbar button\{[^}]*min-height:32px/, '工具条里的按钮没被 reset，会掉回 UA 默认的 ~21px')
+  assert.match(CSS, /\.bl-toolbar button\{[^}]*font-family:inherit/, '工具条按钮不继承字体，和旁边的输入框两种字形')
   assert.match(CSS, /:focus-visible\{outline:2px solid var\(--dsw-alias-brand-primary\)/)
   assert.match(CSS, /@media \(prefers-reduced-motion:reduce\)/)
 })

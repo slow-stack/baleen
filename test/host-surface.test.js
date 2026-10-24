@@ -438,6 +438,26 @@ test('GET /items?folder= 取该夹条目并带上所属夹，归档的也列得�
   assert.deepEqual(body.items[0].folder_names, ['三'])
 })
 
+test('/items?folder= 的应答真的带收藏时间：added_at 来自 folder_items 的投影，不是视图自造', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const mk = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '收过' }) }, mk)
+  const fid = JSON.parse(mk.body).folder.id
+  const iid = seedItem(baleen)
+  const c = fakeRes()
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [fid] }) }, c)
+  assert.equal(c.code, 200, '前置收藏没建起来')
+  // 把关系时间改成与 fetched_at(1000) 不同的值：added_at 若是从条目列"顺手抄来"的，这里就露馅
+  baleen.db.prepare('UPDATE folder_items SET added_at = 4321 WHERE item_id = ?').run(iid)
+  const res = fakeRes()
+  await h({ url: `/api/dsh-baleen/items?folder=${fid}`, method: 'GET' }, res)
+  const body = JSON.parse(res.body)
+  const item = body.items.find((i) => i.id === iid)
+  assert.ok(item, '条目没在这一夹的应答里')
+  assert.equal(typeof item.added_at, 'number', '视图读 item.added_at；取数路径不投影这个字段，每张卡都只能显示（时间未知）')
+  assert.equal(item.added_at, 4321, '收藏时间必须是 folder_items.added_at 本身，不是任何条目列的化名')
+})
+
 test('/items 的脏 folder 参数当没带，不把 Number 的脏转换喂给 store', async () => {
   const { h, baleen } = await apiOf(freshHome())
   const mk = fakeRes()

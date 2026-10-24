@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { clientExists, loadClient, exportsOf, flattenText, makeStubs } from '../tools/client-loader.mjs'
-import { findAll } from './helpers/tree.mjs'
+import { text, findAll } from './helpers/tree.mjs'
 
 test('桩的 ctx 复刻宿主 Proxy：未声明服务一律抛', () => {
   const s = makeStubs()
@@ -225,6 +225,114 @@ test('装配层真的把过期归属覆盖接在抽屉上（改回裸 found 这�
   const built = fs.readFileSync(path.join(process.cwd(), 'client.js'), 'utf8')
   assert.equal(built.includes('const drawerItem = drawerItemWithFolders(found, knownFolders)'), true,
     'client.js 是生成的：改了源没跑 node tools/build-client.mjs')
+})
+
+/**
+ * 真挂钩子的小 runtime（Important 3）：client-loader 的桩 useState 永不触发重渲染、useEffect 从不执行，
+ * 所以光注入 fetchImpl 面板也永远停在初始空态——"数据被装配层消费了"这件事桩测不出来。
+ * 这里把 useState/useEffect 补在桩的共享 React 对象上（测完立刻还原：该对象同文件跨测试共用），
+ * 手动渲染 Panel：首渲染跑 effects → 冲掉取数 promise（setter 已写进槽位）→ 再渲染拿到有数据的树。
+ * 钉的是"消费"不是"字符串还在"：删掉 ...collectionsProps、把抽屉覆盖调用改回裸 found，
+ * 这里画出来的树当场就变——grep 式断言两种都抓不到（上面的源码级钉子继续留着，它便宜且能抓删除）。
+ */
+function hookRuntime(React, Panel) {
+  const orig = { useState: React.useState, useEffect: React.useEffect }
+  const states = []
+  const pending = []
+  let cursor = 0
+  let mounted = false
+  React.useState = (init) => {
+    const i = cursor++
+    if (!(i in states)) states[i] = typeof init === 'function' ? init() : init
+    return [states[i], (v) => { states[i] = typeof v === 'function' ? v(states[i]) : v }]
+  }
+  React.useEffect = (fn) => { if (!mounted) pending.push(fn) }
+  return {
+    render() {
+      cursor = 0
+      const tree = Panel()
+      if (!mounted) {
+        mounted = true
+        for (const fn of pending.splice(0)) fn()
+      }
+      return tree
+    },
+    flush: () => new Promise((r) => setTimeout(r, 0)),
+    restore() { Object.assign(React, orig) }
+  }
+}
+
+const collectionsFetch = ({ folders, items }) => async (url) => {
+  const key = String(url).replace('/api/dsh-baleen', '').split('?')[0]
+  const json = key === '/folders' ? { ok: true, folders }
+    : key === '/items' ? { ok: true, items }
+    : { ok: true, counts: { new: 0, judged: 0, digest: 0, archived: 0, total: items.length }, sources: [], preference_errors: [], last_run: null, digest_count: 0 }
+  return { ok: true, status: 200, json: async () => json }
+}
+
+test('收藏格真的消费注入的取数：三夹两卡上页，删掉 ...collectionsProps 这条就红', async () => {
+  const persisted = JSON.stringify({ v: 1, view: 'collections', filters: { collections: { folder: 2 } }, selectedId: null, drawerItemId: null, scroll: 0 })
+  const folders = [
+    { id: 1, name: '默认', is_default: 1, count: 1 },
+    { id: 2, name: '公共管理', is_default: 0, count: 2 },
+    { id: 3, name: '空夹', is_default: 0, count: 0 }
+  ]
+  const collected = (id, added_at) => ({
+    id, kind: 'article', source_id: 'demo', title: '一条收过的文章 ' + id, status: 'new', body_state: 'full',
+    verdict_tier: null, match_json: '{}', url: 'https://example.invalid/' + id,
+    folders: [2], folder_names: ['公共管理'], added_at
+  })
+  const s = loadClient({ storage: { 'baleen.view': persisted }, fetchImpl: collectionsFetch({ folders, items: [collected(11, 7000), collected(12, 8000)] }) })
+  const rt = hookRuntime(s.React, exportsOf(s).__test.Panel)
+  try {
+    rt.render()
+    await rt.flush()
+    const tree = rt.render()
+    const tabs = findAll(tree, 'bl-foldertab')
+    assert.equal(tabs.length, 3, 'folders 只经 ...collectionsProps 进视图：spread 没了就退回默认 []，这里该是 0 个夹加"读不到夹"')
+    assert.equal(tabs.find((x) => x.props['aria-current'] === 'page').props['data-folder'], 2, '筛选里的当前夹也得是装配层解析后交下去的那一个')
+    const cards = findAll(tree, 'bl-card')
+    assert.equal(cards.length, 2, 'items 是 fetch 回来的数据经 setData 再渲染的：空壳说明取数没被消费')
+    assert.match(text(cards[0]), /一条收过的文章 11/)
+    assert.match(text(tree), /收进来：\d{4}/)
+    assert.doesNotMatch(text(tree), /时间未知/, 'added_at 断在链路上任何一环，卡片都会说（时间未知）')
+  } finally { rt.restore() }
+})
+
+test('抽屉的过期归属覆盖真的消费读回数据：点一个勾再渲染，那个夹就成了已勾选；改回裸 found 这条就红', async () => {
+  const persisted = JSON.stringify({ v: 1, view: 'today', filters: {}, selectedId: null, drawerItemId: 7, scroll: 0 })
+  // 今天三格的取数不带 folders 字段——这正是 drawerItemWithFolders 要兜的那个形状
+  const item7 = { id: 7, kind: 'article', source_id: 'demo', title: '今天里的一条', status: 'new', body_state: 'full', verdict_tier: null, match_json: '{}', url: 'https://example.invalid/7' }
+  const known = [
+    { id: 1, name: '默认', is_default: 1, count: 0 },
+    { id: 2, name: '考研', is_default: 0, count: 1 }
+  ]
+  const s = loadClient({
+    storage: { 'baleen.view': persisted },
+    fetchImpl: async (url) => {
+      const key = String(url).replace('/api/dsh-baleen', '').split('?')[0]
+      const json = key === '/folders' ? { ok: true, folders: known.map((f) => ({ ...f, count: 0 })) }
+        : key === '/items' ? { ok: true, items: [item7] }
+        : key === '/collect' ? { ok: true, item_id: 7, folder_ids: [2], folders: known }
+        : { ok: true, counts: { new: 1, judged: 0, digest: 0, archived: 0, total: 1 }, sources: [], preference_errors: [], last_run: null, digest_count: 0 }
+      return { ok: true, status: 200, json: async () => json }
+    }
+  })
+  const rt = hookRuntime(s.React, exportsOf(s).__test.Panel)
+  const boxOf = (tree, label) => findAll(tree, 'bl-collect')[0].children
+    .filter((n) => n.type === 'input').find((n) => n.props['aria-label'] === label)
+  try {
+    rt.render()
+    await rt.flush()
+    const first = rt.render()
+    assert.equal(boxOf(first, '放进：考研').props.checked, false, '归属还没读回时起步必须是空勾')
+    boxOf(first, '放进：考研').props.onChange({ target: { checked: true } })
+    await rt.flush()
+    const second = rt.render()
+    assert.equal(boxOf(second, '放进：考研').props.checked, true,
+      'collect 读回的 folder_ids 必须经 drawerItemWithFolders 覆盖到抽屉条目上：调用点改回裸 found，这条永远是 false，下一次点勾会从"没归属"起步把刚放进的抹掉')
+    assert.match(text(findAll(second, 'bl-drawer')[0]), /已放进：考研/)
+  } finally { rt.restore() }
 })
 
 test('收藏页的取数形状：按夹筛、不限状态（收过的东西不会因归档就消失）', () => {
