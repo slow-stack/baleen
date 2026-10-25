@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates, latestDigests } from './lib/store.js'
+import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates, latestDigests, exportItems, wipeLibrary } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile, writePreference, readPreferenceRaw, clearTuningFile, validate } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
@@ -183,6 +183,60 @@ function makeYtDlpProbe({ spawnImpl, getPref, now }) {
   }
 }
 
+/* ---------------- 库管理（M5 Task 3，设置页的宿主半） ---------------- */
+
+/** 文件名时间戳段：yyyymmdd-HHmmss 本地时间——用户回看文件时念的是自己的钟 */
+function stampOf(at) {
+  const d = new Date(at)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+}
+
+/** 导出行里的 published_at：本地时间；没有就老实写时间未知 */
+function fmtLocal(ms) {
+  if (!Number.isInteger(ms) || ms < 0) return '时间未知'
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+/**
+ * 导出正文：`## <source_id>` 分组头 + 每条 `- [标题](url)｜档位·理由｜本地时间｜body_state`。
+ * 未判条目档位写「未判」——导出是给用户看的账本，没判就明说，不装作漏了。
+ * 标题里的空白折叠成单个空格：源数据里的换行会把"一行一条"的清单撕开。
+ */
+function exportMarkdown(rows) {
+  const lines = ['# Baleen 导出', '']
+  let cur = null
+  for (const r of rows) {
+    if (r.source_id !== cur) {
+      if (cur !== null) lines.push('')
+      cur = r.source_id
+      lines.push(`## ${cur}`)
+    }
+    const tier = r.verdict_tier ?? '未判'
+    const why = r.verdict_why ? `·${r.verdict_why}` : ''
+    const title = String(r.title ?? '').replace(/\s+/g, ' ').trim() || '无标题'
+    lines.push(`- [${title}](${r.url})｜${tier}${why}｜${fmtLocal(r.published_at)}｜${r.body_state}`)
+  }
+  return lines.join('\n') + '\n'
+}
+
+/**
+ * VACUUM INTO 备份（cleanup/wipe 的第一动作）：主库连同 WAL 已提交内容拍成一个
+ * 能独立打开的快照。VACUUM INTO 拒绝覆盖已存在的文件（实测报 output file already
+ * exists），同一秒里的第二次危险操作不该因此 500，撞名加序号。返回值只有文件名——
+ * 路径段永远不进应答与日志。
+ */
+function backupDb(db, dir, now) {
+  fs.mkdirSync(path.join(dir, 'backups'), { recursive: true })
+  const base = `baleen-${stampOf(now())}`
+  let name = `${base}.sqlite`
+  for (let i = 2; fs.existsSync(path.join(dir, 'backups', name)); i++) name = `${base}-${i}.sqlite`
+  db.prepare('VACUUM INTO ?').run(path.join(dir, 'backups', name))
+  return name
+}
+
 /**
  * 宿主半入口。三件事：装配（库 + 偏好 + 调度）、只读路由、给面板与别的插件一个服务入口。
  *
@@ -239,6 +293,17 @@ export function apply(ctx, config = {}) {
       schedule: pref.schedule,
       limits: pref.limits
     }
+  }
+
+  /**
+   * "正在跑的一轮"以库侧状态为准：scheduler 的 busy 是私有闭包（createScheduler
+   * 返回的实例上没有），而 createRun 起手就写 'running'、finishRun 才收尾——
+   * lastRun 停在 'running' 正是抓取在写库的窗口，清库不与它并发。
+   * 边界：runOnce 半途崩溃会留一条 'running' 假尸，下一次跑完（含手动 /run）自动
+   * 愈合；这行防护挡的是并发，不是崩溃恢复。
+   */
+  function runningNow() {
+    return lastRun(db)?.status === 'running'
   }
 
   async function handleApi(req, res) {
@@ -451,6 +516,43 @@ export function apply(ctx, config = {}) {
         // slice(len-want) 而不是 slice(-want)：want=0 时 -0 会变成"整份"。
         const lines = raw.split(/\r?\n/).filter((l) => l.length)
         return json(res, 200, { ok: true, lines: lines.slice(Math.max(0, lines.length - want)).map(redact) })
+      }
+      if (sub === '/export' && req.method === 'POST') {
+        const md = exportMarkdown(exportItems(db))
+        const file = `baleen-export-${stampOf(now())}.md`
+        fs.writeFileSync(path.join(dir, 'out', file), md, 'utf8')
+        const bytes = Buffer.byteLength(md, 'utf8')
+        // detail 只带字节数与文件名（文件名不含目录），路径段不进 diagnostics
+        log({ level: 'info', event: 'export', detail: `${bytes} 字节 → ${file}` })
+        return json(res, 200, { ok: true, file, bytes })
+      }
+      if (sub === '/cleanup' && req.method === 'POST') {
+        let body
+        try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        // days 是"清多久"的档期，不是查询参数：从严（整数且 ≥1），非法 400。
+        // 不做 num() 那套"脏值走默认"——打错的天数悄悄变成默认天数，等于替用户决定删多少。
+        if (!Number.isInteger(body.days) || body.days < 1) return json(res, 400, { ok: false, error: 'bad_payload' })
+        if (runningNow()) return json(res, 409, { ok: false, error: 'running' })
+        const backup = backupDb(db, dir, now)
+        const cutoff = now() - body.days * 86400000
+        // 只清归档：清理是磁盘卫生不是记忆删除，new/judged 一条不动（计划 Task 3 裁定）
+        const removed = db.prepare("DELETE FROM items WHERE status = 'archived' AND fetched_at < ?").run(cutoff).changes
+        log({ level: 'info', event: 'cleanup', detail: `${body.days} 天：删 ${removed} 条归档` })
+        return json(res, 200, { ok: true, removed, backup })
+      }
+      if (sub === '/wipe' && req.method === 'POST') {
+        let body
+        try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        // 字面量门在一切副作用之前：不是这个字就 400，备份也不做（备份也是一次磁盘写入）。
+        // 严格相等，'清空库 '（带空格）不算——确认词必须是无歧义的原样输入。
+        if (body.confirm !== '清空库') return json(res, 400, { ok: false, error: 'confirm_required' })
+        if (runningNow()) return json(res, 409, { ok: false, error: 'running' })
+        const backup = backupDb(db, dir, now)
+        const removed = wipeLibrary(db)
+        log({ level: 'info', event: 'wipe', detail: `清空：items ${removed.items} · runs ${removed.runs} · digests ${removed.digests}` })
+        return json(res, 200, { ok: true, removed, backup })
       }
       return json(res, 404, { ok: false, error: 'no such route' })
     } catch (e) {

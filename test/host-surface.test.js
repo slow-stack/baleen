@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
+import { DatabaseSync } from 'node:sqlite'
 import YAML from 'yaml'
 import { setItemFolders } from '../lib/store.js'
 import { loadPreference } from '../lib/preference.js'
@@ -986,4 +987,204 @@ test('GET /diagnostics-tail：逐行 redact、行数消毒与上限、文件不�
   await api2.h({ url: '/api/dsh-baleen/diagnostics-tail', method: 'GET' }, gone)
   assert.equal(gone.code, 200)
   assert.deepEqual(JSON.parse(gone.body).lines, [])
+})
+
+/* ---------------- M5 Task 3：库管理路由（导出 / 清理 / 清空） ---------------- */
+
+const DAY = 86400000
+// 固定钟：导出文件名、备份文件名、cleanup 的删除截止线全由它决定，断言才写得死
+const T = 1748000000000
+
+/** Task 3 专用播种：status/档位/两个时间戳全可控（seedItem 固定 new + fetched_at 1000，测不动这些维度） */
+let richSeq = 0
+const seedRich = (baleen, over = {}) => {
+  baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status, verdict_tier, verdict_why, published_at)
+    VALUES (@source_id, @external_id, 'article', @title, @url, @body_state, @fetched_at, @status, @verdict_tier, @verdict_why, @published_at)`)
+    .run({
+      source_id: 's1', external_id: `e${++richSeq}`, title: '标题', url: 'https://e.com/x',
+      body_state: 'full', fetched_at: T, status: 'new', verdict_tier: null, verdict_why: null, published_at: null,
+      ...over
+    })
+  return baleen.db.prepare('SELECT id FROM items ORDER BY id DESC LIMIT 1').get().id
+}
+
+/** 与实现各写一遍的本地时间戳：钉住"文件名/日期念出来是用户的钟，不是 UTC" */
+const localStamp = (ms) => {
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+}
+
+const localWhen = (ms) => {
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+test('POST /export：Markdown 按源分组落在 out/，标题档位与本地时间都在，应答只带文件名', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { now: () => T })
+  seedRich(baleen, {
+    source_id: 's1', title: '值得读的 MCP 长文', status: 'judged',
+    verdict_tier: '值得看', verdict_why: '方法密度高', published_at: T - 3600000
+  })
+  seedRich(baleen, { source_id: 's2', title: '还没判的视频', body_state: 'subtitle' })
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/export', method: 'POST', ...bodyOf({}) }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, true)
+  assert.equal(body.file, `baleen-export-${localStamp(T)}.md`, '文件名该是 yyyymmdd-HHmmss 的本地时间戳')
+  assert.equal(/[/\\]/.test(body.file), false, '应答只带文件名，不许带路径')
+  assert.equal(res.body.includes(home), false, '应答里出现了家目录绝对路径')
+  const file = path.join(home, 'out', body.file)
+  assert.ok(fs.existsSync(file), '导出文件没落在 out/')
+  const md = fs.readFileSync(file, 'utf8')
+  assert.match(md, /^## s1$/m, '缺 s1 的源分组头')
+  assert.match(md, /^## s2$/m, '缺 s2 的源分组头')
+  assert.ok(md.includes('值得读的 MCP 长文'), '标题没进导出')
+  assert.ok(md.includes('值得看·方法密度高'), '档位与理由没进导出')
+  assert.ok(md.includes('未判'), '未判条目没有档位标注')
+  assert.ok(md.includes('subtitle'), 'body_state 没进导出')
+  assert.ok(md.includes(localWhen(T - 3600000)), 'published_at 的本地时间没进导出')
+  assert.equal(body.bytes, fs.statSync(file).size, 'bytes 与文件实际大小对不上')
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.match(blob, /"event":"export"/, '导出没记日志')
+  assert.ok(blob.includes(body.file), '日志该念到导出文件名')
+  assert.equal(blob.includes(home), false, '日志里出现了家目录绝对路径')
+})
+
+test('POST /cleanup 只删过期归档：new/judged/新鲜归档都留着，备份先做且能用新连接打开数数', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { now: () => T })
+  seedRich(baleen, { status: 'archived', fetched_at: T - 40 * DAY }) // 过期归档：该删
+  seedRich(baleen, { status: 'archived', fetched_at: T - DAY })      // 新鲜归档：留着
+  seedRich(baleen, { status: 'judged', fetched_at: T - 40 * DAY })   // 过期已判：留着（清理是磁盘卫生，不是记忆删除）
+  seedRich(baleen, { status: 'new', fetched_at: T - 40 * DAY })      // 过期待判：留着
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/cleanup', method: 'POST', ...bodyOf({ days: 30 }) }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, true)
+  assert.equal(body.removed, 1, '只该删掉 1 条过期归档')
+  assert.match(body.backup, /^baleen-\d{8}-\d{6}(-\d+)?\.sqlite$/, '备份文件名形态不对')
+  assert.equal(res.body.includes(home), false, '应答里出现了家目录绝对路径')
+  // node:sqlite 的行是 null 原型对象，deepEqual 要先经 {...r} 归一成普通对象（listFolders 同款手法）
+  assert.deepEqual(
+    baleen.db.prepare('SELECT status, COUNT(*) n FROM items GROUP BY status ORDER BY status').all().map((r) => ({ ...r })),
+    [{ status: 'archived', n: 1 }, { status: 'judged', n: 1 }, { status: 'new', n: 1 }],
+    '清理动到了不该动的条目'
+  )
+  // 备份先于删除：删之前全库 4 条、默认夹都在里面，且是个能独立打开的真库
+  const backup = new DatabaseSync(path.join(home, 'backups', body.backup))
+  try {
+    assert.equal(backup.prepare('SELECT COUNT(*) n FROM items').get().n, 4, '备份不是删除前拍的')
+    assert.equal(backup.prepare('SELECT COUNT(*) n FROM folders').get().n, 1)
+  } finally { backup.close() }
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.match(blob, /"event":"cleanup"/, '清理没记日志')
+  assert.match(blob, /"detail":"30 天：删 1 条归档"/, 'detail 只带 days 与 removed')
+  assert.equal(blob.includes(home), false, '日志里出现了家目录绝对路径')
+})
+
+test('POST /cleanup 的 days 非法一律 400 bad_payload：库不动，连 backups 目录都不建', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { now: () => T })
+  seedRich(baleen, { status: 'archived', fetched_at: T - 40 * DAY })
+  for (const days of [0, -1, 1.5, '7', true, undefined]) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/cleanup', method: 'POST', ...bodyOf({ days }) }, res)
+    assert.equal(res.code, 400, `days=${JSON.stringify(days)} 该 400`)
+    assert.equal(JSON.parse(res.body).error, 'bad_payload')
+    assert.equal(JSON.parse(res.body).ok, false)
+  }
+  const raw = fakeRes()
+  await h({ url: '/api/dsh-baleen/cleanup', method: 'POST', rawBody: '坏掉的' }, raw)
+  assert.equal(raw.code, 400)
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM items').get().n, 1, '被拒的清理动了库')
+  assert.equal(fs.existsSync(path.join(home, 'backups')), false, '被拒的清理建了备份目录')
+})
+
+test('POST /wipe：items/runs/digests 清空，folders 与默认夹保留，备份先做', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { now: () => T })
+  const iid = seedRich(baleen, { title: '收过的长文' })
+  seedRich(baleen)
+  baleen.db.prepare("INSERT INTO runs (started_at, trigger, status) VALUES (?, 'manual', 'done')").run(T)
+  baleen.db.prepare('INSERT INTO digests (run_id, created_at, headline) VALUES (1, ?, ?)').run(T, '判了 1 条')
+  const mk = fakeRes()
+  await h({ url: '/api/dsh-baleen/folder', method: 'POST', ...bodyOf({ action: 'create', name: '要精读' }) }, mk)
+  const fid = JSON.parse(mk.body).folder.id
+  await h({ url: '/api/dsh-baleen/collect', method: 'POST', ...bodyOf({ item_id: iid, folder_ids: [fid] }) }, fakeRes())
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/wipe', method: 'POST', ...bodyOf({ confirm: '清空库' }) }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, true)
+  assert.deepEqual(body.removed, { items: 2, runs: 1, digests: 1 })
+  assert.match(body.backup, /^baleen-\d{8}-\d{6}(-\d+)?\.sqlite$/, '备份文件名形态不对')
+  assert.equal(res.body.includes(home), false, '应答里出现了家目录绝对路径')
+  const n = (t) => baleen.db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n
+  assert.equal(n('items'), 0)
+  assert.equal(n('runs'), 0)
+  assert.equal(n('digests'), 0)
+  assert.equal(n('folder_items'), 0, '收藏关系没随 items 的外键级联清掉')
+  // folders 保留：默认夹与自建夹一条不少——wipe 清的是流水，不是用户的抽屉
+  assert.deepEqual(
+    baleen.db.prepare('SELECT name, is_default FROM folders ORDER BY id').all().map((r) => ({ ...r })),
+    [{ name: '默认', is_default: 1 }, { name: '要精读', is_default: 0 }]
+  )
+  // 备份先做：清空之前的库况（含 folders 与收藏关系）整份都在
+  const backup = new DatabaseSync(path.join(home, 'backups', body.backup))
+  try {
+    assert.equal(backup.prepare('SELECT COUNT(*) n FROM items').get().n, 2)
+    assert.equal(backup.prepare('SELECT COUNT(*) n FROM folders').get().n, 2)
+    assert.equal(backup.prepare('SELECT COUNT(*) n FROM digests').get().n, 1)
+    assert.equal(backup.prepare('SELECT COUNT(*) n FROM folder_items').get().n, 1)
+  } finally { backup.close() }
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.match(blob, /"event":"wipe"/, '清空没记日志')
+  assert.match(blob, /"detail":"清空：items 2 · runs 1 · digests 1"/, 'detail 只带三表计数')
+  assert.equal(blob.includes(home), false, '日志里出现了家目录绝对路径')
+})
+
+test('POST /wipe 字面量不对就 400 confirm_required：库未动、备份未做', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { now: () => T })
+  seedRich(baleen)
+  baleen.db.prepare("INSERT INTO runs (started_at, trigger, status) VALUES (?, 'manual', 'done')").run(T)
+  for (const confirm of ['清空', '清空库 ', 'wipe', 123, null, undefined]) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/wipe', method: 'POST', ...bodyOf({ confirm }) }, res)
+    assert.equal(res.code, 400, `confirm=${JSON.stringify(confirm)} 该 400`)
+    assert.equal(JSON.parse(res.body).error, 'confirm_required')
+    assert.equal(JSON.parse(res.body).ok, false)
+  }
+  const raw = fakeRes()
+  await h({ url: '/api/dsh-baleen/wipe', method: 'POST', rawBody: '坏掉的' }, raw)
+  assert.equal(raw.code, 400)
+  assert.equal(JSON.parse(raw.body).error, 'bad_payload')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM items').get().n, 1, '被拒的清空动了库')
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM runs').get().n, 1)
+  assert.equal(fs.existsSync(path.join(home, 'backups')), false, '被拒的清空不该先做备份')
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.equal(blob.includes('"event":"wipe"'), false, '被拒的清空记了 wipe 日志')
+})
+
+test('抓取轮在跑时 cleanup 与 wipe 都 409 running：不删、不备份', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { now: () => T })
+  seedRich(baleen, { status: 'archived', fetched_at: T - 40 * DAY })
+  // createRun 起手就把 runs.status 写成 'running'，finishRun 才收尾——这就是"正在跑"在库侧的样子
+  baleen.db.prepare("INSERT INTO runs (started_at, trigger, status) VALUES (?, 'manual', 'running')").run(T)
+  const c = fakeRes()
+  await h({ url: '/api/dsh-baleen/cleanup', method: 'POST', ...bodyOf({ days: 30 }) }, c)
+  assert.equal(c.code, 409)
+  assert.deepEqual(JSON.parse(c.body), { ok: false, error: 'running' })
+  const w = fakeRes()
+  await h({ url: '/api/dsh-baleen/wipe', method: 'POST', ...bodyOf({ confirm: '清空库' }) }, w)
+  assert.equal(w.code, 409)
+  assert.deepEqual(JSON.parse(w.body), { ok: false, error: 'running' })
+  assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM items').get().n, 1, '与抓取并发时动了库')
+  assert.equal(fs.existsSync(path.join(home, 'backups')), false, '被 409 的危险操作不该先做备份')
 })
