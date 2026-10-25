@@ -2,6 +2,16 @@
 
 > 范围裁定：M4 拆两半——**M4a 只做 bili 全链**（vendor → 适配器 → subtitle 工具 → 真机验收），yt（本机有 yt-dlp 但宿主无代理，诚实降级）与 xhs（需扫码 + 第三方审查）放 M4b。用户授权"继续吧"，M4 拆分与选型取推荐项（BiliStalkerMCP），可随时改。
 
+## 路线变更（2026-10-25，Task 2b，用户纠偏：MCP 子进程方案废弃）
+
+用户看了 Task 2 的 cookie 前置后纠偏："我还以为是可以直接抓的，参考我 DSH 里的 dsh-bili-scroll 插件"。源码核实：dsh-bili-scroll 直接 fetch api.bilibili.com 匿名端点已在跑（view 详情在用，`dsh-bili-scroll/index.js:2158`，带 `User-Agent: Mozilla/5.0` 头）——匿名抓取可行，cookie 只是字幕增强。裁定：**适配器改纯 fetch 直连，零 vendor、零 Python、零新增依赖**。下方 Task 1/2 节保留作历史记录（描述的是旧路线，以本节为准）：
+
+- **cookie 降级**：从"必须"降为"字幕增强可选项"——`credentials/bili-cookie.txt` 存在就带上取 AI 字幕（源抓取路径 cookie 不在则该条按无字幕处理，不白打请求）；不存在照样跑（`baleen.subtitle` 现取走匿名，CC 字幕可能拿得到），不再 credentials_missing 拦截。
+- **wbi 签名自研**：`lib/adapters/bili-wbi.js`（零依赖，MD5 走 node:crypto）。算法与 64 长度置换表来自公开资料（bilibili-API-collect 的 wbi 文档），nav 匿名取 img/sub key、置换重排取 mixin key、参数排序剔除 `!'()*` 后 MD5；确定性向量钉在 test/adapters-bili.test.js。列表 `x/space/wbi/arc/search` 与字幕 `x/player/wbi/v2` 走签名，详情 `x/web-interface/view` 匿名。
+- **vendor 移除**：`git rm -r vendor/`，conda 环境留着不管（无害）。原前置审查结论压缩存档（全文见 git 历史中的 `vendor/bilibili-mcp/VENDOR-NOTES.md`）：BiliStalkerMCP @952fd83（MIT）审查为 approve with conditions——GPL 依赖（bilibili-api-python）只运行时装、绝不进 Baleen 仓库；vendor 内部重试压到 1 次视作 Baleen 的全部重试预算。
+- **`bili_python` 偏好键废除**；runner 对 bili 源的 70s 超时 headroom 撤回，回 pool 通用 20s。
+- **不做（记 M4b）**：无声字幕视频的 ASR 转写（dsh-bili-scroll 的 asr.py：yt-dlp 下载音频 + whisper）。
+
 **Spec 依据：** 主设计 §3.1（bili = vendored bilibili-mcp 子进程，stdio JSON-RPC，MIT；适配器不判断/不写库/重试≤1）、§6.2（B 站风控 412 → 退避重试 1 次 failed、字幕空 → missing 丢弃、burned_in 保留标注）、§10.1（baleen.subtitle 工具，M4 起）、body_state 六值（subtitle/transcribed/missing/burned_in 在 M4 分化）。
 
 **前置审查（已通过）：** BiliStalkerMCP @ 952fd83（v3.6.0.dev0，MIT）——approve with conditions。四条条件：① GPL 依赖（bilibili-api-python，上游因 B 站法律函关停）运行时装、锁 `==17.4.2`，绝不进 Baleen 仓库；② vendor 内部重试（默认 3）视作 Baleen 的那 1 次，适配器层零重试；③ 登录态硬依赖——SESSDATA 等放 `credentials/bili-cookie.txt`（纯 Cookie 头格式）经 env `BILI_COOKIE_FILE` 注入，凭据目录只读消费；④ `BILI_ENABLE_COOKIE_REFRESH` 不设（禁用自动回写凭据）。安全面干净：外联仅 bilibili 域、无写操作工具、无 eval/exec、日志脱敏。
