@@ -50,6 +50,19 @@ test('since 只过滤"明确更旧"的条目；没有时间的条目留着交给
   assert.equal(items[0].external_id, 'https://example.substack.com/p/summary-only')
 })
 
+test('signal 透传：fetch 选项里的 signal 原样进 fetchImpl 的 init（pool 超时即 abort 的链路）', async () => {
+  const calls = []
+  const ac = new AbortController()
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init })
+    return { ok: true, status: 200, text: async () => fx('substack.xml') }
+  }
+  await rssAdapter.fetch(source, { since: null, signal: ac.signal, fetchImpl })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].init.signal, ac.signal)
+  assert.equal(calls[0].init.signal.aborted, false)
+})
+
 test('adapterFor 只认注册过的类型，大小写不敏感', () => {
   assert.equal(adapterFor('rss'), ADAPTERS.rss)
   assert.equal(adapterFor('RSS'), ADAPTERS.rss)

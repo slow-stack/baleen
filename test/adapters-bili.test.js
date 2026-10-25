@@ -149,7 +149,7 @@ function fakeFetch(handlers = {}) {
   const impl = async (url, init = {}) => {
     const u = String(url)
     const headers = init?.headers ?? {}
-    state.calls.push({ url: u, headers })
+    state.calls.push({ url: u, headers, signal: init?.signal })
     const route =
       u.includes('/x/web-interface/nav') ? 'nav'
       : u.includes('/x/space/wbi/arc/search') ? 'list'
@@ -363,6 +363,37 @@ test('since 不过滤（backlog 语义由 gate 管）：pubdate 很旧的条目�
   const fetchImpl = fakeFetch(defaultHandlers())
   const items = await fetchIt(fetchImpl, { since: 4102444800000 }) // 2100 年，比所有条目都新
   assert.equal(items.length, 2)
+})
+
+/* ───────────────────────── signal 全链透传与超时 abort（真机 run 17 的孤儿调用） ─── */
+
+test('signal 全链透传：nav / 列表 / 逐条 view 的每个 fetch init 都带调用方的 signal', async () => {
+  await withHome(test)
+  const ac = new AbortController()
+  const fetchImpl = fakeFetch(defaultHandlers())
+  await fetchIt(fetchImpl, { signal: ac.signal })
+  const calls = fetchImpl.state.calls
+  assert.ok(calls.length >= 4, `nav+list+view×2，实际 ${calls.length} 次`)
+  for (const c of calls) assert.equal(c.signal, ac.signal, `这个请求缺 signal：${c.url}`)
+})
+
+test('超时 abort 短路：第一条 view 挂起被 abort → 整源立即失败，不再继续打后续 detail（孤儿调用消失）', async () => {
+  await withHome(test)
+  const ac = new AbortController()
+  const abortErr = () => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })
+  const fetchImpl = fakeFetch(defaultHandlers({
+    view: () => ac.signal.aborted
+      ? Promise.reject(abortErr())
+      : new Promise((_, reject) => ac.signal.addEventListener('abort', () => reject(abortErr())))
+  }))
+  const timer = setTimeout(() => ac.abort(), 10)
+  try {
+    await assert.rejects(() => fetchIt(fetchImpl, { signal: ac.signal }), e => e.name === 'AbortError')
+  } finally {
+    clearTimeout(timer)
+  }
+  const viewCalls = fetchImpl.state.calls.filter(c => c.url.includes('/x/web-interface/view')).length
+  assert.equal(viewCalls, 1, `abort 后不该再打后续 view，实际 ${viewCalls} 次`)
 })
 
 /* ───────────────────────── 错误映射 ───────────────────────── */

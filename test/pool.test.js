@@ -79,6 +79,41 @@ test('适配器钉住的 error_class 优先于通用分类（bili：credentials/
   assert.equal(classifyError(Object.assign(new Error('403'), { status: 403 })), 'http')
 })
 
+test('超时即 abort：timeout 的同时 run 收到的 signal 变 aborted（真机 run 17 的孤儿调用消失）', async () => {
+  let seen = null
+  const res = await runJobs([{ id: 'slow' }], {
+    limit: 1, timeoutMs: 20, retries: 0,
+    run: (job, opts = {}) => {
+      seen = opts.signal ?? null
+      return new Promise((_, reject) => {
+        const abortErr = () => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })
+        if (seen?.aborted) return reject(abortErr())
+        seen?.addEventListener('abort', () => reject(abortErr()))
+      })
+    }
+  })
+  assert.equal(res[0].ok, false)
+  assert.equal(res[0].error_class, 'timeout')
+  assert.ok(seen, 'run 必须收到 signal')
+  assert.equal(seen.aborted, true, '超时后 signal 必须已 abort')
+})
+
+test('重试拿到新 signal：上一轮超时的 abort 不毒死重试（慢源仍有两次完整预算）', async () => {
+  const signals = []
+  const res = await runJobs([{ id: 'slow-then-ok' }], {
+    limit: 1, timeoutMs: 20, retries: 1,
+    run: (job, opts = {}) => {
+      signals.push(opts.signal ?? null)
+      if (signals.length === 1) return new Promise(() => {})
+      return 'ok'
+    }
+  })
+  assert.equal(res[0].ok, true)
+  assert.ok(signals[0], 'run 必须收到 signal')
+  assert.equal(signals[0].aborted, true, '第一轮超时后 signal 必须已 abort')
+  assert.equal(signals[1].aborted, false, '重试拿到的必须是未 abort 的新 signal')
+})
+
 test('job.timeout_ms 覆盖整批 timeoutMs（个别源需要更宽预算的口子）', async () => {
   const res = await runJobs([{ id: 'slow-source', timeout_ms: 400 }], {
     limit: 1, timeoutMs: 20, retries: 0,

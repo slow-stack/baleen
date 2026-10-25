@@ -223,3 +223,23 @@ test('fetch 选项带 pref（inject_prompt 等顶层偏好要能到适配器）'
   assert.equal(seen[0].pref, pref)
   assert.equal(seen[0].since, null)
 })
+
+test('fetch 选项带 signal（pool 超时即 abort 的链路：适配器拿它掐断在飞的 fetch）', async () => {
+  const db = dbOf()
+  const seen = []
+  await runOnce({ db, pref, now: () => 5000, adapters: { rss: { type: 'rss', async fetch(source, opts) { seen.push(opts); return [] } } } })
+  assert.equal(seen.length, 2)
+  assert.ok(seen[0].signal instanceof AbortSignal, '适配器 fetch 选项里必须有 signal')
+  assert.equal(seen[0].signal.aborted, false, '正常跑完的源 signal 不该被 abort')
+})
+
+test('planJobs：bili 源带 90s 预算（真机 run 17：nav+签名+列表+逐条 view，20s 不够），其他源不带', () => {
+  const db = dbOf()
+  syncSources(db, { ...pref, sources: [
+    { id: 'b1', type: 'bili', url: 'https://space.bilibili.com/946974', enabled: true, interval_min: 60, weight: 1 },
+    { id: 'r1', type: 'rss', url: 'https://e.com/feed', enabled: true, interval_min: 60, weight: 1 }
+  ] })
+  const jobs = planJobs({ db, pref, now: () => 5000 })
+  assert.equal(jobs.find(j => j.source.id === 'b1').timeout_ms, 90000)
+  assert.equal(jobs.find(j => j.source.id === 'r1').timeout_ms, undefined, 'rss 单请求走通用 20s')
+})
