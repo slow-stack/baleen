@@ -157,3 +157,18 @@ test('bili 源类型登记：type 合法、url 必填，未知类型仍被拒', 
   const bad = validate({ sources: [{ id: 'b2', type: 'weibo', url: 'https://e/f' }] })
   assert.ok(bad.some(e => e.startsWith('sources[0].type')), bad.join('|'))
 })
+
+test('yt 源类型登记（M4b）：type 合法、url 要 http(s)；yt_dlp_path / network.proxy 缺省与校验', () => {
+  const ok = validate({ sources: [{ id: 'y1', type: 'yt', url: 'https://www.youtube.com/@x/videos' }] })
+  assert.deepEqual(ok, [])
+  const badUrl = validate({ sources: [{ id: 'y1', type: 'yt', url: 'www.youtube.com' }] })
+  assert.ok(badUrl.some(e => e.startsWith('sources[0].url')), badUrl.join('|'))
+
+  assert.equal(DEFAULTS.yt_dlp_path, 'yt-dlp', '缺省走 PATH')
+  assert.deepEqual(DEFAULTS.network, { proxy: '' }, '代理缺省空 = 不走代理')
+  assert.deepEqual(validate({ yt_dlp_path: 'D:/bin/yt-dlp.exe', network: { proxy: 'http://127.0.0.1:7890' } }), [])
+  assert.deepEqual(validate({ yt_dlp_path: '', network: { proxy: '' } }), [], '两个键都允许空字符串')
+  assert.ok(validate({ yt_dlp_path: 42 }).some(e => e.startsWith('yt_dlp_path')))
+  assert.ok(validate({ network: 'x' }).some(e => e.startsWith('network')))
+  assert.ok(validate({ network: { proxy: 7890 } }).some(e => e.startsWith('network.proxy')))
+})

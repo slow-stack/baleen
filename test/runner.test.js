@@ -243,3 +243,12 @@ test('planJobs：bili 源带 90s 预算（真机 run 17：nav+签名+列表+逐�
   assert.equal(jobs.find(j => j.source.id === 'b1').timeout_ms, 90000)
   assert.equal(jobs.find(j => j.source.id === 'r1').timeout_ms, undefined, 'rss 单请求走通用 20s')
 })
+
+test('planJobs：yt 源同样 90s 预算（flat 列表 + 逐视频 dump + 字幕轨下载，20s 不够）', () => {
+  const db = dbOf()
+  syncSources(db, { ...pref, sources: [
+    { id: 'y1', type: 'yt', url: 'https://www.youtube.com/@x/videos', enabled: true, interval_min: 60, weight: 1 }
+  ] })
+  const jobs = planJobs({ db, pref, now: () => 5000 })
+  assert.equal(jobs.find(j => j.source.id === 'y1').timeout_ms, 90000)
+})

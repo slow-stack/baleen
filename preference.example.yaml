@@ -75,6 +75,20 @@ inject_prompt: true
 # B 站字幕增强（可选）：credentials/bili-cookie.txt 放纯 Cookie 头文本（SESSDATA 等），
 # 不放也能跑（视频按无字幕抓取，baleen.subtitle 现取走匿名）。
 
+# yt 源（type: yt）走 yt-dlp 直连，url 填频道 /videos、playlist 或单视频都行：
+#   - id: some-channel
+#     type: yt
+#     url: https://www.youtube.com/@SomeChannel/videos
+#     label: 某频道
+#     enabled: true
+#     interval_min: 720
+#     weight: 0.8
+# yt-dlp 不在 PATH 时给它指路（可执行名或绝对路径，缺省 yt-dlp）；
+# 宿主无代理环境时只给 yt-dlp 设代理（空 = 不走代理，不动全局网络）：
+#   yt_dlp_path: yt-dlp
+# network:
+#   proxy: ""    # 例 "http://127.0.0.1:7890"
+
 limits:
   max_age_days: 14
   min_duration_sec: 90
