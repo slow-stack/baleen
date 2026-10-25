@@ -233,13 +233,14 @@ test('spawn 参数逐字对齐：flat 带 --flat-playlist，dump 带 --dump-sing
     const spawnImpl = fakeSpawn()
     await fetchYtIt(spawnImpl, subsRoot)
     assert.equal(spawnImpl.state.spawns[0].cmd, 'yt-dlp')
-    assert.deepEqual(spawnImpl.state.spawns[0].args, ['--dump-single-json', '--flat-playlist', '--playlist-items', '30', CH_URL])
-    assert.deepEqual(spawnImpl.state.spawns[1].args, ['--dump-single-json', 'https://www.youtube.com/watch?v=vidA1111111'])
+    assert.deepEqual(spawnImpl.state.spawns[0].args, ['--retries', '1', '--extractor-retries', '1', '--dump-single-json', '--flat-playlist', '--playlist-items', '30', CH_URL])
+    assert.deepEqual(spawnImpl.state.spawns[1].args, ['--retries', '1', '--extractor-retries', '1', '--dump-single-json', 'https://www.youtube.com/watch?v=vidA1111111'])
     const subSpawn = spawnImpl.state.spawns.find(
       s => s.args.includes('--write-auto-subs') && s.args.at(-1) === 'https://www.youtube.com/watch?v=vidA1111111'
     )
     assert.ok(subSpawn, 'vidA 必须有一次字幕落盘调用')
     assert.deepEqual(subSpawn.args, [
+      '--retries', '1', '--extractor-retries', '1',
       '--skip-download', '--write-subs', '--write-auto-subs', '--ignore-errors',
       '--sub-langs', 'zh-Hans,zh-Hant,zh,en-orig,en',
       '--sub-format', 'json3/vtt',
@@ -667,7 +668,7 @@ test('单视频源（watch?v= / youtu.be）：跳过 flat、dump + 字幕共 2 �
       since: null, now: () => NOW, subsRoot, spawnImpl
     })
     assert.equal(spawnImpl.state.spawns.length, 2, '单视频源只该 dump + 字幕两次 spawn（无 flat）')
-    assert.deepEqual(spawnImpl.state.spawns[0].args, ['--dump-single-json', watch])
+    assert.deepEqual(spawnImpl.state.spawns[0].args, ['--retries', '1', '--extractor-retries', '1', '--dump-single-json', watch])
     assert.ok(spawnImpl.state.spawns[1].args.includes('--write-auto-subs'))
     assert.equal(done.length, 1)
     assert.equal(done[0].external_id, 'vidA1111111')
