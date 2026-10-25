@@ -132,3 +132,14 @@ test('ensurePreferenceFile 幂等，不覆盖已存在的文件', () => {
   assert.equal(p1, p2)
   assert.match(fs.readFileSync(p2, 'utf8'), /themes: \[\]/)
 })
+
+test('inject_prompt 是顶层布尔：缺省 true，写非布尔值整份退回默认', () => {
+  const d = tmp()
+  const errs = validate({ inject_prompt: 'yes' })
+  assert.ok(errs.some(e => e.startsWith('inject_prompt')), errs.join('|'))
+  fs.writeFileSync(path.join(d, 'preference.yaml'), 'version: 1\ninject_prompt: false\n')
+  const r = loadPreference(d)
+  assert.deepEqual(r.errors, [])
+  assert.equal(r.pref.inject_prompt, false, '合法的 false 要被采纳')
+  assert.equal(loadPreference(tmp()).pref.inject_prompt, true, '缺省该是开')
+})

@@ -28,12 +28,15 @@ function makeCtx(home, { withTools = true } = {}) {
   const disposes = []
   const registered = []
   const toolRegistry = []
+  // M3 Task 3 起 index.js 会挂 system-prompt/assemble 钩子：这里记录注册，注入行为本身在 test/inject.test.js 里测
+  const listeners = new Map()
   const webServer = { register: (def) => { registered.push(def); return () => { def.__disposed = true } } }
   const tools = withTools ? { register: (t) => { toolRegistry.push(t); return () => {} } } : undefined
   process.env.BALEEN_HOME = home
   return {
-    registered, provided, effects, disposes, toolRegistry,
+    registered, provided, effects, disposes, toolRegistry, listeners,
     get: (n) => (n === 'webServer' ? webServer : n === 'tools' ? tools : undefined),
+    on: (ev, fn) => { if (!listeners.has(ev)) listeners.set(ev, []); listeners.get(ev).push(fn) },
     webServer,
     tools,
     provide: (n, v) => { provided.set(n, v); if (n === 'baleen' && v && v.db) dbs.push(v.db) },
@@ -260,7 +263,7 @@ test('run_status 给最近一轮摘要 + counts + inject_prompt 占位', async (
   assert.equal(empty.ok, true)
   assert.equal(empty.last_run, null)
   assert.deepEqual(empty.counts, { new: 0, judged: 0, digest: 0, archived: 0, total: 0 })
-  assert.equal(empty.inject_prompt, null, 'Task 3 接真值前恒为占位 null')
+  assert.equal(empty.inject_prompt, true, 'Task 3 起接真值：缺省即开')
 
   const runId = createRun(baleen.db, 'schedule', () => 1000)
   finishRun(baleen.db, runId, { status: 'partial', candidates: 7, judged: 0, per_source: { rss_a: { fetched: 10, error: null } }, gaps: [] }, () => 2000)
@@ -269,6 +272,19 @@ test('run_status 给最近一轮摘要 + counts + inject_prompt 占位', async (
   assert.equal(out.last_run.candidates, 7)
   assert.deepEqual(out.last_run.per_source, { rss_a: { fetched: 10, error: null } })
   assert.deepEqual(out.counts, { new: 0, judged: 0, digest: 0, archived: 0, total: 0 })
+})
+
+test('run_status 的 inject_prompt 接真值：读 preference.yaml 的开关，配置 false 就如实报 false', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'),
+    'version: 1\nsources: []\ninject_prompt: false\n')
+  const { ctx } = await applyOf(home)
+  const out = await toolOf(ctx, 'baleen.run_status').execute({})
+  assert.equal(out.inject_prompt, false, '开关关了工具还在报"开"，用户会以为注入在工作')
+  // 缺省时（另一个家目录没写这个键）按默认开报 true
+  const r2 = await applyOf(freshHome())
+  const out2 = await toolOf(r2.ctx, 'baleen.run_status').execute({})
+  assert.equal(out2.inject_prompt, true)
 })
 
 /* ---------------- 降级：tools 缺席不炸启动 ---------------- */

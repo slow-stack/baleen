@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders } from './lib/store.js'
+import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
@@ -56,6 +56,47 @@ function num(v, dflt, max) {
   if (v == null || v === '') return dflt
   const n = Number(v)
   return Number.isInteger(n) && n >= 0 ? Math.min(max, n) : dflt
+}
+
+/* ---------------- 判断轮的触发注入（spec §10.2） ---------------- */
+
+/** 注入有 ≤200 字的硬顶：标题与源 id 都不许整段放行，超长截断加省略号 */
+function clipText(s, n) {
+  const t = String(s ?? '')
+  return t.length > n ? t.slice(0, n) + '…' : t
+}
+
+/** 上轮失败源 id：per_source 里 ok=false 的键，最多 3 个；run 缺席 / 半途 / 坏 JSON 都按"无失败源"处理 */
+function failedSourceIds(run) {
+  if (!run?.per_source_json) return []
+  let ps
+  try { ps = JSON.parse(run.per_source_json) } catch { return [] }
+  if (!ps || typeof ps !== 'object' || Array.isArray(ps)) return []
+  return Object.entries(ps)
+    .filter(([, s]) => s && s.ok === false)
+    .map(([id]) => clipText(id, 12))
+    .slice(0, 3)
+}
+
+/**
+ * 注入文本。这是**触发器不是内容管道**（spec §10.2 红线）：只带待判数、Top 标题前 20 字与工具名，
+ * 条目正文一字不进、URL 不进、themes/charter 等用户可编辑文本不进。
+ * 候选 0 且无失败源时返回 null——不给会话添噪音，一句废话都不说。
+ */
+function pendingSectionText(db) {
+  const c = counts(db)
+  const run = lastRun(db)
+  const failed = failedSourceIds(run)
+  if (c.new === 0 && failed.length === 0) return null
+  const segs = []
+  if (c.new > 0) {
+    const top = candidates(db, 3).map((r) => clipText(r.title, 20) || '无标题')
+    segs.push(`待判 ${c.new} 条（Top：${top.join('；')}）`)
+  }
+  if (failed.length) segs.push(`上轮源：失败 ${failed.join('；')}`)
+  else if (run && run.status !== 'running') segs.push('上轮源：全部正常')
+  segs.push('可用工具：baleen.candidates / read_item / save_verdicts')
+  return `Baleen：${segs.join('。')}。`
 }
 
 /**
@@ -273,6 +314,19 @@ export function apply(ctx, config = {}) {
   } else {
     log({ level: 'warn', event: 'no_tools', detail: '拿不到 tools，判断轮没有工具面（摄取与面板不受影响）' })
   }
+
+  // 判断轮的触发器：挂法照抄本机 dsh-study-desk 的实测形态（裸 ctx.on，不进 ctx.effect——
+  // 插件禁用时宿主随上下文一起回收监听）。先 await next() 拿下游装配结果，再把段落 push 进去；
+  // 开关在钩子内现读，改 preference.yaml 立即生效。注入失败静默吞掉，不影响对话本身。
+  ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+    const assembled = await next()
+    try {
+      if (getPref().pref.inject_prompt === false) return assembled
+      const text = pendingSectionText(db)
+      if (text) assembled.sections?.push?.({ name: 'dsh-baleen:pending', text })
+    } catch { /* 注入失败不影响对话 */ }
+    return assembled
+  })
 
   ctx.effect(
     () => ctx.provide('baleen', baleen),

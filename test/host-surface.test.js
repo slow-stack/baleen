@@ -36,12 +36,15 @@ function makeCtx(home, { withServer = true, timers = [] } = {}) {
   const effects = []
   const disposes = []
   const registered = []
+  // M3 Task 3 起 index.js 会挂 system-prompt/assemble 钩子：记录注册即可，注入行为本身在 test/inject.test.js 里测
+  const listeners = new Map()
   const webServer = withServer ? { register: (def) => { registered.push(def); return () => { def.__disposed = true } } } : undefined
   const logs = []
   process.env.BALEEN_HOME = home
   return {
-    registered, provided, effects, disposes, logs, timers,
+    registered, provided, effects, disposes, logs, timers, listeners,
     get: (n) => (n === 'webServer' ? webServer : undefined),
+    on: (ev, fn) => { if (!listeners.has(ev)) listeners.set(ev, []); listeners.get(ev).push(fn) },
     webServer,
     provide: (n, v) => { provided.set(n, v); if (n === 'baleen' && v && v.db) dbs.push(v.db) },
     effect: (fn, label) => {

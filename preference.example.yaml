@@ -68,6 +68,10 @@ schedule:
 # 必须命中主题（或是关注的 feed）才进候选；改成 false 就退回「整个源都进候选」的宽松模式
 require_theme_hit: true
 
+# 判断轮的触发注入：把「待判 N 条（Top 标题 + 失败源）」注进会话的系统提示，模型才知道有候选等着判。
+# 只注入计数、截断标题与工具名，不含条目正文；关掉它 = 关掉自动判断的入口（run_status 会如实反映）
+inject_prompt: true
+
 limits:
   max_age_days: 14
   min_duration_sec: 90
