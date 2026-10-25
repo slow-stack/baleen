@@ -141,8 +141,8 @@ const SUB_JSON = (lines = ['大家好', '今天讲适配器。']) => ({
 
 /**
  * fetch 桩：按 URL 路由到 handlers.nav/list/view/player/sub。
- * handler 收 ({url, headers})，回 { json }（200+JSON）或 { status }（非 2xx）。
- * state.calls 记录每次请求的 url/headers，供断言请求形态与调用次序。
+ * handler 收 ({url, headers, signal})，回 { json }（200+JSON）或 { status }（非 2xx）。
+ * state.calls 记录每次请求的 url/headers/signal，供断言请求形态与调用次序。
  */
 function fakeFetch(handlers = {}) {
   const state = { calls: [] }
@@ -158,7 +158,7 @@ function fakeFetch(handlers = {}) {
       : u.includes('aisubtitle.hdslb.com') ? 'sub' : null
     const h = handlers[route]
     if (!h) throw new Error(`stub: 未配置的路由 ${route ?? u}（${u}）`)
-    const r = await h({ url: u, headers })
+    const r = await h({ url: u, headers, signal: init?.signal })
     if (r?.status != null && r.json == null) return { ok: false, status: r.status, json: async () => ({}) }
     return { ok: true, status: 200, json: async () => r.json }
   }
@@ -377,23 +377,112 @@ test('signal 全链透传：nav / 列表 / 逐条 view 的每个 fetch init 都�
   for (const c of calls) assert.equal(c.signal, ac.signal, `这个请求缺 signal：${c.url}`)
 })
 
-test('超时 abort 短路：第一条 view 挂起被 abort → 整源立即失败，不再继续打后续 detail（孤儿调用消失）', async () => {
+test('外层 abort 在并发中生效（Task 2d 并发化后的 run 17 语义）：8 条列表、在飞首波恰 3 条，abort 后三条全部被掐、第 4 条不再发起（孤儿调用消失）', async () => {
   await withHome(test)
   const ac = new AbortController()
   const abortErr = () => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })
-  const fetchImpl = fakeFetch(defaultHandlers({
-    view: () => ac.signal.aborted
-      ? Promise.reject(abortErr())
-      : new Promise((_, reject) => ac.signal.addEventListener('abort', () => reject(abortErr())))
+  const vids = Array.from({ length: 8 }, (_, i) => ({
+    bvid: `BV1stop000${i}`, title: `第${i}期`, description: `简介${i}`,
+    author: 'UP主甲', mid: 946974, length: '5:00', pubdate: 1799848200, created: 1799848200,
+    pic: null, aid: 190000 + i
   }))
-  const timer = setTimeout(() => ac.abort(), 10)
+  let abortSeen = 0
+  const fetchImpl = fakeFetch(defaultHandlers({
+    list: () => ({ json: { code: 0, data: { list: { vlist: vids }, page: { pn: 1, ps: 30 }, total: 8 } } }),
+    // view 全部挂起直到各自的 signal abort：谁收到 abort 就记一笔
+    view: ({ signal }) => new Promise((_, reject) => {
+      if (signal?.aborted) { abortSeen++; return reject(abortErr()) }
+      signal.addEventListener('abort', () => { abortSeen++; reject(abortErr()) })
+    })
+  }))
+  const timer = setTimeout(() => ac.abort(), 20)
   try {
     await assert.rejects(() => fetchIt(fetchImpl, { signal: ac.signal }), e => e.name === 'AbortError')
   } finally {
     clearTimeout(timer)
   }
-  const viewCalls = fetchImpl.state.calls.filter(c => c.url.includes('/x/web-interface/view')).length
-  assert.equal(viewCalls, 1, `abort 后不该再打后续 view，实际 ${viewCalls} 次`)
+  const viewCalls = fetchImpl.state.calls.filter(c => c.url.includes('/x/web-interface/view'))
+  assert.equal(viewCalls.length, 3, `并发 3 下 abort 时只该有首波 3 条在飞（实际 ${viewCalls.length} 条——超过说明 abort 后还在发新请求）`)
+  assert.equal(abortSeen, 3, '每一条在飞的子 fetch 都必须收到 abort')
+  for (const c of viewCalls) assert.equal(c.signal, ac.signal, 'detail 请求透传的仍是外层 signal')
+})
+
+test('detail 受限并发 3 保持顺序（run 18）：在飞峰值恰 3，乱序完成输出仍按列表序', async () => {
+  await withHome(test)
+  const vids = Array.from({ length: 8 }, (_, i) => ({
+    bvid: `BV1ord0000${i}`, title: `第${i}期`, description: `简介${i}`,
+    author: 'UP主甲', mid: 946974, length: '5:00', pubdate: 1799848200 - i * 3600, created: 1799848200 - i * 3600,
+    pic: null, aid: 180000 + i
+  }))
+  const delays = [200, 170, 140, 110, 80, 50, 30, 10] // 越靠后越快回：完成序与输入序相反
+  let inFlight = 0
+  let maxInFlight = 0
+  const fetchImpl = fakeFetch(defaultHandlers({
+    list: () => ({ json: { code: 0, data: { list: { vlist: vids }, page: { pn: 1, ps: 30 }, total: 8 } } }),
+    view: ({ url }) => {
+      const i = vids.findIndex(v => v.bvid === new URL(url).searchParams.get('bvid'))
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      return new Promise(resolve => setTimeout(() => { inFlight--; resolve({ json: VIEW_ORDER(i) }) }, delays[i]))
+    }
+  }))
+  const items = await fetchIt(fetchImpl)
+  assert.equal(items.length, 8)
+  assert.deepEqual(items.map(x => x.external_id), vids.map(v => v.bvid), '输出顺序必须与输入顺序一致（runner 按序对账）')
+  assert.equal(maxInFlight, 3, `detail 并发上限应为 3（实测在飞峰值 ${maxInFlight}）——串行是 1，10 并发会惹风控`)
+})
+
+const VIEW_ORDER = (i) => ({
+  code: 0, message: '0',
+  data: {
+    bvid: `BV1ord0000${i}`, title: `第${i}期`, desc: `简介${i}`,
+    duration: 300, cid: 2000 + i, ctime: 1799848200 - i * 3600, pubdate: 1799848200 - i * 3600,
+    pic: null, owner: { mid: 946974, name: 'UP主甲' }, subtitle: { allow_submit: false, list: [] }
+  }
+})
+
+test('慢字幕 5s 预算（run 18 的单条 30-60s 主因）：字幕 json 挂 10s → 5s 内降级 summary_only + 恰一条 bili_subtitle_slow 诊断', async () => {
+  await withHome(test, { cookie: true })
+  const logs = []
+  const one = { code: 0, data: { list: { vlist: [VLIST()[0]] }, page: { pn: 1, ps: 30 }, total: 1 } }
+  const timeoutErr = () => new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+  const fetchImpl = fakeFetch(defaultHandlers({
+    list: () => ({ json: one }),
+    // 字幕 CDN 挂起：5s 预算的 signal abort 时以 TimeoutError 掐断；没 signal（旧实现）就傻等满 10s
+    sub: ({ signal }) => new Promise((resolve, reject) => {
+      const t = setTimeout(() => resolve({ json: SUB_JSON() }), 10000)
+      if (signal) signal.addEventListener('abort', () => { clearTimeout(t); reject(timeoutErr()) })
+    })
+  }))
+  const t0 = Date.now()
+  const [a] = await fetchIt(fetchImpl, { log: (event, detail) => logs.push({ event, detail }) })
+  const elapsed = Date.now() - t0
+  assert.ok(elapsed < 9500, `应在字幕 5s 预算内降级（实际耗时 ${elapsed}ms），不能陪慢 CDN 等满 10s`)
+  assert.equal(a.subtitle_text, undefined, '5s 没拿到就按无字幕')
+  assert.equal(a.body_html, '这期讲适配器怎么写', '字幕没拿到但简介非空 → summary_only（语义不变）')
+  const slow = logs.filter(l => l.event === 'bili_subtitle_slow')
+  assert.equal(slow.length, 1, `慢字幕诊断只记一次不刷屏（实际 ${slow.length} 条）`)
+})
+
+test('字幕请求带合并信号：外层 abort 时在飞的字幕 fetch 同样被掐断（AbortSignal.any 与 5s 预算竞速）', async () => {
+  await withHome(test, { cookie: true })
+  const ac = new AbortController()
+  const abortErr = () => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })
+  let abortSeen = 0
+  const fetchImpl = fakeFetch(defaultHandlers({
+    list: () => ({ json: { code: 0, data: { list: { vlist: [VLIST()[0]] }, page: { pn: 1, ps: 30 }, total: 1 } } }),
+    sub: ({ signal }) => new Promise((_, reject) => {
+      if (signal?.aborted) { abortSeen++; return reject(abortErr()) }
+      signal.addEventListener('abort', () => { abortSeen++; reject(abortErr()) })
+    })
+  }))
+  const timer = setTimeout(() => ac.abort(), 25)
+  try {
+    await assert.rejects(() => fetchIt(fetchImpl, { signal: ac.signal }), e => e.name === 'AbortError')
+  } finally {
+    clearTimeout(timer)
+  }
+  assert.equal(abortSeen, 1, '在飞的字幕 fetch 必须收到 abort（外层取消对字幕链路同样生效）')
 })
 
 /* ───────────────────────── 错误映射 ───────────────────────── */
