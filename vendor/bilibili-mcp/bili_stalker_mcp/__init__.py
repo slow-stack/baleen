@@ -1,0 +1,18 @@
+"""
+BiliStalkerMCP package
+
+MCP Server for Bilibili user content intelligence.
+"""
+
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("bili_stalker_mcp")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
+__author__ = "222wcnm"
+__email__ = "<UPSTREAM-AUTHOR-EMAIL>"
+__license__ = "MIT"
+__description__ = "MCP Server for Bilibili user content intelligence"
+__url__ = "https://github.com/222wcnm/BiliStalkerMCP"
