@@ -57,7 +57,8 @@ function makeCtx(home, { withServer = true, timers = [] } = {}) {
 test('宿主半导出形状固定', async () => {
   const host = await import('../index.js')
   assert.equal(host.name, 'dsh-baleen')
-  assert.deepEqual(host.inject, ['webServer'])
+  // M3 起 inject 带 'tools'：工具面由 lib/tools.js 注册，collect/folder/feedback/run 永不进清单
+  assert.deepEqual(host.inject, ['tools', 'webServer'])
   assert.equal(typeof host.apply, 'function')
 })
 
@@ -550,7 +551,8 @@ test('/items 的脏 folder 参数当没带，不把 Number 的脏转换喂给 st
   }
 })
 
-test('collect 不注册成 agent 工具：宿主半的 inject 仍然只有 webServer', async () => {
+test('collect 不注册成 agent 工具：inject 只声明 tools 与 webServer，面板动作仍只走路由', async () => {
   const host = await import('../index.js')
-  assert.deepEqual(host.inject, ['webServer'])
+  // 收藏三条路由只走面板 → 宿主（AGENTS.md 红线 11）；工具清单恰好五个的逐字钉子在 test/tools.test.js
+  assert.deepEqual(host.inject, ['tools', 'webServer'])
 })

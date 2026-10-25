@@ -6,9 +6,11 @@ import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
 import { makeLogger } from './lib/diag.js'
 import { ensureHome } from './lib/paths.js'
+import { baleenTools } from './lib/tools.js'
 
 export const name = 'dsh-baleen'
-export const inject = ['webServer']
+// 'tools' 是判断轮的入口：inject 声明过，宿主才会等 tools 服务激活后再 apply 本插件
+export const inject = ['tools', 'webServer']
 
 const API_ROUTE = '/api/dsh-baleen'
 
@@ -259,6 +261,17 @@ export function apply(ctx, config = {}) {
     )
   } else {
     log({ level: 'error', event: 'no_webserver', detail: '拿不到 webServer，面板将无法读写数据' })
+  }
+
+  // 工具面：注册写法同款抄 dsh-study-desk（tools.register 包 ctx.effect，禁用时宿主按条回收）。
+  // tools 缺席（headless / 宿主裁剪）就降级成无工具——判断轮没有入口，但摄取与面板照常，绝不炸启动。
+  const tools = (typeof ctx.get === 'function' ? ctx.get('tools') : null) ?? ctx.tools ?? null
+  if (tools && typeof tools.register === 'function') {
+    for (const t of baleenTools({ db, getPref, now })) {
+      ctx.effect(() => tools.register(t), `baleen: tool ${t.name}`)
+    }
+  } else {
+    log({ level: 'warn', event: 'no_tools', detail: '拿不到 tools，判断轮没有工具面（摄取与面板不受影响）' })
   }
 
   ctx.effect(
