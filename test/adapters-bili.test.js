@@ -288,9 +288,9 @@ test('字幕三态（Task 2 裁定不变）：有字幕 → subtitle_text + body
 
   assert.equal(a.subtitle_text, '大家好\n今天讲适配器。')
   assert.equal(a.body_html, '这期讲适配器怎么写\n\n大家好\n今天讲适配器。')
-  // 无字幕那条：不写 body / subtitle_text，normalize 才会判 missing
+  // 无字幕那条（cookie 在但视频没字幕轨）：body=简介（summary_only，进候选），subtitle_text 缺席
   assert.equal(b.subtitle_text, undefined)
-  assert.equal(b.body_html, undefined)
+  assert.ok(b.body_html && b.body_html.length > 0, '简介非空的视频匿名态也该有 body（summary_only），不能全被预筛丢')
   assert.equal(b.external_id, 'BV1yy411c7mE')
   assert.equal(b.duration_sec, 185)
 })
