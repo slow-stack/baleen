@@ -486,16 +486,15 @@ window.__ModuleLoader__.load({
     }
 
     function gapText(gaps) {
-      const by = gaps?.by_reason ?? {}
-      const flags = gaps?.kept_with_flag ?? {}
-      const held = n(gaps?.held)
-      // 空判断必须把 held 算进去：跑了一轮、有条目被收藏豁免，面板不能反过来咬"还没有一轮记录"。
-      if (!Object.keys(by).length && !Object.keys(flags).length && !held) return '（还没有一轮记录）'
-      const parts = Object.entries(by).map(([k, v]) => `${GAP_LABELS[k] ?? k} ${v}`)
-      const kept = Object.entries(flags).map(([k, v]) => `${FLAG_LABELS[k] ?? k} ${v}`)
+      // gaps 缺席（state 里没有这轮的记录）才说"还没有"；跑过轮但零丢弃零豁免时诚实显示"丢弃 0"——
+      // M3 真机验收见过：定时空配置一轮抓 0 条，旧文案把"跑过但空"谎报成"还没有一轮记录"。
+      if (gaps == null || typeof gaps !== 'object') return '（还没有一轮记录）'
+      const by = gaps.by_reason ?? {}
+      const kept = Object.entries(gaps.kept_with_flag ?? {})
+      const held = n(gaps.held)
       // 收藏钉住（D15）：豁免的丢弃没发生，不进 by_reason，单独一枚 chip，大于零才显示。
-      return [`丢弃 ${n(gaps.total_dropped)}`, ...parts,
-        ...(kept.length ? [`保留待读：${kept.join(' / ')}`] : []),
+      return [`丢弃 ${n(gaps.total_dropped)}`, ...Object.entries(by).map(([k, v]) => `${GAP_LABELS[k] ?? k} ${v}`),
+        ...(kept.length ? [`保留待读：${kept.map(([k, v]) => `${FLAG_LABELS[k] ?? k} ${v}`).join(' / ')}`] : []),
         ...(held ? [`收藏钉住 ${held}`] : [])].join(' · ')
     }
 

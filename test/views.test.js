@@ -43,9 +43,9 @@ test('丢弃明细逐条可读，带标记的保留项单独出现', () => {
   assert.match(t, /保留待读：硬字幕读不到 1/)
 })
 
-test('空态不谎报：没有一轮记录时写"还没有一轮记录"', () => {
+test('空态不谎报：gaps 缺席才说"还没有一轮记录"；跑过轮但全零时诚实显示"丢弃 0"（M3 真机验收抓的谎报）', () => {
   assert.equal(gapText(undefined), '（还没有一轮记录）')
-  assert.equal(gapText({ by_reason: {}, kept_with_flag: {}, total_dropped: 0 }), '（还没有一轮记录）')
+  assert.equal(gapText({ by_reason: {}, kept_with_flag: {}, total_dropped: 0 }), '丢弃 0')
   const t = text(TodayView({ state: { counts: { new: 0, total: 0 }, sources: [] }, items: [] }))
   assert.match(t, /还没有跑过一轮/)
 })
@@ -60,7 +60,7 @@ test('因收藏豁免的条目进「收藏钉住」桶：豁免不等于没有�
 })
 
 test('held 为 0 或缺省时不出现收藏钉住，输出与现状逐字一致', () => {
-  assert.equal(gapText({ by_reason: {}, kept_with_flag: {}, total_dropped: 0, held: 0 }), '（还没有一轮记录）')
+  assert.equal(gapText({ by_reason: {}, kept_with_flag: {}, total_dropped: 0, held: 0 }), '丢弃 0')
   assert.equal(gapText({ by_reason: { stale: 4 }, kept_with_flag: {}, total_dropped: 4 }), '丢弃 4 · 超龄 4')
   assert.equal(gapText({ by_reason: { stale: 4 }, kept_with_flag: {}, total_dropped: 4, held: 0 }), '丢弃 4 · 超龄 4')
 })
