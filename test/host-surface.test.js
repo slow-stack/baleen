@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import YAML from 'yaml'
 import { setItemFolders } from '../lib/store.js'
+import { loadPreference } from '../lib/preference.js'
 
 // 测试自清（终审 #21）：家目录登记进 homes；makeCtx 的 provide 顺手记下每次 apply 开出的
 // 库句柄——Windows 上 node:sqlite 句柄不关，rmSync 会 EPERM，所以收尾先关库再删目录。
@@ -561,4 +563,252 @@ test('collect 不注册成 agent 工具：inject 只声明 tools 与 webServer�
   const host = await import('../index.js')
   // 收藏三条路由只走面板 → 宿主（AGENTS.md 红线 11）；工具清单恰好六个的逐字钉子在 test/tools.test.js
   assert.deepEqual(host.inject, ['tools', 'systemPrompt', 'webServer'])
+})
+
+/* ---------------- M5 Task 1：preference 读写路由（设置页的宿主半） ---------------- */
+
+test('GET /preference 返回 ok/pref/errors，tuning 随之透出（只读展示）', async () => {
+  const { h } = await apiOf(freshHome())
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/preference', method: 'GET' }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, true)
+  assert.deepEqual(body.errors, [])
+  assert.deepEqual(body.pref.tuning, { source_delta: {} }, 'tuning 要随 GET 透出，设置页只读展示')
+  assert.equal(body.pref.require_theme_hit, true)
+})
+
+test('GET /preference 在坏文件上把 errors 透出来，pref 仍是完整默认', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'), 'schedule:\n  windows: ["7am-9am"]\n')
+  const { h } = await apiOf(home)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/preference', method: 'GET' }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, false)
+  assert.ok(body.errors.some(e => e.startsWith('schedule.windows[0]')), body.errors.join('|'))
+  assert.equal(body.pref.schedule.max_per_run, 25, '坏文件上也不许给半份用户配置')
+})
+
+test('PUT /preference 每个白名单节的合法值都落盘，新 loadPreference 一致', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'), [
+    'version: 1',
+    'themes:',
+    '  - group: 旧组',
+    '    any: [旧词]',
+    'sources:',
+    '  - id: blog-a',
+    '    type: rss',
+    '    url: https://example.com/feed',
+    ''
+  ].join('\n'))
+  const { h } = await apiOf(home)
+  const sections = {
+    follow: { feeds: ['https://example.com/rss'] },
+    themes: [{ group: 'AI', any: ['MCP'], weight: 1 }],
+    redlines: ['广告代理', '引流私聊'],
+    schedule: { windows: ['05:00-06:00'], off_peak_only: false, max_per_run: 5, max_per_day: 10 },
+    limits: { max_age_days: 7, min_duration_sec: 60, skip_kinds: ['note'] },
+    charter: '只收长文',
+    require_theme_hit: false,
+    inject_prompt: false
+  }
+  for (const [section, value] of Object.entries(sections)) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/preference', method: 'PUT', ...bodyOf({ section, value }) }, res)
+    assert.equal(res.code, 200, section)
+    assert.equal(JSON.parse(res.body).ok, true, section)
+    // 读回文件：该节是新值，别人的节（version/sources）原样带走
+    const onDisk = YAML.parse(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8'))
+    assert.deepEqual(onDisk[section], value, section)
+    assert.equal(onDisk.version, 1)
+    assert.equal(onDisk.sources[0].id, 'blog-a')
+    // 重启加载一致：新 loadPreference 看到同一个节
+    assert.deepEqual(loadPreference(home).pref[section], value, section)
+  }
+  // sources 单独验全量替换语义：整个数组换掉
+  const res = fakeRes()
+  await h({
+    url: '/api/dsh-baleen/preference', method: 'PUT',
+    ...bodyOf({ section: 'sources', value: [{ id: 'blog-b', type: 'rss', url: 'https://example.org/feed', interval_min: 30 }] })
+  }, res)
+  assert.equal(res.code, 200)
+  const reloaded = loadPreference(home).pref.sources
+  assert.deepEqual(reloaded.map(s => s.id), ['blog-b'])
+  assert.equal(reloaded[0].interval_min, 30)
+  // 原子写不许在目录里留 tmp 残骸
+  assert.equal(fs.readdirSync(home).filter(f => f.includes('.tmp-')).length, 0, 'tmp 文件没清干净')
+})
+
+test('PUT /preference 校验不过：400 带错误清单，文件一个字节未动', async () => {
+  const home = freshHome()
+  const yaml0 = 'version: 1\nthemes:\n  - group: 旧组\n    any: [旧词]\nsources:\n  - id: blog-a\n    type: rss\n    url: https://e.com/f\n'
+  fs.writeFileSync(path.join(home, 'preference.yaml'), yaml0)
+  const { h } = await apiOf(home)
+  const before = fs.readFileSync(path.join(home, 'preference.yaml'))
+  const bad = [
+    { section: 'themes', value: [{ group: 'AI', weight: 9 }] },
+    { section: 'sources', value: [{ id: 'a', type: 'rss', url: 'https://x/f' }, { id: 'a', type: 'rss', url: 'https://y/f' }] },
+    { section: 'schedule', value: { windows: ['7am-9am'] } },
+    { section: 'require_theme_hit', value: 'yes' }
+  ]
+  for (const { section, value } of bad) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/preference', method: 'PUT', ...bodyOf({ section, value }) }, res)
+    assert.equal(res.code, 400, section)
+    const body = JSON.parse(res.body)
+    assert.equal(body.ok, false, section)
+    assert.ok(Array.isArray(body.errors) && body.errors.length > 0, section)
+  }
+  // 错误要点名字段路径，设置页要拿它标到具体行
+  const r = fakeRes()
+  await h({ url: '/api/dsh-baleen/preference', method: 'PUT', ...bodyOf({ section: 'themes', value: [{ group: 'AI', weight: 9 }] }) }, r)
+  assert.ok(JSON.parse(r.body).errors.some(e => e.startsWith('themes[0].weight')), JSON.parse(r.body).errors.join('|'))
+  assert.deepEqual(fs.readFileSync(path.join(home, 'preference.yaml')), before, '被拒的 PUT 不许碰文件')
+  assert.equal(fs.readdirSync(home).filter(f => f.includes('.tmp-')).length, 0)
+})
+
+test('PUT sources 后 sources 表镜像进库（与启动同一套 syncSources）', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'), 'version: 1\nsources:\n  - id: blog-a\n    type: rss\n    url: https://e.com/f\n')
+  const { h, baleen } = await apiOf(home)
+  assert.deepEqual(baleen.state().sources.map(s => s.id), ['blog-a'])
+  const res = fakeRes()
+  await h({
+    url: '/api/dsh-baleen/preference', method: 'PUT',
+    ...bodyOf({
+      section: 'sources',
+      value: [
+        { id: 'blog-a', type: 'rss', url: 'https://e.com/f', enabled: false },
+        { id: 'yt-1', type: 'yt', url: 'https://www.youtube.com/@x/videos' }
+      ]
+    })
+  }, res)
+  assert.equal(res.code, 200)
+  const s = baleen.state().sources
+  assert.deepEqual(s.map(x => x.id), ['blog-a', 'yt-1'], '写完没有镜像进表，面板要等下一轮才看得到')
+  assert.equal(s[0].enabled, false, 'enabled=false 没落库')
+  assert.equal(s[1].interval_min, 720, 'interval_min 缺省该走表默认 720')
+})
+
+test('PUT tuning / version 一律 400 readonly_section，文件不动', async () => {
+  const home = freshHome()
+  const yaml0 = 'version: 1\nthemes: []\n'
+  fs.writeFileSync(path.join(home, 'preference.yaml'), yaml0)
+  const { h } = await apiOf(home)
+  for (const section of ['tuning', 'version']) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/preference', method: 'PUT', ...bodyOf({ section, value: {} }) }, res)
+    assert.equal(res.code, 400, section)
+    assert.equal(JSON.parse(res.body).error, 'readonly_section', section)
+  }
+  assert.equal(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8'), yaml0)
+})
+
+test('PUT /preference 的坏载荷：非 JSON、非对象、缺字段、节外节都 400', async () => {
+  const { h } = await apiOf(freshHome())
+  const cases = [
+    [{ rawBody: '坏掉的' }, 'bad_payload'],
+    [bodyOf('字符串'), 'bad_payload'],
+    [bodyOf({ value: [] }), 'bad_payload'],
+    [bodyOf({ section: 'themes' }), 'bad_payload'],
+    [bodyOf({ section: 'nope', value: [] }), 'unknown_section'],
+    [bodyOf({ section: 'network', value: {} }), 'unknown_section'],
+    [bodyOf({ section: 'yt_dlp_path', value: 'x' }), 'unknown_section']
+  ]
+  for (const [req, error] of cases) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/preference', method: 'PUT', ...req }, res)
+    assert.equal(res.code, 400, JSON.stringify(req.rawBody ?? ''))
+    assert.equal(JSON.parse(res.body).error, error, JSON.stringify(req.rawBody ?? ''))
+  }
+})
+
+test('PUT /preference 在解析不了的 yaml 上 400，不把用户文件抹成默认', async () => {
+  const home = freshHome()
+  const broken = 'themes: [\n  unclosed\n'
+  fs.writeFileSync(path.join(home, 'preference.yaml'), broken)
+  const { h } = await apiOf(home)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/preference', method: 'PUT', ...bodyOf({ section: 'themes', value: [] }) }, res)
+  assert.equal(res.code, 400)
+  assert.equal(JSON.parse(res.body).error, 'preference_invalid')
+  assert.equal(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8'), broken, 'PUT 把用户的坏文件抹掉了')
+})
+
+test('writePreference 保住用户的首行注释，没有就带回模板那句', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'), '# 我的私人配置，别乱动\nversion: 1\nthemes: []\n')
+  const { h } = await apiOf(home)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/preference', method: 'PUT', ...bodyOf({ section: 'charter', value: '只收长文' }) }, res)
+  assert.equal(res.code, 200)
+  assert.ok(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8').startsWith('# 我的私人配置，别乱动\n'), '用户的首行注释被丢了')
+  // 没有注释头的文件带回模板那句（apply 建出来的模板本来就带）
+  const home2 = freshHome()
+  fs.writeFileSync(path.join(home2, 'preference.yaml'), 'version: 1\nthemes: []\n')
+  const api2 = await apiOf(home2)
+  const res2 = fakeRes()
+  await api2.h({ url: '/api/dsh-baleen/preference', method: 'PUT', ...bodyOf({ section: 'charter', value: '只收长文' }) }, res2)
+  assert.equal(res2.code, 200)
+  assert.ok(fs.readFileSync(path.join(home2, 'preference.yaml'), 'utf8').startsWith('# 改这里'), '没有注释头时该带默认那句')
+})
+
+test('POST /tuning-reset 归零 source_delta，之后 /feedback 再 +0.1 正常', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'), 'version: 1\nsources:\n  - id: blog-a\n    type: rss\n    url: https://e.com/f\n')
+  const { h } = await apiOf(home)
+  const fb = fakeRes()
+  await h({ url: '/api/dsh-baleen/feedback', method: 'POST', ...bodyOf({ source_id: 'blog-a', action: 'dismiss' }) }, fb)
+  assert.equal(fb.code, 200)
+  const before = fakeRes()
+  await h({ url: '/api/dsh-baleen/preference', method: 'GET' }, before)
+  assert.deepEqual(JSON.parse(before.body).pref.tuning.source_delta, { 'blog-a': -0.1 }, '前置：归零前 source_delta 非空')
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/tuning-reset', method: 'POST', ...bodyOf({}) }, res)
+  assert.equal(res.code, 200)
+  assert.equal(JSON.parse(res.body).ok, true)
+  // tuning.json 是按钮的落点、加载合并里 json 赢——不清它，归零就是个谎言
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'tuning.json'), 'utf8')), {}, 'tuning.json 没清')
+  const after = fakeRes()
+  await h({ url: '/api/dsh-baleen/preference', method: 'GET' }, after)
+  assert.deepEqual(JSON.parse(after.body).pref.tuning.source_delta, {})
+  // 归零不是报废：按钮再按 +0.1 照常工作
+  const again = fakeRes()
+  await h({ url: '/api/dsh-baleen/feedback', method: 'POST', ...bodyOf({ source_id: 'blog-a', action: 'save' }) }, again)
+  assert.equal(again.code, 200)
+  assert.deepEqual(JSON.parse(again.body).tuning, { 'blog-a': 0.1 })
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.match(blob, /"event":"tuning_reset"/, '归零没记日志')
+  assert.match(blob, /"detail":"清零 1 项"/, 'detail 只带条数')
+})
+
+test('tuning-reset 连 yaml 里手写的 source_delta 一起清（没有 tuning.json 也行）', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'),
+    'version: 1\ntuning:\n  source_delta:\n    blog-a: -0.2\nsources:\n  - id: blog-a\n    type: rss\n    url: https://e.com/f\n')
+  const { h } = await apiOf(home)
+  assert.deepEqual(loadPreference(home).pref.tuning.source_delta, { 'blog-a': -0.2 }, '前置：yaml 手写的 delta 生效')
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/tuning-reset', method: 'POST', ...bodyOf({}) }, res)
+  assert.equal(res.code, 200)
+  assert.deepEqual(loadPreference(home).pref.tuning.source_delta, {})
+  assert.deepEqual(YAML.parse(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8')).tuning, { source_delta: {} })
+})
+
+test('tuning-reset 在解析不了的 yaml 上 400 不写：防把坏文件抹成默认', async () => {
+  const home = freshHome()
+  const broken = 'themes: [\n  unclosed\n'
+  fs.writeFileSync(path.join(home, 'preference.yaml'), broken)
+  fs.writeFileSync(path.join(home, 'tuning.json'), '{"blog-a":-0.3}')
+  const { h } = await apiOf(home)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/tuning-reset', method: 'POST', ...bodyOf({}) }, res)
+  assert.equal(res.code, 400)
+  assert.equal(JSON.parse(res.body).ok, false)
+  assert.equal(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8'), broken, '归零把用户的坏文件抹掉了')
+  assert.equal(fs.readFileSync(path.join(home, 'tuning.json'), 'utf8'), '{"blog-a":-0.3}', '归零顺手清了 tuning.json')
 })

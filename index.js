@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates, latestDigests } from './lib/store.js'
-import { loadPreference, ensurePreferenceFile, bumpTuningFile } from './lib/preference.js'
+import { loadPreference, ensurePreferenceFile, bumpTuningFile, writePreference, readPreferenceRaw, clearTuningFile, validate } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
 import { makeLogger } from './lib/diag.js'
@@ -17,6 +17,13 @@ const API_ROUTE = '/api/dsh-baleen'
 
 /** 面板两个按钮允许的动作，与客户端白名单一致；值就是对来源权重的增量 */
 const ALLOWED_ACTIONS = { dismiss: -0.1, save: 0.1 }
+
+/**
+ * 设置页 PUT 允许写的节（白名单）。tuning 与 version 永不在此列：
+ * tuning 只走 /feedback 与 /tuning-reset，version 没有升级路径可写。
+ * yt_dlp_path / network 这类进阶键留给手编文件，页签不碰。
+ */
+const PREF_SECTIONS = new Set(['sources', 'follow', 'themes', 'redlines', 'schedule', 'limits', 'charter', 'require_theme_hit', 'inject_prompt'])
 
 /** 夹操作是白名单而不是 if 链：新加动作时漏了枚举就直接 400，不会悄悄走进某个分支 */
 const FOLDER_ACTIONS = new Set(['create', 'rename', 'delete'])
@@ -285,6 +292,52 @@ export function apply(ctx, config = {}) {
         if (Number.isInteger(body.item_id)) markFeedback(db, body.item_id, body.action, now)
         log({ level: 'info', event: 'feedback', detail: `${body.source_id} ${body.action} → ${tuning[body.source_id] ?? 0}` })
         return json(res, 200, { ok: true, tuning, state: state() })
+      }
+      if (sub === '/preference' && req.method === 'GET') {
+        // 设置页的读半：tuning 只读展示（loadPreference 已把 tuning.json 合并进来），写永远走 PUT 白名单
+        const { pref, errors } = getPref()
+        return json(res, 200, { ok: errors.length === 0, pref, errors })
+      }
+      if (sub === '/preference' && req.method === 'PUT') {
+        let body
+        try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        if (typeof body.section !== 'string' || !body.section) return json(res, 400, { ok: false, error: 'bad_payload' })
+        // tuning/version 的拒绝先于白名单：这不是"没登记的节"，是产品红线（M5 全局约束）
+        if (body.section === 'tuning' || body.section === 'version') return json(res, 400, { ok: false, error: 'readonly_section' })
+        if (!PREF_SECTIONS.has(body.section)) return json(res, 400, { ok: false, error: 'unknown_section' })
+        // value 允许合法的假值（false/0/空串/空数组），只查键在不在
+        if (!('value' in body)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        // 底稿必须是原文而不是 loadPreference：后者在坏文件上退默认，照它写盘一次
+        // 就把用户的坏文件抹平了（与 /tuning-reset 的坏文件裁定同源）
+        const raw = readPreferenceRaw(dir)
+        if (raw.errors.length) return json(res, 400, { ok: false, error: 'preference_invalid', errors: raw.errors })
+        const next = { ...raw.obj, [body.section]: body.value }
+        // 整份校验，不过一个字不落盘——与"校验不过整轮不启动"同一哲学
+        const errors = validate(next)
+        if (errors.length) return json(res, 400, { ok: false, errors })
+        writePreference(dir, next)
+        const fresh = getPref()
+        // sources 变更后镜像进表，与启动同一套写法：偏好是真源，表是运行态
+        if (body.section === 'sources') syncSources(db, fresh.pref)
+        // 日志只记节名：value 里是用户的主题词与源清单，一个字都不进 diagnostics
+        log({ level: 'info', event: 'preference', detail: `PUT ${body.section}` })
+        return json(res, 200, { ok: true, pref: fresh.pref })
+      }
+      if (sub === '/tuning-reset' && req.method === 'POST') {
+        try {
+          const cleared = clearTuningFile(dir)
+          log({ level: 'info', event: 'tuning_reset', detail: `清零 ${cleared} 项` })
+          return json(res, 200, { ok: true })
+        } catch (e) {
+          // 解析不了的文件上归零会把用户其余配置抹掉（clearTuningFile 不走默认合并）：
+          // 拒绝而不是兜底。其余异常（IO）交给外层 500，别拿 400 装系统错误。
+          const msg = String(e?.message ?? e)
+          if (msg.startsWith('preference.yaml')) {
+            return json(res, 400, { ok: false, error: 'preference_invalid', errors: [msg.slice(0, 200)] })
+          }
+          throw e
+        }
       }
       return json(res, 404, { ok: false, error: 'no such route' })
     } catch (e) {
