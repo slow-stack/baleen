@@ -131,6 +131,17 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 
 **遗留小项**：substack / medium 两源需代理或 M4 适配器处理（下轮自动补机制已演示）；注入 catch 补一行 warn 日志（Task 3 非阻塞建议，随后续改动带上）。
 
+## M4a B 站通道：真机监督记录（2026-10-25 晚，run 16/17/18）
+
+代码侧（`2026-10-25-baleen-m4a-bili.md`）全部完成并推送；真机监督跑了三轮，**管道正确性全部实证，视频进库被性能调优卡住**（如实）：
+
+- **路线变更（用户纠偏）**：MCP 子进程方案废弃（BiliStalkerMCP 强制登录态，与"直接抓"矛盾），适配器改纯 fetch 直连——wbi 签名自研（官方向量钉测）、`dm_img_*` 风控指纹参数实测补齐后匿名列表可通、cookie 降为字幕增强。上游审查结论与 vendor 历史在 git（9956c28 之前的 668adac）。
+- **语义修正**：匿名态 B 站视频 body=简介（summary_only 进候选）——"没 cookie 就全丢"的原始裁定在 cookie 可选化后不成立（98e719f）。
+- **真机实证通过**：bili 源进队列与 UID 解析；wbi 列表请求（带凭据后 200 code=0）；管道全链（列表 → 逐条 view → 字幕 → 入库）的**错误分类与诚实报告**——单条 -404 降级 missing 不拖垮源、字幕 CDN fetch failed 留诊断日志、90s 预算超时游标不推进、面板逐源报告（bilibili-tech timeout / 两源 network / innei 正常）。
+- **真机抓到并修复**：20s 预算不够（run 17）；超时后孤儿调用（run_end 之后还在打 detail API）→ AbortSignal 全链（超时即取消，重试拿新 signal，70d5050）。
+- **未通（如实）**：影视飓风（UID 946974）的视频尚未进库——单条处理 30-60 秒（字幕 CDN aisubtitle.hdslb.com 下载慢）× 串行逐条 = 90 秒预算只够 2-3 条。**下轮调优**：字幕单请求 5 秒上限（慢即放弃降 summary_only）、detail 受限并发或首屏只取 top N、按真实节奏复核（-352 节流桶有 IP 时效）。
+- 另：UID 679488810 是选源时记错的空号（"列表为空"报错真实），错误信息已加 UID 核对提示（32c0310）。
+
 ## M2.5 真机装载与验收记录（2026-10-25，agent 远程执行，用户授权）
 
 **装配**：确认应用退出后，先做 `cordis.patch.yml.bak-baleen-m25-<ts>` 与 `package.json.bak-baleen-m25-<ts>` 双备份，再 `dsh plugin --profile desktop add link:D:/dsh-baleen`——一次成功，pnpm 顺带装好依赖（再跑一次 install 显示 "Already up to date"）。Task 11 计划里的 `--dump-config` 免重启校验被新版 CLI 拒绝（"profile desktop is managed exclusively by the Electron application"，该检查写作时可用，DSH 更新后收紧），改用启动日志法验证。
