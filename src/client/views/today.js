@@ -19,7 +19,7 @@ export const REASONS_READABLE = GAP_LABELS
 const n = (v) => Number(v) || 0
 import { vnode } from '../vnode.js'
 import { reasonOf } from '../match.js'
-import { fmtDuration } from '../format.js'
+import { fmtDuration, judgeHint } from '../format.js'
 
 export function summaryLine(state) {
   const c = state?.counts ?? {}
@@ -76,7 +76,7 @@ export function TodayView({ state, items = [], onPickView, onOpen, onRun, busy }
     issues.length ? vnode('div', { className: 'bl-issues', role: 'status' }, issues.map((s) => s.text)) : null,
     vnode('div', { className: 'bl-pending' }, [
       pending
-        ? `待判 ${pending} 条——判断由会话来做，说一句"把今天的候选判一下"就行（M3 接入后这里会自动提示）`
+        ? `待判 ${pending} 条——判断由会话来做，${judgeHint}就行`
         : '没有待判条目'
     ]),
     vnode('div', { className: 'bl-actions' }, [

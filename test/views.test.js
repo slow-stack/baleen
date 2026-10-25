@@ -117,6 +117,13 @@ test('今天卡片上的时长也是 mm:ss，不是裸秒数', () => {
   assert.doesNotMatch(text(card), /3723/)
 })
 
+test('待判提示兑现 M3 承诺：不说"以后会自动提示"，直接告诉会话该说什么', () => {
+  const t = text(TodayView({ state, items }))
+  assert.match(t, /待判 12 条——判断由会话来做/)
+  assert.match(t, /对会话说一句「把今天的候选判一下」/)
+  assert.doesNotMatch(t, /自动提示/)
+})
+
 test('跑一轮按钮在忙时禁用，避免叠轮', () => {
   const tree = TodayView({ state, items, busy: true })
   const btns = findAll(tree, 'bl-actions')[0].children[0]

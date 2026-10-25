@@ -20,7 +20,19 @@ export const previewFolders = [
 export const previewState = {
   home: '<HOME>',
   counts: { new: 5, judged: 2, digest: 0, archived: 1, total: 8 },
-  digest_count: 0,
+  // digest_count 与下面 digests 条数必须相等（preview.test.js 的夹具自洽一条盯着）。
+  digest_count: 2,
+  // 字段与 index.js state() 的产出逐字一致（id/headline/created_at/stats，stats_json 已在服务端解成对象）。
+  // headline 与 stats 用 saveVerdicts 的同一份字面量模板；最新这条恰好对应夹具里两条已判条目
+  // （id 6 可以看、id 7 不值当），counts.judged=2 对得上。更早那条判过 3 条，其中被改判的部分不追溯——
+  // "改判即覆盖、不留历史"是计划的已知取舍，库里本来就没有可对的历史，夹具只保证 headline 与自己的 stats 一致。
+  digests: [
+    // created_at 取 last_run 的 finished_at：汇报是判完才落的，不会比那一轮的开始还早
+    { id: 12, created_at: T0 + 42000, headline: '判了 2 条：值得看 0 · 可以看 1 · 不值当 1',
+      stats: { judged: 2, tiers: { '值得看': 0, '可以看': 1, '不值当': 1 }, at: T0 + 42000 } },
+    { id: 11, created_at: T0 - DAY, headline: '判了 3 条：值得看 1 · 可以看 1 · 不值当 1',
+      stats: { judged: 3, tiers: { '值得看': 1, '可以看': 1, '不值当': 1 }, at: T0 - DAY } }
+  ],
   last_run: { id: 3, status: 'partial', at: T0, finished_at: T0 + 42000, candidates: 5, judged: 2 },
   gaps: {
     total_dropped: 23,

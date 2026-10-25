@@ -182,8 +182,9 @@
         items: data.items,
         filters: snap.filters[view] || {},
         selectedId: snap.selectedId,
-        // 汇报的读取路由要到 M3 才建；先给空数组，DigestView 会用 state.digest_count 说"数得出读不出来"
-        digests: [],
+        // 汇报跟着 /state 走（M3 起 state.digests 已由服务端把 stats_json 解成对象）；
+        // 读不到或没有时给空数组，DigestView 会用 state.digest_count 说"数得出读不出来"
+        digests: (st && Array.isArray(st.digests)) ? st.digests : [],
         busy,
         onRun,
         onFilter: dispatch,

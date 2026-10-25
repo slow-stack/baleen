@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates } from './lib/store.js'
+import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates, latestDigests } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
@@ -100,6 +100,19 @@ function pendingSectionText(db) {
 }
 
 /**
+ * digests 的行整形：stats_json 是存储形态，/state 是面板的 API——在这里解成对象，
+ * 前端不该知道存储格式（计划 Task 4 的裁定）。解析失败按 null 处理，
+ * 前端拿到 null 就说"这份汇报的计数没读出来"，不装作没有这一栏。
+ */
+function digestRows(rows) {
+  return rows.map((d) => {
+    let stats = null
+    try { stats = d.stats_json ? JSON.parse(d.stats_json) : null } catch { stats = null }
+    return { id: d.id, headline: d.headline, created_at: d.created_at, stats }
+  })
+}
+
+/**
  * 宿主半入口。三件事：装配（库 + 偏好 + 调度）、只读路由、给面板与别的插件一个服务入口。
  *
  * 路由注册写法抄本机 dsh-study-desk 的实测形态：`webServer.register({kind:'prefix', path, handler})`
@@ -137,6 +150,7 @@ export function apply(ctx, config = {}) {
       home: '<HOME>',
       counts: counts(db),
       digest_count: db.prepare('SELECT COUNT(*) n FROM digests').get().n,
+      digests: digestRows(latestDigests(db, 5)),
       last_run: prev ? {
         id: prev.id, status: prev.status, at: prev.started_at, finished_at: prev.finished_at,
         candidates: prev.candidates, judged: prev.judged

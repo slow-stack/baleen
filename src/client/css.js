@@ -74,7 +74,7 @@ export const CSS = `
 .bl-dsum{padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:5px}
 .bl-dsum h3{margin:0;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}
 .bl-dhead{font-size:13px;color:var(--dsw-alias-label-primary);margin:0}
-.bl-dpath{font-size:11px;color:var(--dsw-alias-label-tertiary);margin:0;word-break:break-all}
+.bl-dtiers{font-size:11px;color:var(--dsw-alias-label-tertiary);margin:0}
 .bl-drawer{position:sticky;top:0;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;display:flex;flex-direction:column;max-height:80vh;overflow:hidden}
 .bl-dbar{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .bl-dtitle{flex:1;min-width:0;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}

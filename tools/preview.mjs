@@ -154,7 +154,8 @@ export function renderPreview({ outDir = path.join(ROOT, 'out'), empty = false }
         onAskDelete: () => {}, onCancelDelete: () => {}, onDelete: () => {}, onOpen: () => {}
       })
     })),
-    digest: both(shell({ view: 'digest', state, body: DigestView({ digests: [], state }) })),
+    // M3 起夹具带真形态的 digests（空态另一页由 empty:true 演）：汇报页不再拿空态当默认长相
+    digest: both(shell({ view: 'digest', state, body: DigestView({ digests: empty ? [] : previewState.digests, state }) })),
     library: both(shell({ view: 'library', state, body: LibraryView({ items, filters: empty ? {} : { status: ['judged'] } }) })),
     drawer: both(shell({ view: 'today', state, body: TodayView({ state, items: live }), drawer, problems: { stale: true } })),
     trouble: both(shell({

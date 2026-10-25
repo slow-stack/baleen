@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { renderPreview, toHtml } from '../tools/preview.mjs'
-import { previewItems, previewFolders } from './fixtures/preview-data.js'
+import { previewState, previewItems, previewFolders } from './fixtures/preview-data.js'
 
 // 写到系统临时目录，不往仓库里堆产物；测试自清（终审 #21）：登记进 tmpDirs，收尾钩子统一删。
 const tmpDirs = []
@@ -70,6 +70,8 @@ test('预览用的是真视图函数：渲染结果里能找到视图自己的�
   assert.match(read('preview-article.html'), /左边没有条目|读原文/)
   assert.match(read('preview-library.html'), /状态|形态|档位|来源/)
   assert.match(read('preview-drawer.html'), /为什么给你/)
+  assert.match(read('preview-today.html'), /对会话说一句「把今天的候选判一下」/, '待判提示要兑现 M3 的承诺')
+  assert.doesNotMatch(read('preview-today.html'), /自动提示/)
 })
 
 test('空态在预览里也看得见（不许只渲染有数据的版本）', () => {
@@ -83,13 +85,15 @@ test('空态在预览里也看得见（不许只渲染有数据的版本）', ()
   assert.match(read('preview-collections.html'), /读不到夹/, '夹列表读不回来时收藏页不许把失败装成空')
 })
 
-test('汇报页在预览里就是空态，不许塞假简报充数', () => {
+test('汇报页在预览里演真数据：夹具两条汇报按时间倒序，headline 与 tiers 计数都在', () => {
   const files = renderPreview({ outDir: tmp('digest') })
   const html = fs.readFileSync(files.find((f) => f.endsWith('preview-digest.html')), 'utf8')
-  assert.match(html, /判断轮（M3）尚未接入/)
-  // 只看渲染出来的节点，不看 CSS：样式表里本来就有 .bl-dsum 这条规则
-  assert.doesNotMatch(html, /<section class="bl-dsum"/, '空态里不该出现汇报卡片')
-  assert.doesNotMatch(html, /今日精选|编辑推荐/)
+  // 明暗两块各渲染一遍同一份标记（上一条测试守着），所以整页看到 2 条 × 2 块 = 4 张
+  assert.equal([...html.matchAll(/<section class="bl-dsum"/g)].length, 4, '夹具的两条汇报在每块里都该渲染出来')
+  assert.match(html, /判了 2 条：值得看 0 · 可以看 1 · 不值当 1/)
+  assert.match(html, /判了 3 条：值得看 1 · 可以看 1 · 不值当 1/)
+  assert.ok(html.indexOf('判了 2 条') < html.indexOf('判了 3 条'), '最新的一份排最前')
+  assert.doesNotMatch(html, /今日精选|编辑推荐/, '演真形态不等于塞假内容')
 })
 
 test('夹具用的是假订阅名，不许把她的真实源写进仓库', () => {
@@ -136,6 +140,22 @@ test('夹具自洽：每个夹的 count 必须等于实际挂着它的条数', (
   for (const f of previewFolders) {
     const n = previewItems.filter((i) => (i.folders ?? []).includes(f.id)).length
     assert.equal(f.count, n, `${f.name} 的 count 是 ${f.count}，实际挂着 ${n} 条`)
+  }
+})
+
+test('夹具自洽：digest 的 headline 必须与自己那条 stats 同源，digest_count 等于条数', () => {
+  // headline 模板与 lib/store.js saveVerdicts 是同一份字面量；headline 与 stats 对不上，
+  // 汇报页就成了"摘要和计数各说各话"的那一格。created_at 与 stats.at 同值同理（now 只取一次）。
+  assert.equal(previewState.digest_count, previewState.digests.length)
+  for (const d of previewState.digests) {
+    assert.equal(d.headline,
+      `判了 ${d.stats.judged} 条：值得看 ${d.stats.tiers['值得看']} · 可以看 ${d.stats.tiers['可以看']} · 不值当 ${d.stats.tiers['不值当']}`)
+    assert.equal(d.stats.at, d.created_at)
+  }
+  // latestDigests 按 id 倒序取：夹具数组也按同一顺序写，最新一条在最前
+  for (let i = 1; i < previewState.digests.length; i++) {
+    assert.ok(previewState.digests[i - 1].id > previewState.digests[i].id, 'digests 夹具要按 id 倒序')
+    assert.ok(previewState.digests[i - 1].created_at >= previewState.digests[i].created_at)
   }
 })
 

@@ -281,6 +281,12 @@ window.__ModuleLoader__.load({
     /** 收藏这套界面里最常见的一次读回失败：夹列表读不回来，于是整页的收藏关系都无从显示。 */
     const foldersUnreadNote = `读不到夹（${readbackMiss('夹列表')}）`
 
+    /**
+     * 判断的入口只有一句话：「今天」的待判提示与汇报空态共用这一句——
+     * 两处各写一遍的话，迟早漂移成两种说法，用户就得猜哪个才是对的。
+     */
+    const judgeHint = '对会话说一句「把今天的候选判一下」'
+
     // ---- src/client/css.js ----
     /**
      * 面板样式。**这份 CSS 里一个颜色字面量都没有**：所有颜色都从宿主 token 取，
@@ -358,7 +364,7 @@ window.__ModuleLoader__.load({
     .bl-dsum{padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:5px}
     .bl-dsum h3{margin:0;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}
     .bl-dhead{font-size:13px;color:var(--dsw-alias-label-primary);margin:0}
-    .bl-dpath{font-size:11px;color:var(--dsw-alias-label-tertiary);margin:0;word-break:break-all}
+    .bl-dtiers{font-size:11px;color:var(--dsw-alias-label-tertiary);margin:0}
     .bl-drawer{position:sticky;top:0;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;display:flex;flex-direction:column;max-height:80vh;overflow:hidden}
     .bl-dbar{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
     .bl-dtitle{flex:1;min-width:0;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}
@@ -525,7 +531,7 @@ window.__ModuleLoader__.load({
         issues.length ? vnode('div', { className: 'bl-issues', role: 'status' }, issues.map((s) => s.text)) : null,
         vnode('div', { className: 'bl-pending' }, [
           pending
-            ? `待判 ${pending} 条——判断由会话来做，说一句"把今天的候选判一下"就行（M3 接入后这里会自动提示）`
+            ? `待判 ${pending} 条——判断由会话来做，${judgeHint}就行`
             : '没有待判条目'
         ]),
         vnode('div', { className: 'bl-actions' }, [
@@ -703,8 +709,9 @@ window.__ModuleLoader__.load({
 
     // ---- src/client/views/digest.js ----
     /**
-     * 「汇报」视图。M3 之前这里必然没有内容，所以这一屏唯一的责任是**把"为什么没有"说清楚**：
-     * 是没跑过、还是判断轮没接入、还是库里明明有汇报但面板还读不到。
+     * 「汇报」视图。M3 起这里展示判断轮真实落库的汇报（最近 5 条，倒序）；
+     * 没有内容时唯一的责任仍是**把"为什么没有"说清楚**：
+     * 是没跑过、还是接入了但还没判过、还是库里明明有汇报但面板没读到。
      * 三种情况写法不同，绝不拿假摘要填版面。
      */
 
@@ -715,9 +722,20 @@ window.__ModuleLoader__.load({
     function digestEmptyReason(state, loaded) {
       if (loaded > 0) return ''
       const total = Number(state?.digest_count) || 0
-      if (total > 0) return `库里有 ${total} 份汇报，但面板还没接上汇报读取——这一格现在数得出，读不出来。`
+      if (total > 0) return `库里有 ${total} 份汇报，但面板没读到汇报内容——这一格现在数得出，读不出来。`
       if (!state || !state.last_run) return '还没跑过一轮：库是空的。去「今天」点"现在跑一轮"，或者等定时窗口自己起。'
-      return `判断轮（M3）尚未接入，所以这里没有图文汇报。当前待判 ${Number(state?.counts?.new) || 0} 条已经躺在库里，等有会话跑一轮就能出。`
+      const pending = Number(state?.counts?.new) || 0
+      return `判断轮已接入，但还没有跑过判断${pending ? `：库里待判 ${pending} 条` : ''}。${judgeHint}，判完这里就出汇报。`
+    }
+
+    /**
+     * tiers 计数行：数字与 headline 同源（都出自 saveVerdicts 落的 stats）。
+     * stats 缺了或没解出来就明说"没读出来"，不装作没有这一栏——那是把读回失败说成空。
+     */
+    function digestTierLine(stats) {
+      const t = stats?.tiers
+      if (!t) return '（这份汇报的计数没读出来）'
+      return `值得看 ${Number(t['值得看']) || 0} · 可以看 ${Number(t['可以看']) || 0} · 不值当 ${Number(t['不值当']) || 0}`
     }
 
     function DigestView({ digests = [], state }) {
@@ -727,7 +745,7 @@ window.__ModuleLoader__.load({
       return vnode('div', { className: 'bl-digest' }, sorted.map((d) => vnode('section', { className: 'bl-dsum', key: d.id }, [
         vnode('h3', {}, [fmtTime(d.created_at)]),
         vnode('p', { className: 'bl-dhead' }, [d.headline || '（这份简报没写标题）']),
-        vnode('p', { className: 'bl-dpath' }, ['原文：' + (d.markdown_path || '（未落文件）')])
+        vnode('p', { className: 'bl-dtiers' }, [digestTierLine(d.stats)])
       ])))
     }
 
@@ -1330,8 +1348,9 @@ window.__ModuleLoader__.load({
         items: data.items,
         filters: snap.filters[view] || {},
         selectedId: snap.selectedId,
-        // 汇报的读取路由要到 M3 才建；先给空数组，DigestView 会用 state.digest_count 说"数得出读不出来"
-        digests: [],
+        // 汇报跟着 /state 走（M3 起 state.digests 已由服务端把 stats_json 解成对象）；
+        // 读不到或没有时给空数组，DigestView 会用 state.digest_count 说"数得出读不出来"
+        digests: (st && Array.isArray(st.digests)) ? st.digests : [],
         busy,
         onRun,
         onFilter: dispatch,

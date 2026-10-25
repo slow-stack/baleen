@@ -30,3 +30,9 @@ export const readbackMiss = (what) => `${what}没读回来`
 
 /** 收藏这套界面里最常见的一次读回失败：夹列表读不回来，于是整页的收藏关系都无从显示。 */
 export const foldersUnreadNote = `读不到夹（${readbackMiss('夹列表')}）`
+
+/**
+ * 判断的入口只有一句话：「今天」的待判提示与汇报空态共用这一句——
+ * 两处各写一遍的话，迟早漂移成两种说法，用户就得猜哪个才是对的。
+ */
+export const judgeHint = '对会话说一句「把今天的候选判一下」'
