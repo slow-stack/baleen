@@ -114,7 +114,17 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 | V3 小红书 MCP 代码审查 | 未开始 | 属于 M4，且要装第三方带登录态的代码，需你批准 |
 | V4 `settings.section` 在桌面版是否出现 | 插件已装载（见下方 M2.5 真机记录），settings.section 逐项核对未做 | 面板与收藏功能已验收；settings 区块留待下次进面板时看 |
 | V5 B 站内嵌播放器 | 未开始 | 需要面板存在，属于 M2/M4 |
-| V7（新增）宿主 `timer` 能否替代自建调度 | 未开始 | M3 前评估，不影响 M1 |
+| V7（新增）宿主 `timer` 能否替代自建调度 | **已评估，维持现状（2026-10-25）** | 宿主没有提供可替代的调度服务——参考实现 dsh-study-desk 同样自管 timer 并靠 `ctx.effect` 生命周期回收；自建调度（lib/scheduler.js）继续 |
+
+## M3 判断轮：真机验收清单（代码完成 2026-10-25，待真机实测）
+
+代码侧（`2026-10-25-baleen-m3-judgment.md` 计划 Task 1-4）已全绿（399 测试）并逐任务评审通过。**真机验收被"库里没有候选"阻塞**——需要先配置一个真实源跑一轮，然后：
+
+1. 重启 DSH 后确认插件仍装配健康（日志法同 M2.5 记录）。
+2. **注入段可见**（Task 3 评审附条件，必验）：在任意会话里看 system prompt 是否出现 `dsh-baleen:pending` 段（待判计数 + Top 标题 + 工具名）；`inject_prompt: false` 时消失。
+3. 判断轮全流程：对会话说「把今天的候选判一下」→ 观察模型依次调 `baleen.candidates` → `baleen.read_item`（若干条）→ `baleen.save_verdicts`；面板待判数下降、汇报视图出现 digest、`defineTool` 来源日志确认命中宿主形态（`@deepseek-ai/dsh-tools` 未声明 peerDependencies，走 asar 兜底——Task 2 留的验收点）。
+4. save_verdicts 越界词（如让模型写"满分"）被 schema 拒。
+5. 未验遗留（M3 计划外）：V4 的 settings.section 逐项、V3/V5（M4）。
 
 ## M2.5 真机装载与验收记录（2026-10-25，agent 远程执行，用户授权）
 

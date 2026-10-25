@@ -4,7 +4,7 @@
 >
 > 名字来自鲸须——须鲸的滤食结构。这个产品做的同一件事。
 
-**当前状态：M1（摄取侧）已完成；M2（面板）与 M2.5（收藏页、抽屉多选收进夹）代码写完、正停在预览门等你看图点头；还没装进 DSH。** 摄取侧做的事是：按计划抓 RSS 源 → 规范化入库 → 两级去重 → 本地预筛 → 记账。面板侧六格（今天/视频/文章/收藏/汇报/库）+ 抽屉已能用假数据渲染（`node tools/preview.mjs`，八页预览）。判断轮（模型读正文给三档）、B 站/小红书通道在 M3/M4，设置页在 M5。
+**当前状态：M1（摄取）、M2（面板）、M2.5（收藏页、抽屉多选收进夹）完成并已装载进 DSH 真机验收（六格导航、收藏页建删夹全流程实测通过）；M3（判断轮）代码完成——五个只读工具 + 唯一写工具 save_verdicts（三档枚举锁死）+ system-prompt 注入触发器 + 汇报视图接真 digest，真机会话实测待做。** 摄取侧：按计划抓 RSS 源 → 规范化入库 → 两级去重 → 本地预筛 → 记账。B 站/小红书通道在 M4，设置页在 M5。
 
 ## 看面板长什么样（不装 DSH、不联网）
 
@@ -20,7 +20,7 @@ open out/preview-today.html # 浏览器直接打开即可
 
 ```bash
 npm install            # 唯一依赖：yaml（纯 JS，无 install 脚本）
-npm test               # 368 个测试，node --test，不需要网络
+npm test               # 399 个测试，node --test，不需要网络
 cp preference.example.yaml ~/baleen-trial/preference.yaml   # 先自己建目录
 BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮公开 feed
 ```
