@@ -64,7 +64,7 @@ const applyOf = async (home, opts = {}) => {
   const { apply } = await import('../index.js')
   const baleen = apply(ctx, {
     now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval,
-    // config 透传（如 spawnImpl）：subtitle 工具现取字幕时用它注入 bili 子进程桩
+    // config 透传（如 fetchImpl）：subtitle 工具现取字幕时用它注入 bili fetch 桩
     ...(opts.config ?? {}),
   })
   return { ctx, baleen }
@@ -309,53 +309,29 @@ test('run_status 的 inject_prompt 接真值：读 preference.yaml 的开关，�
 
 /* ---------------- baleen.subtitle：第六个工具（M4a，视频字幕现取，只读） ---------------- */
 
-// bili 子进程桩：手法同 test/adapters-bili.test.js（一行一帧 JSON-RPC），
-// 只留 subtitle 工具现取路径要用的最少行为（initialize + get_video_detail）。
-import { EventEmitter } from 'node:events'
-
-function fakeBiliSpawn({ fullText = '现取到的字幕全文。', errors = [] } = {}) {
-  const state = { calls: [], children: [] }
-  const spawnImpl = () => {
-    const child = new EventEmitter()
-    child.stdout = new EventEmitter()
-    child.stderr = new EventEmitter()
-    child.pid = 7788
-    child.exitCode = null
-    child.signalCode = null
-    let killed = false
-    child.kill = () => {
-      killed = true
-      process.nextTick(() => { child.exitCode = 0; child.emit('exit', 0) })
-      return true
-    }
-    child.killed = () => killed
-    child.stdin = {
-      write: (s) => {
-        const msg = JSON.parse(s)
-        if (msg.method === 'initialize') {
-          child.stdout.emit('data', JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2024-11-05', capabilities: {} } }) + '\n')
-        } else if (msg.method === 'tools/call') {
-          state.calls.push({ name: msg.params.name, args: msg.params.arguments })
-          child.stdout.emit('data', JSON.stringify({
-            jsonrpc: '2.0', id: msg.id,
-            result: { isError: false, structuredContent: { video: {}, subtitles: { full_text: fullText, errors } } },
-          }) + '\n')
-        }
-        return true
-      },
-      end: () => {},
-    }
-    state.children.push(child)
-    return child
+// bili fetch 桩：手法同 test/adapters-bili.test.js（按 URL 路由），
+// 只留 subtitle 工具现取路径要用的最少行为（nav 签名 key → view 拿 cid → player/wbi/v2 → aisubtitle json）。
+function fakeBiliFetch({ fullText = '现取到的字幕全文。', subtitles = [{ id: 9, lan: 'ai-zh', lan_doc: 'AI 简体', subtitle_url: '//aisubtitle.hdslb.com/bfs/ai_subtitle/fake.json' }] } = {}) {
+  const state = { calls: [] }
+  const impl = async (url, init = {}) => {
+    const u = String(url)
+    state.calls.push({ url: u, headers: init?.headers ?? {} })
+    const json =
+      u.includes('/x/web-interface/nav') ? {
+        code: -101, data: { isLogin: false, wbi_img: {
+          img_url: 'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
+          sub_url: 'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png',
+        } }
+      }
+      : u.includes('/x/web-interface/view') ? { code: 0, data: { bvid: 'BV1xx411c7mD', cid: 1001 } }
+      : u.includes('/x/player/wbi/v2') ? { code: 0, data: { subtitle: { subtitles } } }
+      : u.includes('aisubtitle.hdslb.com') ? { body: [{ from: 0, to: 1, content: fullText }] }
+      : null
+    if (json == null) throw new Error(`stub: 未预期的请求 ${u}`)
+    return { ok: true, status: 200, json: async () => json }
   }
-  spawnImpl.state = state
-  return spawnImpl
-}
-
-/** 现取路径要凭据文件在场（适配器缺失即 credentials_missing 且不 spawn），测试家目录里补一份假 cookie */
-const giveBiliCookie = (home) => {
-  fs.mkdirSync(path.join(home, 'credentials'), { recursive: true })
-  fs.writeFileSync(path.join(home, 'credentials', 'bili-cookie.txt'), 'SESSDATA=fake-value; bili_jct=fake\n', 'utf8')
+  impl.state = state
+  return impl
 }
 
 const VIDEO_URL = 'https://www.bilibili.com/video/BV1xx411c7mD'
@@ -383,9 +359,9 @@ test('subtitle 非视频条目给 not_video；查无 / 非整数 id 给 no_item'
   assert.equal((await st.execute({})).error, 'no_item')
 })
 
-test('subtitle body_state=subtitle 且库内有全文 → 直接回库内文本（from_store），零 spawn', async () => {
-  const spawnImpl = fakeBiliSpawn()
-  const { ctx, baleen } = await applyOf(freshHome(), { config: { spawnImpl } })
+test('subtitle body_state=subtitle 且库内有全文 → 直接回库内文本（from_store），零请求', async () => {
+  const fetchImpl = fakeBiliFetch()
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl } })
   fireToolsInject(ctx)
   const v = seedVideo(baleen.db, { body_state: 'subtitle', body_text: '库内字幕全文' })
   const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
@@ -395,14 +371,12 @@ test('subtitle body_state=subtitle 且库内有全文 → 直接回库内文本�
   assert.equal(out.title, 't')
   assert.equal(out.url, VIDEO_URL)
   assert.equal(out.body_state, 'subtitle')
-  assert.equal(spawnImpl.state.children.length, 0, '库内已有全文就不许再起子进程')
+  assert.equal(fetchImpl.state.calls.length, 0, '库内已有全文就不许再发请求')
 })
 
-test('subtitle body_state=missing/burned_in → 现取：一个 serve 子进程 get_video_detail(bvid)，返回全文并收进程', async () => {
-  const home = freshHome()
-  giveBiliCookie(home)
-  const spawnImpl = fakeBiliSpawn({ fullText: '现取到的字幕全文。' })
-  const { ctx, baleen } = await applyOf(home, { config: { spawnImpl } })
+test('subtitle body_state=missing/burned_in → 现取：view 拿 cid + player/wbi/v2 签名请求，返回全文；每条 bvid 恰好一次 view', async () => {
+  const fetchImpl = fakeBiliFetch({ fullText: '现取到的字幕全文。' })
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl } })
   fireToolsInject(ctx)
   const states = ['missing', 'burned_in']
   for (const [i, state] of states.entries()) {
@@ -415,19 +389,20 @@ test('subtitle body_state=missing/burned_in → 现取：一个 serve 子进程 
     assert.equal(out.from_store, false)
     assert.equal(out.body_state, state)
   }
-  assert.equal(spawnImpl.state.calls.length, 2, '每次现取恰好一次 get_video_detail')
-  assert.deepEqual(spawnImpl.state.calls[0], {
-    name: 'get_video_detail',
-    args: { bvid: 'BV1xx411c7m0', fetch_subtitles: true, subtitle_mode: 'smart' },
-  })
-  assert.ok(spawnImpl.state.children.every((c) => c.killed()), '用完的子进程必收，不留孤儿')
+  const views = fetchImpl.state.calls.filter(c => c.url.includes('/x/web-interface/view'))
+  assert.equal(views.length, 2, '每次现取恰好一次 view 详情')
+  assert.ok(views[0].url.includes('bvid=BV1xx411c7m0'))
+  assert.ok(views[1].url.includes('bvid=BV1xx411c7m1'))
+  const player = fetchImpl.state.calls.find(c => c.url.includes('/x/player/wbi/v2'))
+  assert.ok(player.url.includes('bvid=BV1xx411c7m0') && player.url.includes('cid=1001') && player.url.includes('w_rid='),
+    'player 请求带 bvid/cid 且已 wbi 签名')
+  assert.ok(fetchImpl.state.calls.filter(c => c.url.includes('/x/web-interface/nav')).length <= 1,
+    'wbi key 进程内缓存，第二次现取不再打 nav')
 })
 
-test('subtitle detail 成功但没字幕（full_text 空）→ no_subtitle，不冒充成功', async () => {
-  const home = freshHome()
-  giveBiliCookie(home)
-  const spawnImpl = fakeBiliSpawn({ fullText: '' })
-  const { ctx, baleen } = await applyOf(home, { config: { spawnImpl } })
+test('subtitle detail 成功但没字幕（字幕列表空）→ no_subtitle，不冒充成功', async () => {
+  const fetchImpl = fakeBiliFetch({ subtitles: [] })
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl } })
   fireToolsInject(ctx)
   const v = seedVideo(baleen.db, { body_state: 'missing' })
   const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
@@ -435,24 +410,21 @@ test('subtitle detail 成功但没字幕（full_text 空）→ no_subtitle，不
   assert.equal(out.error, 'no_subtitle')
 })
 
-test('subtitle 凭据缺失 → fetch_failed，detail 只指向文件名不带绝对路径（脱敏红线），且没起子进程', async () => {
-  const spawnImpl = fakeBiliSpawn() // 家目录没有 credentials/bili-cookie.txt
-  const { ctx, baleen } = await applyOf(freshHome(), { config: { spawnImpl } })
+test('subtitle 无凭据（cookie 可选）→ 不再 fetch_failed，匿名照跑；有凭据才带 Cookie 头', async () => {
+  // freshHome 没有 credentials/bili-cookie.txt —— 旧路线这里会 credentials_missing 拦截
+  const anon = fakeBiliFetch()
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl: anon } })
   fireToolsInject(ctx)
   const v = seedVideo(baleen.db, { body_state: 'missing' })
   const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
-  assert.equal(out.ok, false)
-  assert.equal(out.error, 'fetch_failed')
-  assert.match(out.detail, /bili-cookie\.txt/)
-  assert.doesNotMatch(out.detail, /[/\\]credentials[/\\]/)
-  assert.equal(spawnImpl.state.children.length, 0, '凭据缺失在 spawn 之前就该拦下')
+  assert.equal(out.ok, true, 'cookie 缺失不该拦现取')
+  assert.equal(out.subtitle_text, '现取到的字幕全文。')
+  assert.equal(anon.state.calls.some(c => c.headers.Cookie), false, '匿名请求不带 Cookie 头')
 })
 
-test('subtitle 不是 B 站视频（bvid 提取不到）→ no_bvid，不起子进程', async () => {
-  const home = freshHome()
-  giveBiliCookie(home)
-  const spawnImpl = fakeBiliSpawn()
-  const { ctx, baleen } = await applyOf(home, { config: { spawnImpl } })
+test('subtitle 不是 B 站视频（bvid 提取不到）→ no_bvid，零请求', async () => {
+  const fetchImpl = fakeBiliFetch()
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl } })
   fireToolsInject(ctx)
   const v = seedVideo(baleen.db, {
     external_id: 'yt-xYZ123', url: 'https://example.com/watch?v=x', body_state: 'summary_only', body_text: '只有摘要',
@@ -460,7 +432,7 @@ test('subtitle 不是 B 站视频（bvid 提取不到）→ no_bvid，不起子�
   const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
   assert.equal(out.ok, false)
   assert.equal(out.error, 'no_bvid')
-  assert.equal(spawnImpl.state.children.length, 0)
+  assert.equal(fetchImpl.state.calls.length, 0)
 })
 
 test('subtitle 超两万字截断并注明原长（与 read_item 同一阈值，防撑爆会话上下文）', async () => {

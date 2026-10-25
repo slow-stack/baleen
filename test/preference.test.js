@@ -144,12 +144,9 @@ test('inject_prompt 是顶层布尔：缺省 true，写非布尔值整份退回�
   assert.equal(loadPreference(tmp()).pref.inject_prompt, true, '缺省该是开')
 })
 
-test('bili_python 顶层键：缺省 baleen-bili，非空字符串校验', () => {
-  assert.equal(DEFAULTS.bili_python, 'baleen-bili')
-  const errs = validate({ bili_python: '   ' })
-  assert.ok(errs.some(e => e.startsWith('bili_python')), errs.join('|'))
-  const ok = loadPreference(tmp())
-  assert.equal(ok.pref.bili_python, 'baleen-bili')
+test('bili_python 键已废除（Task 2b 纯 fetch 直连，无子进程要指路）：不再在 DEFAULTS，也不再校验', () => {
+  assert.equal(DEFAULTS.bili_python, undefined)
+  assert.deepEqual(validate({ bili_python: 'baleen-bili' }), [])
 })
 
 test('bili 源类型登记：type 合法、url 必填，未知类型仍被拒', () => {

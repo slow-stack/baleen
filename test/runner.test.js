@@ -215,7 +215,7 @@ test('移出夹之后，下一轮的过期清理照旧生效（钉住不等于�
   assert.equal(r3.stats.archived, 1, '最后一轮的归档只有移出夹的那条')
 })
 
-test('fetch 选项带 pref（bili_python 等顶层偏好要能到适配器）', async () => {
+test('fetch 选项带 pref（inject_prompt 等顶层偏好要能到适配器）', async () => {
   const db = dbOf()
   const seen = []
   await runOnce({ db, pref, now: () => 5000, adapters: { rss: { type: 'rss', async fetch(source, opts) { seen.push(opts); return [] } } } })

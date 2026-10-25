@@ -72,7 +72,7 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 ## 还没做
 
 - M3 headless 判断轮 + 每轮增量汇报
-- M4 B 站（vendored bilibili-mcp）/ 小红书（扫码 MCP，需先做代码审查）/ YouTube
+- M4 B 站（纯 fetch 直连，wbi 签名自研）/ 小红书（扫码 MCP，需先做代码审查）/ YouTube
 - M5 DSH 设置页四页签
 - 装载进 DSH desktop profile（需要应用退出后操作，见 verification 文档）
 
