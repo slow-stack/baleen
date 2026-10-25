@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { EventEmitter } from 'node:events'
 import YAML from 'yaml'
 import { setItemFolders } from '../lib/store.js'
 import { loadPreference } from '../lib/preference.js'
@@ -264,10 +265,11 @@ test('tick 在窗外不抓取；runNow 无视窗', async () => {
   assert.equal(r.skipped, false)
 })
 
-const apiOf = async (home) => {
+// cfg 透传给 apply（M5 Task 2 起 env-check 要注 spawnImpl 桩，与 fetchImpl 同一手法）
+const apiOf = async (home, cfg = {}) => {
   const ctx = makeCtx(home)
   const { apply } = await import('../index.js')
-  const baleen = apply(ctx, { now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval })
+  const baleen = apply(ctx, { now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval, ...cfg })
   return { h: ctx.registered[0].handler, baleen, ctx }
 }
 
@@ -811,4 +813,177 @@ test('tuning-reset 在解析不了的 yaml 上 400 不写：防把坏文件抹�
   assert.equal(JSON.parse(res.body).ok, false)
   assert.equal(fs.readFileSync(path.join(home, 'preference.yaml'), 'utf8'), broken, '归零把用户的坏文件抹掉了')
   assert.equal(fs.readFileSync(path.join(home, 'tuning.json'), 'utf8'), '{"blog-a":-0.3}', '归零顺手清了 tuning.json')
+})
+
+/* ---------------- M5 Task 2：凭据与环境路由（设置页的宿主半） ---------------- */
+
+// 假凭据：足够独特，日志/应答里出现它就是泄漏；不用真 SESSDATA 的形态之外的任何真值
+const SECRET = 'SESSDATA=f4k3-s3cr3t-n3v3r-l34k; buvid3=f4k3'
+
+test('凭据链路零回显零日志：状态翻转、文件逐字、应答与 diagnostics 都不含内容', async () => {
+  const home = freshHome()
+  const { h } = await apiOf(home)
+  const before = fakeRes()
+  await h({ url: '/api/dsh-baleen/credential-status', method: 'GET' }, before)
+  assert.equal(before.code, 200)
+  assert.equal(JSON.parse(before.body).ok, true)
+  assert.deepEqual(JSON.parse(before.body).bili, { present: false, updated_at: null }, '没写过的凭据该报 absent')
+  const put = fakeRes()
+  await h({ url: '/api/dsh-baleen/credential', method: 'PUT', ...bodyOf({ which: 'bili', content: SECRET }) }, put)
+  assert.equal(put.code, 200)
+  const putBody = JSON.parse(put.body)
+  assert.equal(putBody.ok, true)
+  assert.equal(putBody.bili.present, true)
+  assert.equal(typeof putBody.bili.updated_at, 'number')
+  // 文件内容逐字（测试自己读文件比对）
+  assert.equal(fs.readFileSync(path.join(home, 'credentials', 'bili-cookie.txt'), 'utf8'), SECRET)
+  // 零回显：PUT 应答与 GET 状态的 JSON 序列化都不含凭据内容
+  assert.equal(put.body.includes('f4k3-s3cr3t'), false, 'PUT 应答回显了凭据内容')
+  const after = fakeRes()
+  await h({ url: '/api/dsh-baleen/credential-status', method: 'GET' }, after)
+  assert.equal(after.code, 200)
+  assert.equal(after.body.includes('f4k3-s3cr3t'), false, '状态应答回显了凭据内容')
+  assert.equal(JSON.parse(after.body).bili.present, true)
+  assert.equal(JSON.parse(after.body).bili.updated_at, putBody.bili.updated_at, 'updated_at 该是文件 mtime')
+  // 零日志泄漏：全文不含内容串也不含 SESSDATA 字样；credential 事件只带 which 与字节数
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.equal(blob.includes('f4k3-s3cr3t'), false, '凭据内容泄进了 diagnostics.jsonl')
+  assert.equal(blob.includes('SESSDATA'), false, '日志里连 SESSDATA 字样都不该有')
+  assert.match(blob, /"event":"credential"/, '写入没记日志')
+  assert.match(blob, /"detail":"PUT bili \d+ 字节"/, 'detail 只许有 which 与字节数')
+})
+
+test('PUT /credential 的 which 白名单与空 content 都 400，坏载荷一个字节不写', async () => {
+  const home = freshHome()
+  const { h } = await apiOf(home)
+  const cases = [
+    [{ rawBody: '坏掉的' }, 'bad_payload'],
+    [bodyOf('字符串'), 'bad_payload'],
+    [bodyOf({ which: 'xhs', content: 'x' }), 'unknown_which'],
+    [bodyOf({ content: 'x' }), 'unknown_which'],
+    [bodyOf({ which: 'BILI', content: 'x' }), 'unknown_which'],
+    [bodyOf({ which: 'bili' }), 'bad_payload'],
+    [bodyOf({ which: 'bili', content: '' }), 'bad_payload'],
+    [bodyOf({ which: 'bili', content: '   ' }), 'bad_payload'],
+    [bodyOf({ which: 'bili', content: 123 }), 'bad_payload']
+  ]
+  for (const [req, error] of cases) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/credential', method: 'PUT', ...req }, res)
+    assert.equal(res.code, 400, JSON.stringify(req.rawBody ?? ''))
+    assert.equal(JSON.parse(res.body).error, error, JSON.stringify(req.rawBody ?? ''))
+    assert.equal(JSON.parse(res.body).ok, false)
+  }
+  assert.equal(fs.existsSync(path.join(home, 'credentials')), false, '被拒的请求不该建出 credentials 目录')
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.equal(blob.includes('"event":"credential"'), false, '被拒的写入不该记 credential 日志')
+})
+
+/** env-check 探测桩的子进程：EventEmitter 形状对齐 runYtDlp 的用法，事件走微任务迟到 */
+const fakeChild = ({ stdout = '', code = 0 } = {}) => {
+  const child = new EventEmitter()
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.kill = () => {}
+  queueMicrotask(() => {
+    if (stdout) child.stdout.emit('data', stdout)
+    child.emit('exit', code)
+  })
+  return child
+}
+
+test('GET /env-check 全只读探测：node/库大小/家目录可写/cookie 存在性 + yt_dlp 桩', async () => {
+  const home = freshHome()
+  const spawned = []
+  const { h } = await apiOf(home, {
+    spawnImpl: (bin, args) => {
+      spawned.push({ bin, args })
+      return fakeChild({ stdout: '2026.10.20\n' })
+    }
+  })
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/env-check', method: 'GET' }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, true)
+  assert.equal(body.node, process.versions.node)
+  assert.equal(body.yt_dlp, '2026.10.20')
+  assert.equal(body.bili_cookie, false)
+  assert.ok(Number.isInteger(body.db_bytes) && body.db_bytes > 0, '库文件大小没探出来')
+  assert.equal(body.home_writable, true)
+  assert.equal(spawned.length, 1)
+  assert.deepEqual(spawned[0].args, ['--version'], '探测只要 --version，别拿真视频 URL 打网络')
+  assert.equal(spawned[0].bin.includes('yt-dlp'), true, '探测的是 yt-dlp 本体')
+  // 探测结果进程内缓存 10 分钟：第二次 GET 不再 spawn
+  const again = fakeRes()
+  await h({ url: '/api/dsh-baleen/env-check', method: 'GET' }, again)
+  assert.equal(JSON.parse(again.body).yt_dlp, '2026.10.20')
+  assert.equal(spawned.length, 1, '缓存没生效，面板每次刷新都会开一个子进程')
+})
+
+test('env-check 的 yt_dlp 探测失败回 null 不 500；bili_cookie 随写入翻转', async () => {
+  const home = freshHome()
+  const { h } = await apiOf(home, {
+    spawnImpl: () => { const e = new Error('spawn yt-dlp ENOENT'); e.code = 'ENOENT'; throw e }
+  })
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/env-check', method: 'GET' }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, true)
+  assert.equal(body.yt_dlp, null, '探测失败该是 null，不是报错也不是猜一个版本')
+  const put = fakeRes()
+  await h({ url: '/api/dsh-baleen/credential', method: 'PUT', ...bodyOf({ which: 'bili', content: 'SESSDATA=stub' }) }, put)
+  assert.equal(put.code, 200, '前置写入没成功')
+  const again = fakeRes()
+  await h({ url: '/api/dsh-baleen/env-check', method: 'GET' }, again)
+  assert.equal(JSON.parse(again.body).bili_cookie, true, 'cookie 写入后 env-check 该看到它')
+})
+
+test('GET /diagnostics-tail：逐行 redact、行数消毒与上限、文件不在空数组', async () => {
+  const home = freshHome()
+  const { h } = await apiOf(home)
+  const logFile = path.join(home, 'logs', 'diagnostics.jsonl')
+  // 夹具：两条可数的 JSON 行 + 一条带家目录路径的手写旧行（双保险脱敏要罩住的"历史行"形态）
+  fs.appendFileSync(logFile, [
+    JSON.stringify({ level: 'info', event: 'fixture', detail: '第 0 行' }),
+    JSON.stringify({ level: 'info', event: 'fixture', detail: '第 1 行' }),
+    `2026-10-26 旧行：字幕缓存在 ${path.join(home, 'tmp', 'yt-subs')} 已清`,
+  ].join('\n') + '\n', 'utf8')
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/diagnostics-tail?lines=2', method: 'GET' }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, true)
+  assert.equal(body.lines.length, 2, 'lines=2 没取最后两行')
+  assert.match(body.lines[0], /第 1 行/)
+  const old = body.lines[1]
+  assert.equal(old.includes(os.homedir()), false, '家目录路径没被脱敏')
+  assert.ok(old.includes('<HOME>'), '家目录该换成 <HOME> 占位')
+
+  // 行数：脏参数走默认 50，上限 200（塞 250 行夹具让两个数都可见）
+  const home2 = freshHome()
+  const api2 = await apiOf(home2)
+  const log2 = path.join(home2, 'logs', 'diagnostics.jsonl')
+  const rows = Array.from({ length: 250 }, (_, i) => JSON.stringify({ level: 'info', event: 'fixture', detail: `行 ${i}` }))
+  fs.appendFileSync(log2, rows.map(r => r + '\n').join(''), 'utf8')
+  const dflt = fakeRes()
+  await api2.h({ url: '/api/dsh-baleen/diagnostics-tail', method: 'GET' }, dflt)
+  assert.equal(dflt.code, 200)
+  const dfltBody = JSON.parse(dflt.body)
+  assert.equal(dfltBody.lines.length, 50, '缺省该是 50 行')
+  assert.match(dfltBody.lines[49], /行 249/, '尾部没对齐：要的是最后 N 行不是前 N 行')
+  const capped = fakeRes()
+  await api2.h({ url: '/api/dsh-baleen/diagnostics-tail?lines=99999', method: 'GET' }, capped)
+  assert.equal(JSON.parse(capped.body).lines.length, 200, '上限该是 200 行')
+  const dirty = fakeRes()
+  await api2.h({ url: '/api/dsh-baleen/diagnostics-tail?lines=abc', method: 'GET' }, dirty)
+  assert.equal(dirty.code, 200, '脏参数按默认走，不是 500')
+  assert.equal(JSON.parse(dirty.body).lines.length, 50)
+  // 文件不在：空数组，不是 500（日志可能还没写出第一行）
+  fs.rmSync(log2)
+  const gone = fakeRes()
+  await api2.h({ url: '/api/dsh-baleen/diagnostics-tail', method: 'GET' }, gone)
+  assert.equal(gone.code, 200)
+  assert.deepEqual(JSON.parse(gone.body).lines, [])
 })

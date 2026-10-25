@@ -1,10 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates, latestDigests } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile, writePreference, readPreferenceRaw, clearTuningFile, validate } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
 import { createScheduler } from './lib/scheduler.js'
-import { makeLogger } from './lib/diag.js'
+import { makeLogger, redact } from './lib/diag.js'
 import { ensureHome } from './lib/paths.js'
 import { baleenTools } from './lib/tools.js'
 
@@ -120,6 +121,68 @@ function digestRows(rows) {
   })
 }
 
+/* ---------------- 凭据与环境（M5 Task 2，设置页的宿主半） ---------------- */
+
+/**
+ * bili 凭据文件的现状：只报存在性与 mtime 毫秒。内容一个字都不许出这条函数——
+ * 状态、应答、日志三处都是零回显（红线），读文件取内容的只有 bili 适配器的 readCookieFile。
+ */
+function credentialState(file) {
+  try {
+    return { present: true, updated_at: fs.statSync(file).mtimeMs }
+  } catch {
+    return { present: false, updated_at: null }
+  }
+}
+
+/** env-check 探测的存活时间与硬超时（探测只要 --version，30s 足够且绝不吃进抓取预算） */
+const YTDLP_PROBE_TTL_MS = 10 * 60 * 1000
+const YTDLP_PROBE_TIMEOUT_MS = 30000
+
+/**
+ * yt-dlp 版本探测（env-check 用）：spawn `--version`，任何失败（ENOENT / 非零退出 /
+ * 超时 / 输出为空）一律回 null——探测是给面板看的，不是给系统下结论的。
+ * 结果按二进制名缓存 10 分钟（含失败），面板反复刷新不该变成每次一个子进程。
+ * 二进制解析与抓取侧同源：用户改过 yt_dlp_path 就用它，缺省在 Windows 上显式补
+ * .exe（spawn 无 shell 时不走 PATHEXT，libuv 的扩展搜索在不同安装形态下踩过坑）。
+ */
+function makeYtDlpProbe({ spawnImpl, getPref, now }) {
+  const cache = new Map() // bin → { at, version }
+  return async () => {
+    const configured = String(getPref().pref.yt_dlp_path ?? '').trim()
+    const bin = configured && configured !== 'yt-dlp'
+      ? configured
+      : (process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp')
+    const hit = cache.get(bin)
+    if (hit && now() - hit.at < YTDLP_PROBE_TTL_MS) return hit.version
+    const version = await new Promise((resolve) => {
+      let child
+      try {
+        child = spawnImpl(bin, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+      } catch {
+        resolve(null) // 同步抛（典型是 ENOENT）也是"不可用"，不是路由错误
+        return
+      }
+      let out = ''
+      let settled = false
+      let timer = null
+      const settle = (v) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(v)
+      }
+      child.stdout?.on('data', (c) => { out += String(c) })
+      child.stderr?.on('data', () => {}) // 挂住 stderr 防满管阻塞子进程
+      timer = setTimeout(() => { try { child.kill() } catch {} settle(null) }, YTDLP_PROBE_TIMEOUT_MS)
+      child.on?.('error', () => settle(null))
+      child.on?.('exit', (code) => settle(code === 0 && out.trim() ? out.split(/\r?\n/)[0].trim().slice(0, 40) : null))
+    })
+    cache.set(bin, { at: now(), version })
+    return version
+  }
+}
+
 /**
  * 宿主半入口。三件事：装配（库 + 偏好 + 调度）、只读路由、给面板与别的插件一个服务入口。
  *
@@ -148,6 +211,10 @@ export function apply(ctx, config = {}) {
     setInterval: config.setInterval ?? setInterval,
     clearInterval: config.clearInterval ?? clearInterval
   })
+  // 凭据文件路径与 yt-dlp 探测器（设置页 Task 2）。spawnImpl 走 config 透传，与
+  // subtitle 工具同一个注入口；探测缓存落在闭包里——跟随插件生命周期，不跨实例串味。
+  const credFile = path.join(dir, 'credentials', 'bili-cookie.txt')
+  const probeYtDlp = makeYtDlpProbe({ spawnImpl: config.spawnImpl ?? spawn, getPref, now })
 
   function state() {
     const { pref, errors } = getPref()
@@ -338,6 +405,52 @@ export function apply(ctx, config = {}) {
           }
           throw e
         }
+      }
+      if (sub === '/credential-status' && req.method === 'GET') {
+        // 零回显红线：应答里只有存在性与 mtime，没有任何凭据内容或形态提示
+        return json(res, 200, { ok: true, bili: credentialState(credFile) })
+      }
+      if (sub === '/credential' && req.method === 'PUT') {
+        let body
+        try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { ok: false, error: 'bad_payload' })
+        // which 白名单：将来接 xhs 扫码时再扩，现在多收一个就是谎报覆盖面
+        if (body.which !== 'bili') return json(res, 400, { ok: false, error: 'unknown_which' })
+        // 不校验内容形态（有没有 SESSDATA 字样不关路由的事）：只拒"写不进一个字"的空值
+        if (typeof body.content !== 'string' || !body.content.trim()) return json(res, 400, { ok: false, error: 'bad_payload' })
+        fs.mkdirSync(path.dirname(credFile), { recursive: true })
+        // 0o600 尽力而为：POSIX 上真的收紧同机其他用户可读，Windows 上 chmod 位是摆设
+        fs.writeFileSync(credFile, body.content, { mode: 0o600 })
+        try { fs.chmodSync(credFile, 0o600) } catch { /* 文件已落盘，权限位尽力 */ }
+        // 红线：detail 只有 which 与字节数，凭据内容一个字都不进 diagnostics
+        log({ level: 'info', event: 'credential', detail: `PUT bili ${Buffer.byteLength(body.content, 'utf8')} 字节` })
+        return json(res, 200, { ok: true, bili: credentialState(credFile) })
+      }
+      if (sub === '/env-check' && req.method === 'GET') {
+        // 全只读探测：node 版本、yt-dlp 版本（可空）、cookie 存在性、库大小、家目录可写
+        let dbBytes = null
+        try { dbBytes = fs.statSync(path.join(dir, 'baleen.sqlite')).size } catch { /* 库文件异常也不 500 */ }
+        let homeWritable = true
+        try { fs.accessSync(dir, fs.constants.W_OK) } catch { homeWritable = false }
+        return json(res, 200, {
+          ok: true,
+          node: process.versions.node,
+          yt_dlp: await probeYtDlp(),
+          bili_cookie: credentialState(credFile).present,
+          db_bytes: dbBytes,
+          home_writable: homeWritable
+        })
+      }
+      if (sub === '/diagnostics-tail' && req.method === 'GET') {
+        const want = num(url.searchParams.get('lines'), 50, 200)
+        let raw
+        try { raw = fs.readFileSync(path.join(dir, 'logs', 'diagnostics.jsonl'), 'utf8') } catch {
+          return json(res, 200, { ok: true, lines: [] })
+        }
+        // 逐行原样字符串再过一遍 redact：写入时已脱敏，这里双保险并罩住历史行。
+        // slice(len-want) 而不是 slice(-want)：want=0 时 -0 会变成"整份"。
+        const lines = raw.split(/\r?\n/).filter((l) => l.length)
+        return json(res, 200, { ok: true, lines: lines.slice(Math.max(0, lines.length - want)).map(redact) })
       }
       return json(res, 404, { ok: false, error: 'no such route' })
     } catch (e) {
