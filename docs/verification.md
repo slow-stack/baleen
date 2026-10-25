@@ -116,15 +116,20 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 | V5 B 站内嵌播放器 | 未开始 | 需要面板存在，属于 M2/M4 |
 | V7（新增）宿主 `timer` 能否替代自建调度 | **已评估，维持现状（2026-10-25）** | 宿主没有提供可替代的调度服务——参考实现 dsh-study-desk 同样自管 timer 并靠 `ctx.effect` 生命周期回收；自建调度（lib/scheduler.js）继续 |
 
-## M3 判断轮：真机验收清单（代码完成 2026-10-25，待真机实测）
+## M3 判断轮：真机验收记录（2026-10-25，**全部通过**）
 
-代码侧（`2026-10-25-baleen-m3-judgment.md` 计划 Task 1-4）已全绿（399 测试）并逐任务评审通过。**真机验收被"库里没有候选"阻塞**——需要先配置一个真实源跑一轮，然后：
+用户给了三个真实源（substack 期刊 / medium / innei 独立博客），agent 配源并全流程实测。**过程中抓到并修掉三个真问题**：① link 挂载不等于热加载（代码更新需重启宿主）；② 宿主运行中重写 cordis.patch.yml 会丢 link 装配条目（重启后插件整个不加载，重新 `plugin add` 恢复）；③ **宿主 10 月更新后工具/注入 API 变了**——正确形态是 `ctx.inject(['tools'|'systemPrompt'], callback)`（dsh-mneme 活样本），study-desk 的 `ctx.on('system-prompt/assemble')` 旧事件已不存在，且 `verdicts` 数组参数上错位的 `additionalProperties` 被宿主 schema DSL 拒绝导致整个工具面注入失败。修复后诊断日志落 `tool_registered` ×5 + `pending_section_mounted`。
 
-1. 重启 DSH 后确认插件仍装配健康（日志法同 M2.5 记录）。
-2. **注入段可见**（Task 3 评审附条件，必验）：在任意会话里看 system prompt 是否出现 `dsh-baleen:pending` 段（待判计数 + Top 标题 + 工具名）；`inject_prompt: false` 时消失。
-3. 判断轮全流程：对会话说「把今天的候选判一下」→ 观察模型依次调 `baleen.candidates` → `baleen.read_item`（若干条）→ `baleen.save_verdicts`；面板待判数下降、汇报视图出现 digest、`defineTool` 来源日志确认命中宿主形态（`@deepseek-ai/dsh-tools` 未声明 peerDependencies，走 asar 兜底——Task 2 留的验收点）。
-4. save_verdicts 越界词（如让模型写"满分"）被 schema 拒。
-5. 未验遗留（M3 计划外）：V4 的 settings.section 逐项、V3/V5（M4）。
+**实测结果**：
+
+- **摄取**：innei 成功 10 条全候选（follow 豁免主题闸）；ecosocialism / messywritings 本轮 network 失败（两站需代理，DSH 宿主 fetch 不走系统代理——环境问题），面板诚实报告失败 + 游标没推进 + 下轮自动补。
+- **注入段真机可见**（Task 3 附条件必验项）：会话里模型确认"系统提示里明确注入了「Baleen：待判 10 条」，工具也挂上了"，并复述了注入里的失败源清单。
+- **判断轮全流程**：模型逐条读内容（对 body_state=summary_only 的条目诚实交代"没读到正文按标题判、理由写明未核实"，并主动抓原页补正文）→ 三档判断 → `baleen.save_verdicts` 写回：10 条落库（值得看 1 / 可以看 5 / 不值当 4）、status 全部 new→judged、digest 关联 run 且 headline 计数正确（sqlite 只读直查实证）。
+- **越界词**：让模型故意传 tier="满分" → 宿主 schema 层拒：`ToolCallError: "verdicts[0].tier" must be one of ["值得看","可以看","不值当"]`——写库之前拦下，原判断无污染。
+- **面板闭环**：汇报格显示真 digest（headline + tiers 计数）、今天格"待判 0｜已判 10"、十张卡全部带三档徽章。
+- **顺手修掉一个真机抓到的谎报**：跑过轮但零丢弃时 gapText 误说"还没有一轮记录"——已改为诚实显示"丢弃 0"（399/399）。
+
+**遗留小项**：substack / medium 两源需代理或 M4 适配器处理（下轮自动补机制已演示）；注入 catch 补一行 warn 日志（Task 3 非阻塞建议，随后续改动带上）。
 
 ## M2.5 真机装载与验收记录（2026-10-25，agent 远程执行，用户授权）
 
