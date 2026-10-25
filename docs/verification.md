@@ -151,6 +151,16 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 - **未通（如实）**：影视飓风（UID 946974）的视频尚未进库——单条处理 30-60 秒（字幕 CDN aisubtitle.hdslb.com 下载慢）× 串行逐条 = 90 秒预算只够 2-3 条。**下轮调优**：字幕单请求 5 秒上限（慢即放弃降 summary_only）、detail 受限并发或首屏只取 top N、按真实节奏复核（-352 节流桶有 IP 时效）。
 - 另：UID 679488810 是选源时记错的空号（"列表为空"报错真实），错误信息已加 UID 核对提示（32c0310）。
 
+## M4b yt 通道：真机验收记录（2026-10-26 凌晨，**通过**）
+
+代码侧四笔（099ebf1 适配器 → 81108bf 字幕改 yt-dlp 下载+轨间回退 → 81e5dba subtitle 工具分流 → 2d16787 knownIds 跳过+每轮上限 12 → eb52730 重试预算压 1）+ 统一评审（blocking 一项修复后 verified）。**run 20（07:00 定时轮）宿主内全链一次通过**：
+
+- **fireship（yt 源）成功**：抓 1 → 候选 1 → 落库 id 41《Did Anthropic just kill the indie hacker》——kind=video、**body_state=subtitle**（2542 字，zh-Hans 限流自动回退 zh-Hant，`yt_subtitle_lang_fallback` 日志实证）、status=new 待判。宿主内 yt-dlp 直连可用（无需代理——与设计探测一致）。
+- **knownIds 跳过生效**：`bili_skipped_known：30 条已入库，跳过详情与字幕`——bili 源从 21 秒降到约 10 秒，消除每轮重抓（风控友好）。
+- innei 正常无新文；ecosocialism/messywritings 持续 network 失败（需代理，既有环境项）。
+- 已知项（如实）：匿名 flat 列表时段性只回 1 条（Task 1 冒烟发现）——首轮只进 1 条新视频，后续轮次按列表实际返回续传；中文原声的 `-orig` 轨名变体未在真机验证（无中文 yt 源）。
+- **待办**：fireship 待判条目由下一轮判断消费（用户开口或注入引导）；xhs（扫码+MCP 审查）、ASR 转写（依赖 M5 开关）属 M4b 余项。
+
 ## M2.5 真机装载与验收记录（2026-10-25，agent 远程执行，用户授权）
 
 **装配**：确认应用退出后，先做 `cordis.patch.yml.bak-baleen-m25-<ts>` 与 `package.json.bak-baleen-m25-<ts>` 双备份，再 `dsh plugin --profile desktop add link:D:/dsh-baleen`——一次成功，pnpm 顺带装好依赖（再跑一次 install 显示 "Already up to date"）。Task 11 计划里的 `--dump-config` 免重启校验被新版 CLI 拒绝（"profile desktop is managed exclusively by the Electron application"，该检查写作时可用，DSH 更新后收紧），改用启动日志法验证。
