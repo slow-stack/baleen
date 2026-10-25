@@ -29,6 +29,8 @@ Baleen 是一个 DSH（DeepSeek Harness 桌面版）插件：定时把信息源�
 - 侧栏入口 `sidebar.panellist` 注册的 `id` 必须与 `main` 面板的 key **完全同名**，否则宿主 `layout.selectPanel` 抛。
 - 主题只消费宿主 token（`--dsw-alias-*`），**明暗双主题都是验收项**，不写死颜色。本机实测存在的名字（清单见 `test/css.test.js` 的 `HOST_TOKENS`，来源是已跑通的 dsh-study-desk）：`bg-base`、`bg-layer-1/2/3`、`border-l1..l4`、`label-primary/secondary/tertiary/dimmed`、`brand-primary`、`interactive-bg-hover/active`、`state-error-primary`、`state-success-primary`。**`fill-tertiary`、`border-primary`、`link` 这些不存在**——写错名字不是风格问题，是宿主取不到值。也不给 `var()` 加 `light-dark()` 兜底：那等于把硬编码颜色请回来，脱离宿主的样子由 `tools/preview.mjs` 的替身 token 表负责。
 - 面板布局别留两侧大空白；网格用 `auto-fill minmax(260px, 1fr)`。
+- **link 挂载不等于热加载，宿主会重写 cordis.patch.yml**：改完插件代码必须重启 DSH 才装配；宿主运行中重写 patch 会把 link 装配条目丢掉（package.json 依赖还在，patch 条目没了，重启后插件整个不加载）——重启前先 `grep baleen cordis.patch.yml` 确认，没了就重新 `dsh plugin --profile desktop add link:D:/dsh-baleen`。
+- **当前宿主的工具/注入形态是 `ctx.inject`**（2026-10 更新后）：工具 `ctx.inject(['tools'], (toolsCtx) => toolsCtx.tools.register(t))`、注入 `ctx.inject(['systemPrompt'], (promptCtx) => promptCtx.systemPrompt.context({ name, order, text: 每轮渲染回调 }))`——study-desk 的 `ctx.on('system-prompt/assemble')` 是旧版事件，新宿主没有；`ctx.get('tools')` 在 Proxy 上抛错会让 apply 整体静默中断（面板正常、无日志、无工具），工具注册段要包 try 并写 diagnostics 日志（tool_registered 探针）。
 - 打包 node 的入口是 `resources/runtime/bin/node.cmd`，需要 `DSH_DESKTOP_NODE_EXECUTABLE` 指向 `DeepSeek Harness.exe`（细节见 `docs/verification.md`）。
 - **宿主 API 实测形态**（抄自本机 dsh-study-desk，别自己发明）：取服务用 `ctx.get('webServer') ?? ctx.webServer`；注册路由用 `webServer.register({ kind:'prefix', path, handler })` 且必须包在 `ctx.effect(fn, label)` 里；注册服务用 `ctx.provide`（`ctx.set` 对未 provide 的服务会抛）。
 - **桌面端 UI 跑在自定义协议上，只有 `/api/*` 会被转发到宿主**——路由前缀固定 `/api/dsh-baleen`，改成别的名字面板就读不到数据。
