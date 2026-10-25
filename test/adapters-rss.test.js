@@ -63,6 +63,15 @@ test('signal 透传：fetch 选项里的 signal 原样进 fetchImpl 的 init（p
   assert.equal(calls[0].init.signal.aborted, false)
 })
 
+test('knownIds 在场也不影响 rss：feed 条目照常全量返回（refreshItem 的内容更新语义依赖全量；M4b Task 3 只让 bili/yt 跳过）', async () => {
+  const fetchImpl = async () => ({ ok: true, status: 200, text: async () => fx('substack.xml') })
+  const items = await rssAdapter.fetch(source, {
+    since: null, fetchImpl,
+    knownIds: new Set(['rss-33771', 'https://example.substack.com/p/summary-only'])
+  })
+  assert.equal(items.length, 2, 'rss 忽略 knownIds：入没入库都返回')
+})
+
 test('adapterFor 只认注册过的类型，大小写不敏感', () => {
   assert.equal(adapterFor('rss'), ADAPTERS.rss)
   assert.equal(adapterFor('RSS'), ADAPTERS.rss)

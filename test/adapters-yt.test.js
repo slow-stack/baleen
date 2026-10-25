@@ -388,6 +388,56 @@ test('since 不过滤（增量判定交给 putDraft 去重、backlog 交给 gate
   })
 })
 
+/* ───────────────────────── knownIds 跳过与每轮上限（M4b Task 3） ───────────
+ * flat 列表每轮都是最新 30 条：没有 knownIds，首轮 30×~10s/3 并发 ≈100s 撞爆 90s
+ * 预算 → 源永远 timeout → 游标永不推进 → 死循环。跳过 + 上限是预算分批不是丢：
+ * 游标推进到窗口尾，下轮 knownIds 已含本轮 12 条，自然续传。 */
+
+test('knownIds 跳过已入库：30 条列表、25 条已知 → 只对 5 条新视频发起 dump+字幕（恰 10 次 spawn），一行 yt_skipped_known', async () => {
+  await withRoot(async subsRoot => {
+    const logs = []
+    const vids = Array.from({ length: 30 }, (_, i) => ({ id: `kn${String(i).padStart(10, '0')}`, title: `第${i}期` }))
+    const spawnImpl = fakeSpawn({ flat: () => ({ json: { entries: vids } }) })
+    const items = await fetchYtIt(spawnImpl, subsRoot, {
+      knownIds: new Set(vids.slice(0, 25).map(v => v.id)),
+      log: (event, detail) => logs.push({ event, detail })
+    })
+    assert.equal(items.length, 5, '只处理 5 条新视频')
+    assert.deepEqual(items.map(x => x.external_id), vids.slice(25).map(v => v.id), '保序：剩列表尾部的 5 条')
+    assert.equal(spawnImpl.state.spawns.filter(s => !s.args.includes('--flat-playlist')).length, 10,
+      '5 条 × (dump + 字幕) 恰 10 次 spawn；已知条目一次都不该打（预算死循环的根）')
+    const skipped = logs.filter(l => l.event === 'yt_skipped_known')
+    assert.equal(skipped.length, 1, '跳过诊断只记一行')
+    assert.match(skipped[0].detail, /25/)
+    assert.equal(logs.filter(l => l.event === 'yt_deferred').length, 0, '剩 5 条没超上限，不该有 deferred')
+  })
+})
+
+test('每轮新条目上限 12：30 条全新 → 只处理列表序前 12 条（=最新优先），一行 yt_deferred 把 18 条留给下轮', async () => {
+  await withRoot(async subsRoot => {
+    const logs = []
+    const vids = Array.from({ length: 30 }, (_, i) => ({ id: `df${String(i).padStart(10, '0')}`, title: `第${i}期` }))
+    const spawnImpl = fakeSpawn({ flat: () => ({ json: { entries: vids } }) })
+    const items = await fetchYtIt(spawnImpl, subsRoot, { log: (event, detail) => logs.push({ event, detail }) })
+    assert.equal(items.length, 12)
+    assert.deepEqual(items.map(x => x.external_id), vids.slice(0, 12).map(v => v.id))
+    assert.equal(spawnImpl.state.spawns.filter(s => !s.args.includes('--flat-playlist')).length, 24, '12 条 × 2 次 spawn')
+    const deferred = logs.filter(l => l.event === 'yt_deferred')
+    assert.equal(deferred.length, 1)
+    assert.match(deferred[0].detail, /12 条新视频/)
+    assert.match(deferred[0].detail, /18 条留待下轮/)
+  })
+})
+
+test('全部条目已入库 → 空数组（增量稳态：成功无新增，不是 empty 失败，游标照常推进）', async () => {
+  await withRoot(async subsRoot => {
+    const spawnImpl = fakeSpawn({ flat: () => ({ json: { entries: [ENTRIES[0], ENTRIES[1]] } }) })
+    const items = await fetchYtIt(spawnImpl, subsRoot, { knownIds: new Set([ENTRIES[0].id, ENTRIES[1].id]) })
+    assert.deepEqual(items, [])
+    assert.equal(spawnImpl.state.spawns.length, 1, '只有一次 flat 调用，dump/字幕一次都不该发起')
+  })
+})
+
 /* ───────────────────────── 预算与取消 ───────────────────────── */
 
 test('外层 abort：并发 3 下在飞的 3 个 dump 子进程全部被 kill、第 4 个不发起（孤儿调用消失）', async () => {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   openStore, migrate, setCursor, getCursor, upsertSource, listSources,
   createRun, patchRun, finishRun, lastRun, candidates, setStatus, counts,
-  getItemByKey, listItems, setSourceResult
+  getItemByKey, listItems, setSourceResult, knownExternalIds
 } from '../lib/store.js'
 
 const dbOf = () => { const { db } = openStore(':memory:'); migrate(db); return db }
@@ -172,6 +172,23 @@ test('setStatus 写归档原因，且 null 不覆盖已有原因', () => {
   assert.equal(getItemByKey(db, 's1', 'x').archived_reason, 'stale:20 天前')
   setStatus(db, id, 'archived')
   assert.equal(getItemByKey(db, 's1', 'x').archived_reason, 'stale:20 天前')
+  db.close()
+})
+
+test('knownExternalIds：按源取 external_id 的 Set（runner 注入适配器防重抓），limit 保最新入库的 N 条', () => {
+  const db = dbOf()
+  insRow(db, { external_id: 'a' })
+  insRow(db, { external_id: 'b' })
+  insRow(db, { external_id: 'z', source_id: 's2' })   // 别的源不算进来
+  const ids = knownExternalIds(db, 's1')
+  assert.ok(ids instanceof Set)
+  assert.deepEqual([...ids].sort(), ['a', 'b'])
+  assert.equal(knownExternalIds(db, 'none').size, 0)
+  // 巨型源截窗：只带最新入库的 N 条（id 自增=插入序）；掉出窗口的旧条目即使被重抓，
+  // 还有 putDraft 按 external_id 去重兜底，不会重复入库——所以截窗是安全的。
+  insRow(db, { external_id: 'c' })
+  insRow(db, { external_id: 'd' })
+  assert.deepEqual([...knownExternalIds(db, 's1', 2)].sort(), ['c', 'd'])
   db.close()
 })
 

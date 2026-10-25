@@ -365,6 +365,59 @@ test('since 不过滤（backlog 语义由 gate 管）：pubdate 很旧的条目�
   assert.equal(items.length, 2)
 })
 
+/* ───────────────────────── knownIds 跳过与每轮上限（M4b Task 3） ───────────
+ * flat 列表每轮都是最新 30 条、适配器无法自辨新旧：没有 knownIds 就是对全部 30 条
+ * 重跑 detail+字幕（重抓浪费 + -352 风控放大器）。knownIds 由 runner 注入（只读）。 */
+
+const KNOWN_VIDS = (n = 30) => Array.from({ length: n }, (_, i) => ({
+  bvid: `BV1kn${String(i).padStart(7, '0')}`, title: `第${i}期`, description: `简介${i}`,
+  author: 'UP主甲', mid: 946974, length: '5:00', pubdate: 1799848200 - i * 3600, created: 1799848200 - i * 3600,
+  pic: null, aid: 200000 + i
+}))
+const KNOWN_LIST = (n = 30) => ({ code: 0, data: { list: { vlist: KNOWN_VIDS(n) }, page: { pn: 1, ps: 30 }, total: n } })
+
+test('knownIds 跳过已入库：30 条列表、25 条已知 → 只对 5 条新视频打 detail（view 恰 5 次），一行 bili_skipped_known 只记数量', async () => {
+  await withHome(test)
+  const logs = []
+  const fetchImpl = fakeFetch(defaultHandlers({ list: () => ({ json: KNOWN_LIST(30) }) }))
+  const vids = KNOWN_VIDS(30)
+  const items = await fetchIt(fetchImpl, {
+    knownIds: new Set(vids.slice(0, 25).map(v => v.bvid)),
+    log: (event, detail) => logs.push({ event, detail })
+  })
+  assert.equal(items.length, 5, '只处理 5 条新视频')
+  assert.deepEqual(items.map(x => x.external_id), vids.slice(25).map(v => v.bvid), '保序：跳过后剩列表尾部的 5 条新视频')
+  assert.equal(fetchImpl.state.calls.filter(c => c.url.includes('/x/web-interface/view')).length, 5,
+    '已知条目一条 detail 都不该打（防重抓是本任务的存在理由）')
+  const skipped = logs.filter(l => l.event === 'bili_skipped_known')
+  assert.equal(skipped.length, 1, '跳过诊断只记一行（不逐条刷屏）')
+  assert.match(skipped[0].detail, /25/)
+  assert.equal(logs.filter(l => l.event === 'bili_deferred').length, 0, '跳过后剩 5 条没超上限，不该有 deferred')
+})
+
+test('每轮新条目上限 12：30 条全新 → 只处理列表序前 12 条（=最新优先），一行 bili_deferred 把 18 条留给下轮', async () => {
+  await withHome(test)
+  const logs = []
+  const fetchImpl = fakeFetch(defaultHandlers({ list: () => ({ json: KNOWN_LIST(30) }) }))
+  const vids = KNOWN_VIDS(30)
+  const items = await fetchIt(fetchImpl, { log: (event, detail) => logs.push({ event, detail }) })
+  assert.equal(items.length, 12)
+  assert.deepEqual(items.map(x => x.external_id), vids.slice(0, 12).map(v => v.bvid))
+  assert.equal(fetchImpl.state.calls.filter(c => c.url.includes('/x/web-interface/view')).length, 12)
+  const deferred = logs.filter(l => l.event === 'bili_deferred')
+  assert.equal(deferred.length, 1)
+  assert.match(deferred[0].detail, /12 条新视频/)
+  assert.match(deferred[0].detail, /18 条留待下轮/)
+})
+
+test('全部条目已入库 → 返回空数组（增量稳态：成功无新增，不是 empty 失败——游标照常推进）', async () => {
+  await withHome(test)
+  const fetchImpl = fakeFetch(defaultHandlers({ list: () => ({ json: KNOWN_LIST(2) }) }))
+  const items = await fetchIt(fetchImpl, { knownIds: new Set(KNOWN_VIDS(2).map(v => v.bvid)) })
+  assert.deepEqual(items, [])
+  assert.equal(fetchImpl.state.calls.filter(c => c.url.includes('/x/web-interface/view')).length, 0)
+})
+
 /* ───────────────────────── signal 全链透传与超时 abort（真机 run 17 的孤儿调用） ─── */
 
 test('signal 全链透传：nav / 列表 / 逐条 view 的每个 fetch init 都带调用方的 signal', async () => {

@@ -233,6 +233,21 @@ test('fetch 选项带 signal（pool 超时即 abort 的链路：适配器拿它�
   assert.equal(seen[0].signal.aborted, false, '正常跑完的源 signal 不该被 abort')
 })
 
+test('fetch 选项带 knownIds：该源已入库 external_id 的 Set（bili/yt 据此跳过重抓；rss 不理会这个键）', async () => {
+  const db = dbOf()
+  await runOnce({ db, pref, now: () => 5000, adapters: adapters() })
+  const seen = []
+  await runOnce({
+    db, pref, now: () => 9000,
+    adapters: { rss: { type: 'rss', async fetch(source, opts) { seen.push({ id: source.id, knownIds: opts.knownIds }); return [] } } }
+  })
+  assert.equal(seen.length, 2)
+  const ok = seen.find(s => s.id === 'ok')
+  assert.ok(ok.knownIds instanceof Set, 'knownIds 必须是 Set（适配器用 .has 跳过）')
+  assert.deepEqual([...ok.knownIds].sort(), ['a', 'b', 'c'], '第一轮入库的 external_id 全在集合里（含被预筛归档的——归档 ≠ 没抓过）')
+  assert.equal(seen.find(s => s.id === 'bad').knownIds.size, 0, '按源隔离：bad 源从没成功入库过')
+})
+
 test('planJobs：bili 源带 90s 预算（真机 run 17：nav+签名+列表+逐条 view，20s 不够），其他源不带', () => {
   const db = dbOf()
   syncSources(db, { ...pref, sources: [
