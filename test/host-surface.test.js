@@ -559,6 +559,6 @@ test('/items 的脏 folder 参数当没带，不把 Number 的脏转换喂给 st
 
 test('collect 不注册成 agent 工具：inject 只声明 tools 与 webServer，面板动作仍只走路由', async () => {
   const host = await import('../index.js')
-  // 收藏三条路由只走面板 → 宿主（AGENTS.md 红线 11）；工具清单恰好五个的逐字钉子在 test/tools.test.js
+  // 收藏三条路由只走面板 → 宿主（AGENTS.md 红线 11）；工具清单恰好六个的逐字钉子在 test/tools.test.js
   assert.deepEqual(host.inject, ['tools', 'systemPrompt', 'webServer'])
 })

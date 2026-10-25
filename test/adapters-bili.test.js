@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { biliAdapter, adapterFor, ADAPTERS } from '../lib/adapters/index.js'
-import { parseSpaceUid, parseLength, resolveBiliPython } from '../lib/adapters/bili.js'
+import { parseSpaceUid, parseLength, resolveBiliPython, fetchBiliSubtitle } from '../lib/adapters/bili.js'
 import { homeDir } from '../lib/paths.js'
 
 const source = { id: 'bili-a', type: 'bili', url: 'https://space.bilibili.com/946974', label: '某UP主' }
@@ -354,6 +354,67 @@ test('列表为 0 条 → e.empty（它不算成功，游标不能推进）', as
   await withHome(test)
   const spawnImpl = fakeSpawn({ onCall: () => ({ structuredContent: { videos: [], total: 0 } }) })
   await assert.rejects(() => fetchIt(spawnImpl), e => e.empty === true)
+})
+
+// ── fetchBiliSubtitle：baleen.subtitle 工具的后端（M4a Task 3） ───────────
+
+const subFetch = (spawnImpl, over = {}) => fetchBiliSubtitle('BV1xx411c7mD', { spawnImpl, pref: { bili_python: 'baleen-bili' }, ...over })
+
+test('fetchBiliSubtitle：单进程 initialize → get_video_detail(bvid)，返回 trim 后字幕全文，结束必收进程', async () => {
+  await withHome(test)
+  const spawnImpl = fakeSpawn({
+    onCall(name) {
+      if (name === 'get_video_detail') return { structuredContent: DETAIL_WITH_SUB() }
+      return { toolErrorText: `Unknown tool: ${name}` }
+    }
+  })
+  const text = await subFetch(spawnImpl)
+  assert.equal(text, '大家好，今天讲适配器。')
+
+  const frames = spawnImpl.state.frames
+  assert.equal(frames[0].method, 'initialize')
+  assert.equal(frames[1].method, 'notifications/initialized')
+  assert.equal(frames[2].params.name, 'get_video_detail')
+  assert.deepEqual(frames[2].params.arguments, { bvid: 'BV1xx411c7mD', fetch_subtitles: true, subtitle_mode: 'smart' })
+  assert.equal(spawnImpl.state.children[0].killed(), true)
+})
+
+test('fetchBiliSubtitle：full_text 为空 → 返回空串（no_subtitle 由调用方裁定）', async () => {
+  await withHome(test)
+  const spawnImpl = fakeSpawn({ onCall: () => ({ structuredContent: DETAIL_NO_SUB() }) })
+  const text = await fetchBiliSubtitle('BV1yy411c7mE', { spawnImpl, pref: { bili_python: 'baleen-bili' } })
+  assert.equal(text, '')
+})
+
+test('fetchBiliSubtitle：字幕需登录的 errors → 照留 bili_subtitle_need_login 诊断一行', async () => {
+  await withHome(test)
+  const logs = []
+  const spawnImpl = fakeSpawn({ onCall: () => ({ structuredContent: DETAIL_NO_SUB() }) })
+  await fetchBiliSubtitle('BV1yy411c7mE', { spawnImpl, pref: { bili_python: 'baleen-bili' }, log: (event, detail) => logs.push({ event, detail }) })
+  assert.ok(logs.some(l => l.event === 'bili_subtitle_need_login' && l.detail.includes('BV1yy411c7mE')))
+})
+
+test('fetchBiliSubtitle：412 原样上浮；凭据缺失 credentials_missing 且不 spawn；bvid 空 bad_source 不 spawn', async () => {
+  await withHome(test)
+  const risk = fakeSpawn({
+    onCall: () => ({ toolErrorText: JSON.stringify({ code: 412, reason: 'risk_control', retry_after: 30, message: 'circuit open' }) })
+  })
+  await assert.rejects(() => subFetch(risk), e => e.status === 412 && e.bili?.reason === 'risk_control')
+
+  await withHome(test, { cookie: false })
+  const noCookie = fakeSpawn({ onCall: () => ({ structuredContent: DETAIL_WITH_SUB() }) })
+  await assert.rejects(
+    () => subFetch(noCookie),
+    e => e.error_class === 'credentials_missing' && noCookie.state.spawns.length === 0
+  )
+
+  await withHome(test)
+  const noBvid = fakeSpawn()
+  await assert.rejects(
+    () => fetchBiliSubtitle('   ', { spawnImpl: noBvid, pref: { bili_python: 'baleen-bili' } }),
+    e => e.error_class === 'bad_source'
+  )
+  assert.equal(noBvid.state.spawns.length, 0)
 })
 
 // ── 注册与工具函数 ────────────────────────────────────────────────────────
