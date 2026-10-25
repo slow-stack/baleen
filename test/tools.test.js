@@ -28,15 +28,17 @@ function makeCtx(home, { withTools = true } = {}) {
   const disposes = []
   const registered = []
   const toolRegistry = []
-  // M3 Task 3 起 index.js 会挂 system-prompt/assemble 钩子：这里记录注册，注入行为本身在 test/inject.test.js 里测
-  const listeners = new Map()
+  // M3 起工具注册走 ctx.inject(['tools'], callback)（dsh-mneme 在当前宿主的实测形态）：
+  // 这里记录 inject 声明，注册行为在测试里手动触发回调后断言。
+  const injects = []
   const webServer = { register: (def) => { registered.push(def); return () => { def.__disposed = true } } }
   const tools = withTools ? { register: (t) => { toolRegistry.push(t); return () => {} } } : undefined
   process.env.BALEEN_HOME = home
   return {
-    registered, provided, effects, disposes, toolRegistry, listeners,
+    registered, provided, effects, disposes, toolRegistry, injects,
     get: (n) => (n === 'webServer' ? webServer : n === 'tools' ? tools : undefined),
-    on: (ev, fn) => { if (!listeners.has(ev)) listeners.set(ev, []); listeners.get(ev).push(fn) },
+    on: (ev, fn) => {},
+    inject: (services, callback) => { injects.push({ services, callback }) },
     webServer,
     tools,
     provide: (n, v) => { provided.set(n, v); if (n === 'baleen' && v && v.db) dbs.push(v.db) },
@@ -48,6 +50,13 @@ function makeCtx(home, { withTools = true } = {}) {
     setInterval: (fn, ms) => ({ id: 1, ms }),
     clearInterval: () => {},
   }
+}
+
+/** 手动触发工具面注入回调：与宿主"服务就绪后调 callback"同构。 */
+const fireToolsInject = (ctx) => {
+  const inj = ctx.injects.find((i) => i.services.includes('tools'))
+  if (!inj) throw new Error('apply 没有声明 ctx.inject(["tools"], ...) —— 工具面没挂')
+  inj.callback({ tools: ctx.tools })
 }
 
 const applyOf = async (home, opts = {}) => {
@@ -76,21 +85,17 @@ const seedItem = (db, over = {}) => {
 
 test('注册清单恰好 5 个，名字与 spec §10.1 逐字一致（subtitle 留 M4）', async () => {
   const { ctx } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   assert.deepEqual(ctx.toolRegistry.map((t) => t.name), [
     'baleen.query', 'baleen.read_item', 'baleen.candidates', 'baleen.run_status', 'baleen.save_verdicts',
   ])
-  // 每个工具各占一条 effect，label 带上工具名，禁用时宿主按条回收
-  assert.deepEqual(ctx.effects.filter((l) => l.startsWith('baleen: tool')), [
-    'baleen: tool baleen.query',
-    'baleen: tool baleen.read_item',
-    'baleen: tool baleen.candidates',
-    'baleen: tool baleen.run_status',
-    'baleen: tool baleen.save_verdicts',
-  ])
+  // inject 声明里带 tools 服务，宿主就绪后才回调——没有声明就永远不会有工具面
+  assert.ok(ctx.injects.some((i) => i.services.includes('tools')), 'apply 没声明 ctx.inject(["tools"], ...)')
 })
 
 test('save_verdicts 的 tier 参数是三档枚举，从编译后的 parameters 里断言', async () => {
   const { ctx } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   const sv = toolOf(ctx, 'baleen.save_verdicts')
   const tier = sv.parameters.properties.verdicts.items.properties.tier
   assert.deepEqual(tier.enum, ['值得看', '可以看', '不值当'])
@@ -103,6 +108,7 @@ test('save_verdicts 的 tier 参数是三档枚举，从编译后的 parameters 
 
 test('全部工具的 name+description+参数拼接后，平台写动词零命中', async () => {
   const { ctx } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   assert.ok(ctx.toolRegistry.length > 0, '工具清单是空的，这条断言会变成永真')
   const RED = /评论|私信|点赞|关注|发布|收藏/
   for (const t of ctx.toolRegistry) {
@@ -113,6 +119,7 @@ test('全部工具的 name+description+参数拼接后，平台写动词零命�
 
 test('baleen.collect / baleen.folder / baleen.run / feedback / subtitle 都不在清单', async () => {
   const { ctx } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   for (const banned of ['baleen.collect', 'baleen.folder', 'baleen.run', 'baleen.feedback', 'baleen.subtitle']) {
     assert.ok(!ctx.toolRegistry.some((t) => t.name === banned), `${banned} 不该注册成工具`)
   }
@@ -150,6 +157,7 @@ test('本地回退：宿主包不可达时 resolveDefineTool 返回本地 define
 
 test('save_verdicts 同批重复 id 去重保最后一次：judged:1，落库的是后一个判断', async () => {
   const { ctx, baleen } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   createRun(baleen.db, 'manual')
   const a = seedItem(baleen.db, { external_id: 'a' })
   const sv = toolOf(ctx, 'baleen.save_verdicts')
@@ -169,6 +177,7 @@ test('save_verdicts 同批重复 id 去重保最后一次：judged:1，落库的
 
 test('save_verdicts 把 store 的短码原样带回：no_item / bad_tier / bad_payload 不吞成 undefined', async () => {
   const { ctx, baleen } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   createRun(baleen.db, 'manual')
   const a = seedItem(baleen.db, { external_id: 'a' })
   const sv = toolOf(ctx, 'baleen.save_verdicts')
@@ -186,6 +195,7 @@ test('save_verdicts 把 store 的短码原样带回：no_item / bad_tier / bad_p
 
 test('read_item 超两万字截断并注明原长；不超长给全文；查无给 no_item', async () => {
   const { ctx, baleen } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   const long = seedItem(baleen.db, { external_id: 'long', body_text: '字'.repeat(25000) })
   const short = seedItem(baleen.db, { external_id: 'short', body_text: '短正文' })
   const ri = toolOf(ctx, 'baleen.read_item')
@@ -213,6 +223,7 @@ test('read_item 超两万字截断并注明原长；不超长给全文；查无�
 
 test('query 默认只给未归档、默认 20 条、上限 100，摘要不含 body_text', async () => {
   const { ctx, baleen } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   for (let i = 0; i < 120; i++) seedItem(baleen.db, { external_id: `q${i}` })
   const goneId = seedItem(baleen.db, { external_id: 'gone', status: 'archived' })
   const q = toolOf(ctx, 'baleen.query')
@@ -237,6 +248,7 @@ test('candidates 上限读 preference 的 schedule.max_per_run（缺省 25），
   fs.writeFileSync(path.join(home, 'preference.yaml'),
     'version: 1\nsources: []\nschedule:\n  max_per_run: 2\n')
   const { ctx, baleen } = await applyOf(home)
+  fireToolsInject(ctx)
   for (let i = 0; i < 3; i++) seedItem(baleen.db, { external_id: `c${i}` })
   const cand = toolOf(ctx, 'baleen.candidates')
   const out = await cand.execute({})
@@ -248,6 +260,7 @@ test('candidates 上限读 preference 的 schedule.max_per_run（缺省 25），
 
   const home2 = freshHome()
   const r2 = await applyOf(home2)
+  fireToolsInject(r2.ctx)
   for (let i = 0; i < 30; i++) seedItem(r2.baleen.db, { external_id: `d${i}` })
   const out2 = await toolOf(r2.ctx, 'baleen.candidates').execute({})
   assert.equal(out2.max_per_run, 25, '没写偏好时应取缺省 25')
@@ -257,6 +270,7 @@ test('candidates 上限读 preference 的 schedule.max_per_run（缺省 25），
 
 test('run_status 给最近一轮摘要 + counts + inject_prompt 占位', async () => {
   const { ctx, baleen } = await applyOf(freshHome())
+  fireToolsInject(ctx)
   const rs = toolOf(ctx, 'baleen.run_status')
 
   const empty = await rs.execute({})
@@ -279,21 +293,23 @@ test('run_status 的 inject_prompt 接真值：读 preference.yaml 的开关，�
   fs.writeFileSync(path.join(home, 'preference.yaml'),
     'version: 1\nsources: []\ninject_prompt: false\n')
   const { ctx } = await applyOf(home)
+  fireToolsInject(ctx)
   const out = await toolOf(ctx, 'baleen.run_status').execute({})
   assert.equal(out.inject_prompt, false, '开关关了工具还在报"开"，用户会以为注入在工作')
   // 缺省时（另一个家目录没写这个键）按默认开报 true
   const r2 = await applyOf(freshHome())
+  fireToolsInject(r2.ctx)
   const out2 = await toolOf(r2.ctx, 'baleen.run_status').execute({})
   assert.equal(out2.inject_prompt, true)
 })
 
 /* ---------------- 降级：tools 缺席不炸启动 ---------------- */
 
-test('tools 缺席（ctx.get 返回 undefined）→ apply 不抛、零注册、日志一行', async () => {
+test('tools 缺席（inject 回调拿不到 tools）→ apply 不抛、零注册、日志一行', async () => {
   const home = freshHome()
   const { ctx } = await applyOf(home, { withTools: false })
+  fireToolsInject(ctx)
   assert.equal(ctx.toolRegistry.length, 0)
-  assert.deepEqual(ctx.effects.filter((l) => String(l).startsWith('baleen: tool')), [])
   const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
   assert.match(blob, /no_tools/, '降级要留一行日志，别静默变成"工具怎么没了"的悬案')
   // 面板照常：路由仍在，state 读得到

@@ -23,19 +23,17 @@ after(() => {
 })
 
 function makeCtx(home) {
-  const listeners = new Map()
   const provided = new Map()
   const effects = []
   const disposes = []
   const registered = []
-  const toolRegistry = []
+  const injects = []
   const webServer = { register: (def) => { registered.push(def); return () => {} } }
-  const tools = { register: (t) => { toolRegistry.push(t); return () => {} } }
   process.env.BALEEN_HOME = home
   return {
-    listeners, provided, effects, disposes, registered, toolRegistry,
-    get: (n) => (n === 'webServer' ? webServer : n === 'tools' ? tools : undefined),
-    on: (ev, fn) => { if (!listeners.has(ev)) listeners.set(ev, []); listeners.get(ev).push(fn) },
+    provided, effects, disposes, registered, injects,
+    get: (n) => (n === 'webServer' ? webServer : undefined),
+    inject: (services, callback) => { injects.push({ services, callback }) },
     provide: (n, v) => { provided.set(n, v); if (n === 'baleen' && v && v.db) dbs.push(v.db) },
     effect: (fn, label) => {
       const d = fn()
@@ -55,15 +53,27 @@ const applyOf = async (home) => {
 }
 
 /**
- * 手动触发注入钩子：next() 返回**与入参不同**的下游对象，逼出「push 到 next 的结果」
- * 这个正确挂法——挂错对象（push 进入参）时下游什么都没收到，测试会红。
+ * 手动触发注入：ctx.inject(['systemPrompt'], callback) 的回调里拿 promptCtx，
+ * 桩的 systemPrompt.context 记录段落定义并**立即渲染 text 回调**（与宿主每轮渲染同构），
+ * 空串不占位（宿主对空 text 的行为）——返回形状与旧版 fireAssemble 一致：
+ * `{ sections: [{ name, text }] }`，测试正文零改动。
  */
 const fireAssemble = async (ctx) => {
-  const h = ctx.listeners.get('system-prompt/assemble')?.[0]
-  if (!h) return null
-  const downstream = { sections: [] }
-  await h({ sections: [] }, {}, async () => downstream)
-  return downstream
+  const inj = ctx.injects.find((i) => i.services.includes('systemPrompt'))
+  if (!inj) return null
+  const sections = []
+  const promptCtx = {
+    systemPrompt: {
+      context: (def) => { sections.push(def); return () => {} },
+      section: (def) => { sections.push(def); return () => {} },
+    },
+  }
+  inj.callback(promptCtx)
+  return {
+    sections: sections
+      .map((s) => ({ name: s.name, text: typeof s.text === 'function' ? s.text() : s.text }))
+      .filter((s) => s.text),
+  }
 }
 
 const writePref = (home, extra = '') => {

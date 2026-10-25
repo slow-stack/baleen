@@ -36,15 +36,17 @@ function makeCtx(home, { withServer = true, timers = [] } = {}) {
   const effects = []
   const disposes = []
   const registered = []
-  // M3 Task 3 起 index.js 会挂 system-prompt/assemble 钩子：记录注册即可，注入行为本身在 test/inject.test.js 里测
-  const listeners = new Map()
+  // M3 起工具面与注入段走 ctx.inject([服务名], 回调)（dsh-mneme 在当前宿主的实测形态）：
+  // 这里记录声明即可，注册与注入行为分别在 test/tools.test.js 与 test/inject.test.js 里测
+  const injects = []
   const webServer = withServer ? { register: (def) => { registered.push(def); return () => { def.__disposed = true } } } : undefined
   const logs = []
   process.env.BALEEN_HOME = home
   return {
-    registered, provided, effects, disposes, logs, timers, listeners,
+    registered, provided, effects, disposes, logs, timers, injects,
     get: (n) => (n === 'webServer' ? webServer : undefined),
     on: (ev, fn) => { if (!listeners.has(ev)) listeners.set(ev, []); listeners.get(ev).push(fn) },
+    inject: (services, callback) => { injects.push({ services, callback }) },
     webServer,
     provide: (n, v) => { provided.set(n, v); if (n === 'baleen' && v && v.db) dbs.push(v.db) },
     effect: (fn, label) => {
@@ -61,7 +63,7 @@ test('宿主半导出形状固定', async () => {
   const host = await import('../index.js')
   assert.equal(host.name, 'dsh-baleen')
   // M3 起 inject 带 'tools'：工具面由 lib/tools.js 注册，collect/folder/feedback/run 永不进清单
-  assert.deepEqual(host.inject, ['tools', 'webServer'])
+  assert.deepEqual(host.inject, ['tools', 'systemPrompt', 'webServer'])
   assert.equal(typeof host.apply, 'function')
 })
 
@@ -558,5 +560,5 @@ test('/items 的脏 folder 参数当没带，不把 Number 的脏转换喂给 st
 test('collect 不注册成 agent 工具：inject 只声明 tools 与 webServer，面板动作仍只走路由', async () => {
   const host = await import('../index.js')
   // 收藏三条路由只走面板 → 宿主（AGENTS.md 红线 11）；工具清单恰好五个的逐字钉子在 test/tools.test.js
-  assert.deepEqual(host.inject, ['tools', 'webServer'])
+  assert.deepEqual(host.inject, ['tools', 'systemPrompt', 'webServer'])
 })

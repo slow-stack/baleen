@@ -9,8 +9,9 @@ import { ensureHome } from './lib/paths.js'
 import { baleenTools } from './lib/tools.js'
 
 export const name = 'dsh-baleen'
-// 'tools' 是判断轮的入口：inject 声明过，宿主才会等 tools 服务激活后再 apply 本插件
-export const inject = ['tools', 'webServer']
+// 'tools' 是判断轮的工具面；'systemPrompt' 是待判注入段（ctx.inject(['systemPrompt'], ...) 的服务依赖）。
+// 宿主按这份清单等服务就绪后才调 apply——照抄 dsh-mneme 在当前宿主上的声明形态。
+export const inject = ['tools', 'systemPrompt', 'webServer']
 
 const API_ROUTE = '/api/dsh-baleen'
 
@@ -318,28 +319,60 @@ export function apply(ctx, config = {}) {
     log({ level: 'error', event: 'no_webserver', detail: '拿不到 webServer，面板将无法读写数据' })
   }
 
-  // 工具面：注册写法同款抄 dsh-study-desk（tools.register 包 ctx.effect，禁用时宿主按条回收）。
-  // tools 缺席（headless / 宿主裁剪）就降级成无工具——判断轮没有入口，但摄取与面板照常，绝不炸启动。
-  const tools = (typeof ctx.get === 'function' ? ctx.get('tools') : null) ?? ctx.tools ?? null
-  if (tools && typeof tools.register === 'function') {
-    for (const t of baleenTools({ db, getPref, now })) {
-      ctx.effect(() => tools.register(t), `baleen: tool ${t.name}`)
-    }
-  } else {
-    log({ level: 'warn', event: 'no_tools', detail: '拿不到 tools，判断轮没有工具面（摄取与面板不受影响）' })
-  }
-
-  // 判断轮的触发器：挂法照抄本机 dsh-study-desk 的实测形态（裸 ctx.on，不进 ctx.effect——
-  // 插件禁用时宿主随上下文一起回收监听）。先 await next() 拿下游装配结果，再把段落 push 进去；
-  // 开关在钩子内现读，改 preference.yaml 立即生效。注入失败静默吞掉，不影响对话本身。
-  ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
-    const assembled = await next()
+  // 工具面与注入：挂法照抄本机 dsh-mneme 在**当前宿主**上的实测形态（src/index.js:554/563、
+  // src/tools.js:1058、src/inject.js:345-354）——`ctx.inject([服务名], 回调)` 等服务就绪，
+  // 工具走 `toolsCtx.tools.register`，注入走 `promptCtx.systemPrompt.context({ text: 回调 })`
+  // 每轮现渲染（study-desk 的 `ctx.on('system-prompt/assemble')` 是旧版宿主的事件，10 月更新后已不存在）。
+  // 服务缺席（headless / 宿主裁剪）时回调不会被调，判断轮没有入口，但摄取与面板照常，绝不炸启动。
+  ctx.inject(['tools'], (toolsCtx) => {
     try {
-      if (getPref().pref.inject_prompt === false) return assembled
-      const text = pendingSectionText(db)
-      if (text) assembled.sections?.push?.({ name: 'dsh-baleen:pending', text })
-    } catch { /* 注入失败不影响对话 */ }
-    return assembled
+      const tools = toolsCtx?.tools ?? ctx.tools ?? null
+      if (!tools || typeof tools.register !== 'function') {
+        log({
+          level: 'warn',
+          event: 'no_tools',
+          detail: tools
+            ? `tools 缺 register 方法，keys=[${Object.keys(tools).join(',')}]`
+            : '拿不到 tools，判断轮没有工具面（摄取与面板不受影响）'
+        })
+        return
+      }
+      for (const t of baleenTools({ db, getPref, now })) {
+        try {
+          tools.register(t)
+          log({ level: 'info', event: 'tool_registered', detail: t.name })
+        } catch (e) {
+          log({ level: 'error', event: 'tool_register_failed', detail: `${t.name}: ${String(e?.message ?? e).slice(0, 120)}` })
+        }
+      }
+    } catch (e) {
+      log({ level: 'error', event: 'tools_inject_failed', detail: String(e?.message ?? e).slice(0, 120) })
+    }
+  })
+
+  ctx.inject(['systemPrompt'], (promptCtx) => {
+    try {
+      if (typeof promptCtx?.systemPrompt?.context !== 'function') {
+        log({ level: 'warn', event: 'no_systemprompt_context', detail: '宿主没有 systemPrompt.context seam，待判注入段不挂' })
+        return
+      }
+      // 每轮渲染：开关与静默条件在回调里现读（改 preference.yaml 立即生效），
+      // 空串不占位——候选 0 且无失败源时宿主拿到的就是空段。零正文零 URL：文本只出自
+      // pendingSectionText（计数 + 标题截断 + 工具名），见 Task 3 的红线断言。
+      promptCtx.systemPrompt.context({
+        name: 'dsh-baleen:pending',
+        order: 90,
+        text: () => {
+          try {
+            if (getPref().pref.inject_prompt === false) return ''
+            return pendingSectionText(db)
+          } catch { return '' }
+        }
+      })
+      log({ level: 'info', event: 'pending_section_mounted', detail: 'baleen-pending 注入段已挂' })
+    } catch (e) {
+      log({ level: 'error', event: 'inject_mount_failed', detail: String(e?.message ?? e).slice(0, 120) })
+    }
   })
 
   ctx.effect(
