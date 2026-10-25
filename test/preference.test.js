@@ -143,3 +143,20 @@ test('inject_prompt 是顶层布尔：缺省 true，写非布尔值整份退回�
   assert.equal(r.pref.inject_prompt, false, '合法的 false 要被采纳')
   assert.equal(loadPreference(tmp()).pref.inject_prompt, true, '缺省该是开')
 })
+
+test('bili_python 顶层键：缺省 baleen-bili，非空字符串校验', () => {
+  assert.equal(DEFAULTS.bili_python, 'baleen-bili')
+  const errs = validate({ bili_python: '   ' })
+  assert.ok(errs.some(e => e.startsWith('bili_python')), errs.join('|'))
+  const ok = loadPreference(tmp())
+  assert.equal(ok.pref.bili_python, 'baleen-bili')
+})
+
+test('bili 源类型登记：type 合法、url 必填，未知类型仍被拒', () => {
+  const errs = validate({ sources: [{ id: 'b1', type: 'bili', url: '' }] })
+  assert.ok(errs.some(e => e.startsWith('sources[0].url')), errs.join('|'))
+  const ok = validate({ sources: [{ id: 'b1', type: 'bili', url: 'https://space.bilibili.com/946974' }] })
+  assert.deepEqual(ok, [])
+  const bad = validate({ sources: [{ id: 'b2', type: 'weibo', url: 'https://e/f' }] })
+  assert.ok(bad.some(e => e.startsWith('sources[0].type')), bad.join('|'))
+})

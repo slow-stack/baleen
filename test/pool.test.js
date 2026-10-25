@@ -71,3 +71,24 @@ test('错误分类覆盖 timeout / http / empty / parse / network / unknown', ()
   assert.equal(classifyError(new Error('?')), 'unknown')
   assert.equal(classifyError(null), 'unknown')
 })
+
+test('适配器钉住的 error_class 优先于通用分类（bili：credentials/bad_source 等）', () => {
+  assert.equal(classifyError(Object.assign(new Error('B 站凭据缺失'), { error_class: 'credentials_missing' })), 'credentials_missing')
+  assert.equal(classifyError(Object.assign(new Error('无 UID'), { error_class: 'bad_source' })), 'bad_source')
+  // 没钉住的照旧走通用分类
+  assert.equal(classifyError(Object.assign(new Error('403'), { status: 403 })), 'http')
+})
+
+test('job.timeout_ms 覆盖整批 timeoutMs（bili 子进程 60s 上限需要这个口子）', async () => {
+  const res = await runJobs([{ id: 'slow-bili', timeout_ms: 400 }], {
+    limit: 1, timeoutMs: 20, retries: 0,
+    run: () => new Promise(r => setTimeout(r, 60))
+  })
+  assert.equal(res[0].ok, true)
+  const res2 = await runJobs([{ id: 'over', timeout_ms: 10 }], {
+    limit: 1, timeoutMs: 500, retries: 0,
+    run: () => new Promise(() => {})
+  })
+  assert.equal(res2[0].ok, false)
+  assert.equal(res2[0].error_class, 'timeout')
+})

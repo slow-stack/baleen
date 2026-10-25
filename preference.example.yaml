@@ -72,6 +72,10 @@ require_theme_hit: true
 # 只注入计数、截断标题与工具名，不含条目正文；关掉它 = 关掉自动判断的入口（run_status 会如实反映）
 inject_prompt: true
 
+# B 站通道（type: bili 的源）用的 python：conda 环境名（按 <conda根>/envs/<名>/python.exe 解析）
+# 或 python.exe 绝对路径。凭据另放 credentials/bili-cookie.txt（纯 Cookie 头文本）。
+bili_python: baleen-bili
+
 limits:
   max_age_days: 14
   min_duration_sec: 90

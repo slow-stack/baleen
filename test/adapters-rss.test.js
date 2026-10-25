@@ -53,6 +53,7 @@ test('since 只过滤"明确更旧"的条目；没有时间的条目留着交给
 test('adapterFor 只认注册过的类型，大小写不敏感', () => {
   assert.equal(adapterFor('rss'), ADAPTERS.rss)
   assert.equal(adapterFor('RSS'), ADAPTERS.rss)
-  assert.equal(adapterFor('bili'), null)
+  assert.equal(adapterFor('bili'), ADAPTERS.bili)
+  assert.equal(adapterFor('xhs'), null)
   assert.equal(adapterFor(undefined), null)
 })
