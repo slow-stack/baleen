@@ -593,7 +593,9 @@ window.__ModuleLoader__.load({
         ]),
         vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `${item.verdict_tier}：${item.verdict_why || '（这条没写理由）'}` : '待判']),
         vnode('span', { className: 'bl-why' }, [reasonOf(item)]),
-        vnode('span', { className: 'bl-play' }, [item.source_id === 'bili' ? '可在抽屉内播' : '只能跳转'])
+        // M4a 裁定：内嵌播放器 V5 才评估，哪个平台都还没法在抽屉里播——卡片统一只说跳转，
+        // 不许再对 B 站单独许诺"可在抽屉内播"（抽屉的能力边界同一时刻在说反话）。
+        vnode('span', { className: 'bl-play' }, ['只能跳转'])
       ])
     }
 
@@ -835,7 +837,7 @@ window.__ModuleLoader__.load({
     const STATE_NOTE = {
       full: '',
       summary_only: '只有摘要：这个源只给摘要，全文在原文里——不是我们读不到。',
-      subtitle: '这段来自字幕。',
+      subtitle: '字幕全文已存，正文区就是字幕。',
       transcribed: '这段来自本地转写。',
       missing: '没有语音也没有字幕轨，读不到内容。',
       burned_in: '硬字幕：字烧在画面上，读不到内容。'
@@ -852,13 +854,13 @@ window.__ModuleLoader__.load({
     /**
      * 能不能播（按源）与能不能读（按 body_state）是两件事，各自说一句。
      * 早先只回一句的话，B 站硬字幕条目会被播放器的说法盖掉，看不出内容其实读不到。
-     * M2 还没有播放器，所以这里不许提前许诺。
+     * 播放器 M4a 没做（V5 先探后定），所以这里不许预告任何接入时间——跳转就是现状。
      */
     function boundaryNote(item) {
       const bits = []
       if (item?.kind === 'video') {
         bits.push(item.source_id === 'bili'
-          ? 'B 站：抽屉内嵌播放器在 M4 接入，现在只能跳到浏览器里看。'
+          ? 'B 站：抽屉内嵌播放器还没定下来，现在跳到浏览器里看。'
           : '这个平台没有可靠的嵌入方案，只能跳到浏览器里看。')
       }
       if (LIMITS.has(item?.body_state)) bits.push(STATE_NOTE[item.body_state])
@@ -973,8 +975,10 @@ window.__ModuleLoader__.load({
           vnode('div', { className: 'bl-kv' }, [
             item.author || '未知作者',
             kindLabel(item.kind),
-            item.verdict_tier ? `已判：${item.verdict_tier}` : '待判'
-          ]),
+            item.verdict_tier ? `已判：${item.verdict_tier}` : '待判',
+            // 时长只对视频有意义，且坏值（0/非数字）不给徽章留个"时长"空壳——fmtDuration 返回空串就整段不画
+            item.kind === 'video' && fmtDuration(item.duration_sec) ? `时长 ${fmtDuration(item.duration_sec)}` : null
+          ].filter(Boolean)),
           Section({
             title: '为什么给你',
             children: [

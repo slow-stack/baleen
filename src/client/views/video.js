@@ -43,7 +43,9 @@ function VideoCard({ item, onOpen }) {
     ]),
     vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `${item.verdict_tier}：${item.verdict_why || '（这条没写理由）'}` : '待判']),
     vnode('span', { className: 'bl-why' }, [reasonOf(item)]),
-    vnode('span', { className: 'bl-play' }, [item.source_id === 'bili' ? '可在抽屉内播' : '只能跳转'])
+    // M4a 裁定：内嵌播放器 V5 才评估，哪个平台都还没法在抽屉里播——卡片统一只说跳转，
+    // 不许再对 B 站单独许诺"可在抽屉内播"（抽屉的能力边界同一时刻在说反话）。
+    vnode('span', { className: 'bl-play' }, ['只能跳转'])
   ])
 }
 

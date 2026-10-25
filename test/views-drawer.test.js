@@ -25,13 +25,25 @@ test('坏 match_json 不炸抽屉，按没写理由处理', () => {
   assert.match(text(Drawer({ item: item({ match_json: '{坏' }), api: {} })), /（这条没写理由）/)
 })
 
-test('能力边界按 kind 与源给不同说法，不许假装现在就能播', () => {
-  assert.match(boundaryNote(item({ kind: 'video', source_id: 'bili' })), /M4 接入/)
+test('能力边界按 kind 与源给不同说法，不许假装现在就能播，也不许预告一个没定下来的播放器', () => {
+  const bili = boundaryNote(item({ kind: 'video', source_id: 'bili' }))
+  assert.match(bili, /跳到浏览器里看/)
+  assert.doesNotMatch(bili, /M4 接入|可在抽屉内播/, '播放器 V5 才评估，抽屉不许许诺')
   assert.match(boundaryNote(item({ kind: 'video', source_id: 'xhs' })), /只能跳/)
   assert.match(boundaryNote(item({ kind: 'article', source_id: 'substack', body_state: 'summary_only' })), /只给摘要/)
   assert.match(boundaryNote(item({ kind: 'video', body_state: 'burned_in' })), /硬字幕/)
   assert.match(boundaryNote(item({ kind: 'video', body_state: 'missing' })), /读不到/)
-  assert.match(boundaryNote(item({ kind: 'video', source_id: 'bili' })), /现在只能跳到浏览器里看/)
+})
+
+test('视频条目的抽屉带时长（fmtDuration 同一写法，缺时长就整段不显示）', () => {
+  assert.match(text(Drawer({ item: item(), api: {} })), /时长 18:22/)
+  assert.doesNotMatch(text(Drawer({ item: item({ duration_sec: null }), api: {} })), /时长/)
+})
+
+test('字幕态的抽屉说明"字幕全文已存，正文区就是字幕"，不与读不到混谈', () => {
+  const t = text(Drawer({ item: item({ body_state: 'subtitle' }), api: {} }))
+  assert.match(t, /字幕全文已存/)
+  assert.doesNotMatch(t, /读不到内容/)
 })
 
 test('两个按钮的说明写清只调来源权重、不动主题词', () => {

@@ -19,7 +19,9 @@ export const previewFolders = [
 
 export const previewState = {
   home: '<HOME>',
-  counts: { new: 5, judged: 2, digest: 0, archived: 1, total: 8 },
+  // id 9（bili 视频夹具）进来后 new 5→6、total 8→9；candidates 同步 6——
+  // "这轮候选 6、判了 2（digest 对得上）、剩 4 加上更早剩的 2 = 待判 6" 的故事仍自洽。
+  counts: { new: 6, judged: 2, digest: 0, archived: 1, total: 9 },
   // digest_count 与下面 digests 条数必须相等（preview.test.js 的夹具自洽一条盯着）。
   digest_count: 2,
   // 字段与 index.js state() 的产出逐字一致（id/headline/created_at/stats，stats_json 已在服务端解成对象）。
@@ -33,7 +35,7 @@ export const previewState = {
     { id: 11, created_at: T0 - DAY, headline: '判了 3 条：值得看 1 · 可以看 1 · 不值当 1',
       stats: { judged: 3, tiers: { '值得看': 1, '可以看': 1, '不值当': 1 }, at: T0 - DAY } }
   ],
-  last_run: { id: 3, status: 'partial', at: T0, finished_at: T0 + 42000, candidates: 5, judged: 2 },
+  last_run: { id: 3, status: 'partial', at: T0, finished_at: T0 + 42000, candidates: 6, judged: 2 },
   gaps: {
     total_dropped: 23,
     by_reason: { 'no-match': 11, stale: 6, 'no-body': 4, 'too-short': 2 },
@@ -119,5 +121,15 @@ export const previewItems = [
     // 已归档也照样挂夹：它是"收了但今天看不见"的活样本，收藏页那行红字全靠它演
     folders: [1], folder_names: ['默认'], added_at: T0 - 3 * DAY,
     match_json: '{}'
+  }),
+  base({
+    // bili 适配器写库的真实形状（M4a）：body_text 是"简介 + 字幕全文"两段、
+    // thumb 来自 pic 补丁字段、duration_sec 有值。保持待判、不挂夹——不搅动已判条数与收藏页的故事。
+    id: 9, kind: 'video', source_id: 'bili', title: '把插件装进宿主：一次完整流程的字幕实录',
+    author: 'UP某乙', duration_sec: 1425, thumb: 'https://example.invalid/pic/9.jpg',
+    body_state: 'subtitle', time_estimated: 24, prefilter_score: 4,
+    url: 'https://example.invalid/video/9',
+    body_text: '（简介）这期从头到尾走一遍插件装配：profile 备份、dump-config 检查、面板接线。\n（字幕节选）第一步先备份 patch 文件，因为那个按钮会把你的改动整个序列化掉……',
+    match_json: '{"reason":"命中 装配（AI 工具）","hitKeywords":["装配"],"groups":["AI 工具"]}'
   })
 ]

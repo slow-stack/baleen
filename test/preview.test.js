@@ -28,7 +28,7 @@ test('六个视图 + 抽屉 + 出问题那一屏都出 HTML，每页明暗两块
     assert.match(html, /替身/, 'token 值必须标明是替身，不然看着像宿主真实调色板')
     assert.match(html, /<nav class="bl-nav"/, '每页都该带顶部导航，不然没法评"像不像网站"')
     assert.doesNotMatch(html, /className=/, '吐的是 React 属性名，浏览器不认——整页样式会静默失效')
-    assert.match(html, /今天 ·待判5|>今天</, '导航里的"今天"没出来')
+    assert.match(html, /今天 ·待判6|>今天</, '导航里的"今天"没出来')
   }
 })
 
@@ -66,7 +66,11 @@ test('预览用的是真视图函数：渲染结果里能找到视图自己的�
   const read = (n) => fs.readFileSync(files.find((f) => f.endsWith(n)), 'utf8')
   assert.match(read('preview-today.html'), /过筛 .*→ 候选 .*→ 待判/)
   assert.match(read('preview-today.html'), /收藏钉住 \d/, '「收藏钉住」chip 要在定稿前就看得见（明暗两块同源）')
-  assert.match(read('preview-video.html'), /只能跳转|可在抽屉内播/)
+  assert.match(read('preview-video.html'), /只能跳转/)
+  assert.doesNotMatch(read('preview-video.html'), /可在抽屉内播/, '播放器 V5 才评估，预览不许演出许诺')
+  assert.match(read('preview-video.html'), /23:45/, 'bili 夹具条目的时长徽章要渲染出来')
+  assert.match(read('preview-video.html'), /class="bl-thumb"/, '缩略图占位要画出来')
+  assert.match(read('preview-today.html'), /视频区 · 4/, '夹具加进 bili 视频后今天页的视频区不再是三条')
   assert.match(read('preview-article.html'), /左边没有条目|读原文/)
   assert.match(read('preview-library.html'), /状态|形态|档位|来源/)
   assert.match(read('preview-drawer.html'), /为什么给你/)
@@ -141,6 +145,21 @@ test('夹具自洽：每个夹的 count 必须等于实际挂着它的条数', (
     const n = previewItems.filter((i) => (i.folders ?? []).includes(f.id)).length
     assert.equal(f.count, n, `${f.name} 的 count 是 ${f.count}，实际挂着 ${n} 条`)
   }
+})
+
+test('夹具自洽：bili 视频条目是适配器的真实形态（时长、封面占位、简介+字幕两段正文）', () => {
+  // 适配器写库的形状：kind=video、duration_sec 有值、thumb=pic 补丁字段、
+  // body_text 是"简介 + 字幕全文"两段、body_state=subtitle。夹具演的是这个，不是文章加个时长。
+  const v = previewItems.find((i) => i.id === 9)
+  assert.ok(v, '夹具里要有 id 9 的 bili 视频条目')
+  assert.equal(v.kind, 'video')
+  assert.equal(v.source_id, 'bili')
+  assert.equal(v.body_state, 'subtitle')
+  assert.ok(Number(v.duration_sec) > 0, '时长要有值，卡片徽章才有东西可写')
+  assert.ok(v.thumb, '适配器会带 pic 封面字段，夹具占位不能空着')
+  assert.match(v.body_text, /简介[\s\S]*字幕/, '正文要演出"简介 + 字幕"两段')
+  assert.equal(v.verdict_tier, null, '新条目保持待判，不搅动已判条数与汇报的故事')
+  assert.deepEqual(v.folders, [], '不挂夹，收藏页与钉住的条数故事不动')
 })
 
 test('夹具自洽：digest 的 headline 必须与自己那条 stats 同源，digest_count 等于条数', () => {

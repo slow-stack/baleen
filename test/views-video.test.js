@@ -54,10 +54,12 @@ test('时长显示 mm:ss，1 小时以上带小时', () => {
   assert.match(t, /1:02:03/)
 })
 
-test('B 站可内嵌、其余只给跳转，且文案不假装能播', () => {
+// M4a 裁定：内嵌播放器 V5 才评估。卡片不许再许诺"可在抽屉内播"——
+// 抽屉的能力边界同一时刻说的是"只能跳到浏览器里看"，两处各说各话就是谎。
+test('暂无内嵌播放：B 站与其它平台都只给跳转，文案不假装能播', () => {
   const t = text(VideoView({ items: [mk({ source_id: 'bili' }), mk({ id: 9, source_id: 'xhs', external_id: 'x' })], filters: {} }))
-  assert.match(t, /可在抽屉内播/)
   assert.match(t, /只能跳转/)
+  assert.doesNotMatch(t, /可在抽屉内播/, '播放器还没定，卡片不许许诺抽屉内播')
 })
 
 test('筛选后一条都不剩时，说的是"筛选太窄"而不是"库里没东西"', () => {
