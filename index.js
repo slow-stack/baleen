@@ -337,7 +337,7 @@ export function apply(ctx, config = {}) {
         })
         return
       }
-      for (const t of baleenTools({ db, getPref, now, fetchImpl: config.fetchImpl })) {
+      for (const t of baleenTools({ db, getPref, now, fetchImpl: config.fetchImpl, spawnImpl: config.spawnImpl })) {
         try {
           tools.register(t)
           log({ level: 'info', event: 'tool_registered', detail: t.name })

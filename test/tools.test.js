@@ -1,5 +1,6 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -339,13 +340,47 @@ const seedVideo = (db, over = {}) => seedItem(db, {
   kind: 'video', body_text: null, url: VIDEO_URL, external_id: 'BV1xx411c7mD', ...over,
 })
 
-test('subtitle 的 schema：id 必填整数，description 写明 summary_only 的视频用它补全文', async () => {
+// yt-dlp spawn 桩（手法同 test/adapters-yt.test.js，只演工具现取路径要用的形态）：
+// --write-auto-subs 调用按 -o 模板目录落盘 <id>.<lang>.<ext> 再退出；
+// files:[] 演"没轨"（退出 0 零文件 → no_subtitle），exit/stderr 可组合演失败帧。
+const YT_JSON3 = (text) => JSON.stringify({ events: [{ tStartMs: 0, dDurationMs: 2000, segs: [{ utf8: text }] }] })
+function fakeYtSpawn({ files = [{ lang: 'zh-Hans', ext: 'json3', text: YT_JSON3('yt 现取的字幕全文') }], exit = 0 } = {}) {
+  const state = { spawns: [] }
+  const spawnImpl = (cmd, args) => {
+    const child = new EventEmitter()
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    child.kill = () => true
+    state.spawns.push({ cmd, args: [...args] })
+    Promise.resolve().then(() => {
+      const url = String(args[args.length - 1])
+      const dir = path.dirname(args[args.indexOf('-o') + 1])
+      fs.mkdirSync(dir, { recursive: true })
+      const id = /watch\?v=([A-Za-z0-9_-]+)/.exec(url)?.[1] ?? 'vid'
+      for (const f of files) fs.writeFileSync(path.join(dir, `${id}.${f.lang}.${f.ext}`), f.text)
+      child.stdout.emit('data', 'ok')
+      child.exitCode = exit
+      child.emit('exit', child.exitCode)
+    })
+    return child
+  }
+  spawnImpl.state = state
+  return spawnImpl
+}
+
+const YT_WATCH = 'https://www.youtube.com/watch?v=vidA1111111'
+const seedYtVideo = (db, over = {}) => seedVideo(db, {
+  external_id: 'vidA1111111', url: YT_WATCH, ...over,
+})
+
+test('subtitle 的 schema：id 必填整数，description 写明 summary_only 的视频用它补全文、通道是 B 站 / YouTube', async () => {
   const { ctx } = await applyOf(freshHome())
   fireToolsInject(ctx)
   const st = toolOf(ctx, 'baleen.subtitle')
   assert.deepEqual(st.parameters.required, ['id'])
   assert.equal(st.parameters.properties.id.type, 'integer')
   assert.match(st.description, /summary_only/)
+  assert.match(st.description, /B 站 \/ YouTube 通道/)
 })
 
 test('subtitle 非视频条目给 not_video；查无 / 非整数 id 给 no_item', async () => {
@@ -445,6 +480,90 @@ test('subtitle 超两万字截断并注明原长（与 read_item 同一阈值，
   assert.equal(out.subtitle_truncated, true)
   assert.equal(out.subtitle_original_length, 25000)
   assert.match(out.subtitle_note, /已截断，原长 25000 字/)
+})
+
+/* ---------------- baleen.subtitle：yt 条目现取（M4b Task 2，按 URL 分流） ---------------- */
+
+test('subtitle yt 条目（missing 态）→ yt-dlp 现取：恰一次 spawn（--write-auto-subs + watch URL）、全文返回、tmp 读完即删、bili 通道零请求', async () => {
+  const spawnImpl = fakeYtSpawn()
+  const fetchImpl = fakeBiliFetch()
+  const home = freshHome()
+  const { ctx, baleen } = await applyOf(home, { config: { fetchImpl, spawnImpl } })
+  fireToolsInject(ctx)
+  const v = seedYtVideo(baleen.db, { body_state: 'missing' })
+  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  assert.equal(out.ok, true)
+  assert.equal(out.subtitle_text, 'yt 现取的字幕全文')
+  assert.equal(out.from_store, false)
+  assert.equal(out.url, YT_WATCH)
+  assert.equal(out.body_state, 'missing')
+  assert.equal(spawnImpl.state.spawns.length, 1, '现取恰一次 yt-dlp 字幕调用')
+  const s = spawnImpl.state.spawns[0]
+  assert.equal(s.cmd, 'yt-dlp')
+  assert.ok(s.args.includes('--write-auto-subs'))
+  assert.equal(s.args.at(-1), YT_WATCH)
+  assert.equal(fetchImpl.state.calls.length, 0, 'yt 条目绝不该打 bili 接口')
+  assert.equal(fs.existsSync(path.join(home, 'tmp', 'yt-subs', 'vidA1111111')), false, '落盘目录读完即删')
+})
+
+test('subtitle yt URL 但提不出视频 id（playlist 页 URL）→ no_bvid + detail 写明，零 spawn 零请求', async () => {
+  const spawnImpl = fakeYtSpawn()
+  const fetchImpl = fakeBiliFetch()
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl, spawnImpl } })
+  fireToolsInject(ctx)
+  const v = seedYtVideo(baleen.db, {
+    external_id: 'PLxyz', url: 'https://www.youtube.com/playlist?list=PLxyz', body_state: 'summary_only',
+  })
+  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  assert.equal(out.ok, false)
+  assert.equal(out.error, 'no_bvid')
+  assert.equal(out.detail, 'YouTube URL 提取不出视频 id')
+  assert.equal(spawnImpl.state.spawns.length, 0)
+  assert.equal(fetchImpl.state.calls.length, 0)
+})
+
+test('subtitle yt 条目库内已有全文（subtitle 态，youtu.be 短链）→ from_store 直回，零 spawn', async () => {
+  const spawnImpl = fakeYtSpawn()
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { spawnImpl } })
+  fireToolsInject(ctx)
+  const v = seedYtVideo(baleen.db, {
+    url: 'https://youtu.be/vidA1111111?t=30', body_state: 'subtitle', body_text: '库内的 yt 字幕全文',
+  })
+  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  assert.equal(out.ok, true)
+  assert.equal(out.subtitle_text, '库内的 yt 字幕全文')
+  assert.equal(out.from_store, true)
+  assert.equal(spawnImpl.state.spawns.length, 0, '库内已有全文就不许再发请求')
+})
+
+test('subtitle yt 现取没拿到轨（零文件、退出 0）→ no_subtitle，不冒充成功', async () => {
+  const spawnImpl = fakeYtSpawn({ files: [] })
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { spawnImpl } })
+  fireToolsInject(ctx)
+  const v = seedYtVideo(baleen.db, { body_state: 'summary_only', body_text: '只有简介' })
+  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  assert.equal(out.ok, false)
+  assert.equal(out.error, 'no_subtitle')
+  assert.equal(spawnImpl.state.spawns.length, 1)
+})
+
+test('按 URL 分流不串道：同库里 bili 条目走 bili fetch、yt 条目走 yt-dlp，各走各的通道', async () => {
+  const spawnImpl = fakeYtSpawn()
+  const fetchImpl = fakeBiliFetch()
+  const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl, spawnImpl } })
+  fireToolsInject(ctx)
+  const st = toolOf(ctx, 'baleen.subtitle')
+  const biliV = seedVideo(baleen.db, { external_id: 'BV1xx411c7mD', body_state: 'missing' })
+  const ytV = seedYtVideo(baleen.db, { body_state: 'missing' })
+  const ob = await st.execute({ id: biliV })
+  const oy = await st.execute({ id: ytV })
+  assert.equal(ob.ok && oy.ok, true, '两条都该现取成功')
+  assert.equal(ob.subtitle_text, '现取到的字幕全文。')
+  assert.equal(oy.subtitle_text, 'yt 现取的字幕全文')
+  assert.ok(fetchImpl.state.calls.length > 0 && fetchImpl.state.calls.every(c => !c.url.includes('youtube')),
+    'bili 条目只打 bili 接口')
+  assert.equal(spawnImpl.state.spawns.length, 1, 'yt-dlp 只为 yt 条目发起')
+  assert.equal(spawnImpl.state.spawns[0].args.at(-1), YT_WATCH)
 })
 
 /* ---------------- 降级：tools 缺席不炸启动 ---------------- */
