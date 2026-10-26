@@ -104,7 +104,7 @@ function pendingSectionText(db) {
   }
   if (failed.length) segs.push(`上轮源：失败 ${failed.join('；')}`)
   else if (run && run.status !== 'running') segs.push('上轮源：全部正常')
-  segs.push('可用工具：baleen.candidates / read_item / save_verdicts')
+  segs.push('可用工具：baleen_candidates / read_item / save_verdicts')
   return `Baleen：${segs.join('。')}。`
 }
 

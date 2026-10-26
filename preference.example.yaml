@@ -73,7 +73,7 @@ require_theme_hit: true
 inject_prompt: true
 
 # B 站字幕增强（可选）：credentials/bili-cookie.txt 放纯 Cookie 头文本（SESSDATA 等），
-# 不放也能跑（视频按无字幕抓取，baleen.subtitle 现取走匿名）。
+# 不放也能跑（视频按无字幕抓取，baleen_subtitle 现取走匿名）。
 
 # yt 源（type: yt）走 yt-dlp 直连，url 填频道 /videos、playlist 或单视频都行：
 #   - id: some-channel

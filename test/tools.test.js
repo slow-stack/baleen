@@ -7,7 +7,7 @@ import path from 'node:path'
 import { resolveDefineTool } from '../lib/tools.js'
 import { createRun, finishRun } from '../lib/store.js'
 
-// 工具面红线测试。注册清单恰好六个（M4a 起含 baleen.subtitle）、save_verdicts 唯一写且三档枚举锁死、
+// 工具面红线测试。注册清单恰好六个（M4a 起含 baleen_subtitle）、save_verdicts 唯一写且三档枚举锁死、
 // 平台写动词在工具面零出现——这些条在任何后续改动中红了就是事故。
 // ctx 桩手法同 test/host-surface.test.js 的 makeCtx，同款加了 tools 服务。
 
@@ -92,7 +92,7 @@ test('注册清单恰好 6 个，名字与 spec §10.1 逐字一致', async () =
   const { ctx } = await applyOf(freshHome())
   fireToolsInject(ctx)
   assert.deepEqual(ctx.toolRegistry.map((t) => t.name), [
-    'baleen.query', 'baleen.read_item', 'baleen.candidates', 'baleen.run_status', 'baleen.subtitle', 'baleen.save_verdicts',
+    'baleen_query', 'baleen_read_item', 'baleen_candidates', 'baleen_run_status', 'baleen_subtitle', 'baleen_save_verdicts',
   ])
   // inject 声明里带 tools 服务，宿主就绪后才回调——没有声明就永远不会有工具面
   assert.ok(ctx.injects.some((i) => i.services.includes('tools')), 'apply 没声明 ctx.inject(["tools"], ...)')
@@ -101,7 +101,7 @@ test('注册清单恰好 6 个，名字与 spec §10.1 逐字一致', async () =
 test('save_verdicts 的 tier 参数是三档枚举，从编译后的 parameters 里断言', async () => {
   const { ctx } = await applyOf(freshHome())
   fireToolsInject(ctx)
-  const sv = toolOf(ctx, 'baleen.save_verdicts')
+  const sv = toolOf(ctx, 'baleen_save_verdicts')
   const tier = sv.parameters.properties.verdicts.items.properties.tier
   assert.deepEqual(tier.enum, ['值得看', '可以看', '不值当'])
   assert.equal(tier.type, 'string')
@@ -165,7 +165,7 @@ test('save_verdicts 同批重复 id 去重保最后一次：judged:1，落库的
   fireToolsInject(ctx)
   createRun(baleen.db, 'manual')
   const a = seedItem(baleen.db, { external_id: 'a' })
-  const sv = toolOf(ctx, 'baleen.save_verdicts')
+  const sv = toolOf(ctx, 'baleen_save_verdicts')
   const out = await sv.execute({ verdicts: [
     { id: a, tier: '值得看', why: '前一个判断' },
     { id: a, tier: '可以看', why: '后一个判断' },
@@ -185,7 +185,7 @@ test('save_verdicts 把 store 的短码原样带回：no_item / bad_tier / bad_p
   fireToolsInject(ctx)
   createRun(baleen.db, 'manual')
   const a = seedItem(baleen.db, { external_id: 'a' })
-  const sv = toolOf(ctx, 'baleen.save_verdicts')
+  const sv = toolOf(ctx, 'baleen_save_verdicts')
   const miss = await sv.execute({ verdicts: [{ id: 99999, tier: '值得看', why: 'x' }] })
   assert.equal(miss.ok, false)
   assert.equal(miss.error, 'no_item')
@@ -203,7 +203,7 @@ test('read_item 超两万字截断并注明原长；不超长给全文；查无�
   fireToolsInject(ctx)
   const long = seedItem(baleen.db, { external_id: 'long', body_text: '字'.repeat(25000) })
   const short = seedItem(baleen.db, { external_id: 'short', body_text: '短正文' })
-  const ri = toolOf(ctx, 'baleen.read_item')
+  const ri = toolOf(ctx, 'baleen_read_item')
 
   const gotLong = await ri.execute({ id: long })
   assert.equal(gotLong.ok, true)
@@ -231,7 +231,7 @@ test('query 默认只给未归档、默认 20 条、上限 100，摘要不含 bo
   fireToolsInject(ctx)
   for (let i = 0; i < 120; i++) seedItem(baleen.db, { external_id: `q${i}` })
   const goneId = seedItem(baleen.db, { external_id: 'gone', status: 'archived' })
-  const q = toolOf(ctx, 'baleen.query')
+  const q = toolOf(ctx, 'baleen_query')
 
   const dflt = await q.execute({})
   assert.equal(dflt.ok, true)
@@ -255,7 +255,7 @@ test('candidates 上限读 preference 的 schedule.max_per_run（缺省 25），
   const { ctx, baleen } = await applyOf(home)
   fireToolsInject(ctx)
   for (let i = 0; i < 3; i++) seedItem(baleen.db, { external_id: `c${i}` })
-  const cand = toolOf(ctx, 'baleen.candidates')
+  const cand = toolOf(ctx, 'baleen_candidates')
   const out = await cand.execute({})
   assert.equal(out.ok, true)
   assert.equal(out.max_per_run, 2, '没读到 preference 里的每轮上限')
@@ -267,7 +267,7 @@ test('candidates 上限读 preference 的 schedule.max_per_run（缺省 25），
   const r2 = await applyOf(home2)
   fireToolsInject(r2.ctx)
   for (let i = 0; i < 30; i++) seedItem(r2.baleen.db, { external_id: `d${i}` })
-  const out2 = await toolOf(r2.ctx, 'baleen.candidates').execute({})
+  const out2 = await toolOf(r2.ctx, 'baleen_candidates').execute({})
   assert.equal(out2.max_per_run, 25, '没写偏好时应取缺省 25')
   assert.equal(out2.items.length, 25)
   assert.equal(out2.total, 30)
@@ -276,7 +276,7 @@ test('candidates 上限读 preference 的 schedule.max_per_run（缺省 25），
 test('run_status 给最近一轮摘要 + counts + inject_prompt 占位', async () => {
   const { ctx, baleen } = await applyOf(freshHome())
   fireToolsInject(ctx)
-  const rs = toolOf(ctx, 'baleen.run_status')
+  const rs = toolOf(ctx, 'baleen_run_status')
 
   const empty = await rs.execute({})
   assert.equal(empty.ok, true)
@@ -299,16 +299,16 @@ test('run_status 的 inject_prompt 接真值：读 preference.yaml 的开关，�
     'version: 1\nsources: []\ninject_prompt: false\n')
   const { ctx } = await applyOf(home)
   fireToolsInject(ctx)
-  const out = await toolOf(ctx, 'baleen.run_status').execute({})
+  const out = await toolOf(ctx, 'baleen_run_status').execute({})
   assert.equal(out.inject_prompt, false, '开关关了工具还在报"开"，用户会以为注入在工作')
   // 缺省时（另一个家目录没写这个键）按默认开报 true
   const r2 = await applyOf(freshHome())
   fireToolsInject(r2.ctx)
-  const out2 = await toolOf(r2.ctx, 'baleen.run_status').execute({})
+  const out2 = await toolOf(r2.ctx, 'baleen_run_status').execute({})
   assert.equal(out2.inject_prompt, true)
 })
 
-/* ---------------- baleen.subtitle：第六个工具（M4a，视频字幕现取，只读） ---------------- */
+/* ---------------- baleen_subtitle：第六个工具（M4a，视频字幕现取，只读） ---------------- */
 
 // bili fetch 桩：手法同 test/adapters-bili.test.js（按 URL 路由），
 // 只留 subtitle 工具现取路径要用的最少行为（nav 签名 key → view 拿 cid → player/wbi/v2 → aisubtitle json）。
@@ -376,7 +376,7 @@ const seedYtVideo = (db, over = {}) => seedVideo(db, {
 test('subtitle 的 schema：id 必填整数，description 写明 summary_only 的视频用它补全文、通道是 B 站 / YouTube', async () => {
   const { ctx } = await applyOf(freshHome())
   fireToolsInject(ctx)
-  const st = toolOf(ctx, 'baleen.subtitle')
+  const st = toolOf(ctx, 'baleen_subtitle')
   assert.deepEqual(st.parameters.required, ['id'])
   assert.equal(st.parameters.properties.id.type, 'integer')
   assert.match(st.description, /summary_only/)
@@ -387,7 +387,7 @@ test('subtitle 非视频条目给 not_video；查无 / 非整数 id 给 no_item'
   const { ctx, baleen } = await applyOf(freshHome())
   fireToolsInject(ctx)
   const a = seedItem(baleen.db, { external_id: 'art1' }) // kind=article
-  const st = toolOf(ctx, 'baleen.subtitle')
+  const st = toolOf(ctx, 'baleen_subtitle')
   assert.equal((await st.execute({ id: a })).error, 'not_video')
   assert.equal((await st.execute({ id: 99999 })).error, 'no_item')
   assert.equal((await st.execute({ id: '7' })).error, 'no_item')
@@ -399,7 +399,7 @@ test('subtitle body_state=subtitle 且库内有全文 → 直接回库内文本�
   const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl } })
   fireToolsInject(ctx)
   const v = seedVideo(baleen.db, { body_state: 'subtitle', body_text: '库内字幕全文' })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, true)
   assert.equal(out.subtitle_text, '库内字幕全文')
   assert.equal(out.from_store, true)
@@ -418,7 +418,7 @@ test('subtitle body_state=missing/burned_in → 现取：view 拿 cid + player/w
     const v = seedVideo(baleen.db, {
       external_id: `BV1xx411c7m${i}`, url: `https://www.bilibili.com/video/BV1xx411c7m${i}`, body_state: state,
     })
-    const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+    const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
     assert.equal(out.ok, true, `${state} 态该现取成功`)
     assert.equal(out.subtitle_text, '现取到的字幕全文。')
     assert.equal(out.from_store, false)
@@ -440,7 +440,7 @@ test('subtitle detail 成功但没字幕（字幕列表空）→ no_subtitle，�
   const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl } })
   fireToolsInject(ctx)
   const v = seedVideo(baleen.db, { body_state: 'missing' })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, false)
   assert.equal(out.error, 'no_subtitle')
 })
@@ -451,7 +451,7 @@ test('subtitle 无凭据（cookie 可选）→ 不再 fetch_failed，匿名照�
   const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl: anon } })
   fireToolsInject(ctx)
   const v = seedVideo(baleen.db, { body_state: 'missing' })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, true, 'cookie 缺失不该拦现取')
   assert.equal(out.subtitle_text, '现取到的字幕全文。')
   assert.equal(anon.state.calls.some(c => c.headers.Cookie), false, '匿名请求不带 Cookie 头')
@@ -464,7 +464,7 @@ test('subtitle 不是 B 站视频（bvid 提取不到）→ no_bvid，零请求'
   const v = seedVideo(baleen.db, {
     external_id: 'yt-xYZ123', url: 'https://example.com/watch?v=x', body_state: 'summary_only', body_text: '只有摘要',
   })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, false)
   assert.equal(out.error, 'no_bvid')
   assert.equal(fetchImpl.state.calls.length, 0)
@@ -474,7 +474,7 @@ test('subtitle 超两万字截断并注明原长（与 read_item 同一阈值，
   const { ctx, baleen } = await applyOf(freshHome())
   fireToolsInject(ctx)
   const v = seedVideo(baleen.db, { body_state: 'subtitle', body_text: '字'.repeat(25000) })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, true)
   assert.equal(out.subtitle_text.length, 20000, '截断阈值没生效')
   assert.equal(out.subtitle_truncated, true)
@@ -482,7 +482,7 @@ test('subtitle 超两万字截断并注明原长（与 read_item 同一阈值，
   assert.match(out.subtitle_note, /已截断，原长 25000 字/)
 })
 
-/* ---------------- baleen.subtitle：yt 条目现取（M4b Task 2，按 URL 分流） ---------------- */
+/* ---------------- baleen_subtitle：yt 条目现取（M4b Task 2，按 URL 分流） ---------------- */
 
 test('subtitle yt 条目（missing 态）→ yt-dlp 现取：恰一次 spawn（--write-auto-subs + watch URL）、全文返回、tmp 读完即删、bili 通道零请求', async () => {
   const spawnImpl = fakeYtSpawn()
@@ -491,7 +491,7 @@ test('subtitle yt 条目（missing 态）→ yt-dlp 现取：恰一次 spawn（-
   const { ctx, baleen } = await applyOf(home, { config: { fetchImpl, spawnImpl } })
   fireToolsInject(ctx)
   const v = seedYtVideo(baleen.db, { body_state: 'missing' })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, true)
   assert.equal(out.subtitle_text, 'yt 现取的字幕全文')
   assert.equal(out.from_store, false)
@@ -514,7 +514,7 @@ test('subtitle yt URL 但提不出视频 id（playlist 页 URL）→ no_bvid + d
   const v = seedYtVideo(baleen.db, {
     external_id: 'PLxyz', url: 'https://www.youtube.com/playlist?list=PLxyz', body_state: 'summary_only',
   })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, false)
   assert.equal(out.error, 'no_bvid')
   assert.equal(out.detail, 'YouTube URL 提取不出视频 id')
@@ -529,7 +529,7 @@ test('subtitle yt 条目库内已有全文（subtitle 态，youtu.be 短链）�
   const v = seedYtVideo(baleen.db, {
     url: 'https://youtu.be/vidA1111111?t=30', body_state: 'subtitle', body_text: '库内的 yt 字幕全文',
   })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, true)
   assert.equal(out.subtitle_text, '库内的 yt 字幕全文')
   assert.equal(out.from_store, true)
@@ -541,7 +541,7 @@ test('subtitle yt 现取没拿到轨（零文件、退出 0）→ no_subtitle，
   const { ctx, baleen } = await applyOf(freshHome(), { config: { spawnImpl } })
   fireToolsInject(ctx)
   const v = seedYtVideo(baleen.db, { body_state: 'summary_only', body_text: '只有简介' })
-  const out = await toolOf(ctx, 'baleen.subtitle').execute({ id: v })
+  const out = await toolOf(ctx, 'baleen_subtitle').execute({ id: v })
   assert.equal(out.ok, false)
   assert.equal(out.error, 'no_subtitle')
   assert.equal(spawnImpl.state.spawns.length, 1)
@@ -552,7 +552,7 @@ test('按 URL 分流不串道：同库里 bili 条目走 bili fetch、yt 条目�
   const fetchImpl = fakeBiliFetch()
   const { ctx, baleen } = await applyOf(freshHome(), { config: { fetchImpl, spawnImpl } })
   fireToolsInject(ctx)
-  const st = toolOf(ctx, 'baleen.subtitle')
+  const st = toolOf(ctx, 'baleen_subtitle')
   const biliV = seedVideo(baleen.db, { external_id: 'BV1xx411c7mD', body_state: 'missing' })
   const ytV = seedYtVideo(baleen.db, { body_state: 'missing' })
   const ob = await st.execute({ id: biliV })

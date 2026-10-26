@@ -67,7 +67,7 @@ export function LibraryView({ items = [], filters = {}, onFacet, onOpen }) {
           ? '这些勾选下没有条目。库里是有东西的——把勾选清一下。'
           : '库里还没有条目。先去「今天」跑一轮。']),
       rows.length > PAGE ? vnode('p', { className: 'bl-more' }, [`还有 ${rows.length - PAGE} 条，翻分页看（这一屏只放 ${PAGE} 条）`]) : null,
-      vnode('p', { className: 'bl-note' }, ['改判由会话通过 baleen.save_verdicts 做，这里不放改判按钮；批量归档（M3）尚未接入。'])
+      vnode('p', { className: 'bl-note' }, ['改判由会话通过 baleen_save_verdicts 做，这里不放改判按钮；批量归档（M3）尚未接入。'])
     ].filter(Boolean))
   ])
 }

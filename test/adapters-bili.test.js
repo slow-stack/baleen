@@ -576,7 +576,7 @@ test('fetch 本身抛（DNS 断）原样上抛，由 pool 分类', async () => {
   clearWbiCache()
 })
 
-/* ───────────────────────── fetchBiliSubtitle：baleen.subtitle 工具的后端 ─── */
+/* ───────────────────────── fetchBiliSubtitle：baleen_subtitle 工具的后端 ─── */
 
 test('fetchBiliSubtitle：view 拿 cid → player/wbi/v2 签名请求 → 字幕 json 拼全文', async () => {
   await withHome(test, { cookie: true })

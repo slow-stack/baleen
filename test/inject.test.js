@@ -109,7 +109,7 @@ test('有候选时注入三件套：待判数、Top 标题、工具名；正文/
   assert.ok(sec, '候选 >0 却没有注入段（钩子没挂或静默条件写错）')
   assert.match(sec.text, /待判 2 条/, '注入文本里没有待判数')
   assert.ok(sec.text.includes('上下文工程实战手记'), '注入文本里没有 Top 标题')
-  assert.ok(sec.text.includes('baleen.candidates'), '注入文本里没有候选工具名')
+  assert.ok(sec.text.includes('baleen_candidates'), '注入文本里没有候选工具名')
   assert.ok(sec.text.includes('read_item') && sec.text.includes('save_verdicts'), '注入文本里没有读写工具名')
   // 红线：注入是触发器不是内容管道（spec §10.2）
   assert.doesNotMatch(sec.text, /http/i, 'URL 进了注入文本')
