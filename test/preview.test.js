@@ -15,7 +15,7 @@ const tmp = (tag) => {
   return d
 }
 const NAMES = ['preview-article.html', 'preview-collections.html', 'preview-digest.html', 'preview-drawer.html',
-  'preview-library.html', 'preview-today.html', 'preview-trouble.html', 'preview-video.html']
+  'preview-library.html', 'preview-settings.html', 'preview-today.html', 'preview-trouble.html', 'preview-video.html']
 
 test('六个视图 + 抽屉 + 出问题那一屏都出 HTML，每页明暗两块', () => {
   const files = renderPreview({ outDir: tmp('ok') })
@@ -26,9 +26,12 @@ test('六个视图 + 抽屉 + 出问题那一屏都出 HTML，每页明暗两块
     assert.match(html, /class="bl-root" data-preview="dark"/)
     assert.doesNotMatch(html, /<script/, '预览是静态产物，不该带脚本')
     assert.match(html, /替身/, 'token 值必须标明是替身，不然看着像宿主真实调色板')
-    assert.match(html, /<nav class="bl-nav"/, '每页都该带顶部导航，不然没法评"像不像网站"')
     assert.doesNotMatch(html, /className=/, '吐的是 React 属性名，浏览器不认——整页样式会静默失效')
-    assert.match(html, /今天 ·待判6|>今天</, '导航里的"今天"没出来')
+    // 设置页注册在宿主设置里，不套主面板外壳（导航是面板的事）；面板页该带导航
+    if (path.basename(f) !== 'preview-settings.html') {
+      assert.match(html, /<nav class="bl-nav"/, '每页都该带顶部导航，不然没法评"像不像网站"')
+      assert.match(html, /今天 ·待判6|>今天</, '导航里的"今天"没出来')
+    }
   }
 })
 
@@ -184,4 +187,29 @@ test('导航六格，收藏在文章之后汇报之前', () => {
   // 「今天」那格带待判徽章（"今天 ·待判5"），钉顺序前先剥掉；type 属性排在 class 前面，锚点不能写 <button class=
   const labels = [...html.matchAll(/<button[^>]*class="bl-navitem"[^>]*>([^<]*)</g)].map((m) => m[1].replace(/ ·待判\d+$/, ''))
   assert.deepEqual([...new Set(labels)], ['今天', '视频', '文章', '收藏', '汇报', '库'])
+})
+
+test('设置页预览：四页签各一块纵排，源/偏好/凭据/库的关键元素、诚实占位与 danger 红字都在', () => {
+  const files = renderPreview({ outDir: tmp('settings') })
+  const html = fs.readFileSync(files.find((f) => f.endsWith('preview-settings.html')), 'utf8')
+  // 源：列表行 + 新增表单
+  assert.match(html, /demo-longform（rss · 长文源）/)
+  assert.match(html, /最近抓取：正常/)
+  assert.match(html, /aria-label="新增源"|新增源/)
+  // 偏好：主题组简明格式与 tuning 两条偏移
+  assert.match(html, /公共管理: 治理,订阅/)
+  assert.match(html, /demo-longform: \+0\.1/)
+  assert.match(html, /demo-weekly: -0\.2/)
+  assert.match(html, /一键归零/)
+  // 凭据与环境：cookie 状态、env 四行、两个诚实占位（文案逐字）
+  assert.match(html, /B 站 cookie：已写入/)
+  assert.match(html, /yt-dlp：没探测到/)
+  assert.match(html, /小红书：未接入（M4b 待做）/)
+  assert.match(html, /转写依赖：未实现（随 ASR 一起）/)
+  // 库：数据目录占位、清空库红字 danger
+  assert.match(html, /数据目录：&lt;HOME&gt;\/baleen/)
+  assert.match(html, /class="bl-danger"/)
+  assert.match(html, /清空库/)
+  // 四页签条都在（每块自带一条 tab 条，当前格不同）
+  assert.equal([...html.matchAll(/class="bl-foldertab"/g)].length >= 4 * 2, true, '四块 × 明暗 = 至少 8 枚页签钮')
 })

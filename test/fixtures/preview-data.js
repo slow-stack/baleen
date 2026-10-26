@@ -68,6 +68,35 @@ const base = (over) => ({
   match_json: '{"reason":"命中 治理（公共管理）","hitKeywords":["治理"],"groups":["公共管理"]}', ...over
 })
 
+/**
+ * 设置页夹具：结构与 GET /preference 的 pref 逐字一致（节名、字段名都对齐 lib/preference.js 的 DEFAULTS）。
+ * tuning 带两条偏移——设置页"偏好"页签的一览要演得出 ±两个方向（简报钦定两条）。
+ */
+export const previewPreference = {
+  themes: [
+    { group: '公共管理', any: ['治理', '订阅'] },
+    { group: '方法论', any: ['信息', '界面'] }
+  ],
+  follow: { feeds: [] },
+  sources: [
+    { id: 'demo-longform', type: 'rss', url: 'https://example.invalid/a/feed', label: '长文源', enabled: true, interval_min: 720, weight: 1 },
+    { id: 'demo-notes', type: 'rss', url: 'https://example.invalid/b/feed', enabled: true, interval_min: 1440, weight: 1 },
+    { id: 'demo-weekly', type: 'rss', url: 'https://example.invalid/c/feed', enabled: false, interval_min: 10080, weight: 0.5 },
+    { id: 'bili', type: 'bili', url: 'https://space.bilibili.com/12345', label: 'B 站 UP', enabled: true, interval_min: 1440 }
+  ],
+  redlines: ['广告代理', '引流私聊', '付费课程推销'],
+  schedule: { windows: ['07:00-09:00', '21:00-23:00'], off_peak_only: true, max_per_run: 25, max_per_day: 60 },
+  limits: { max_age_days: 14, min_duration_sec: 90, skip_kinds: [] },
+  require_theme_hit: true,
+  inject_prompt: true,
+  charter: '写给关心公共管理的人。三档之外不打分，读不到正文不下结论。',
+  tuning: { source_delta: { 'demo-longform': 0.1, 'demo-weekly': -0.2 } }
+}
+
+/** 设置页夹具：credential-status 与 env-check 的应答形状（Task 2 报告钉的键名）。 */
+export const previewCred = { ok: true, bili: { present: true, updated_at: T0 - 3600000 } }
+export const previewEnv = { ok: true, node: '24.21.0', yt_dlp: null, bili_cookie: true, db_bytes: 2411724, home_writable: true }
+
 export const previewItems = [
   base({
     id: 1, kind: 'video', source_id: 'bili', title: '把插件拆成宿主半与客户端半：一次实做记录',

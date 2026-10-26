@@ -45,20 +45,20 @@ test('client.js 以 loader 格式注册，侧栏 id 与 main key 同名', () => 
   assert.deepEqual(ex.inject, ['slots', 'layout'])
   const ex2 = { ...ex }
   ex2.apply(s.makeCtx(ex.inject))
-  assert.deepEqual(s.registered.map(r => r.def.meta.name), ['sidebar.panellist', 'main'])
-  const [side, main] = s.registered.map(r => r.def.meta)
+  assert.deepEqual(s.registered.map(r => r.def.meta.name), ['sidebar.panellist', 'main', 'settings.section'])
+  const [side, main, settings] = s.registered.map(r => r.def.meta)
   assert.equal(side.id, 'baleen')
   assert.equal(main.key, side.id)
   assert.match(side.label, /Baleen/)
   assert.equal(typeof side.order, 'number')
-  assert.equal(s.registered.map(r => r.slot).join(','), 'sidebar.panellist,main')
+  assert.equal(s.registered.map(r => r.slot).join(','), 'sidebar.panellist,main,settings.section')
 })
 
 test('宿主少声明一个服务也不能炸启动', () => {
   const s = loadClient()
   const ex = exportsOf(s)
   assert.doesNotThrow(() => ex.apply(s.makeCtx(['slots'])))
-  assert.equal(s.registered.length, 2)
+  assert.equal(s.registered.length, 3)
 })
 
 test('完全没有 slots 时只记日志，不抛', () => {
@@ -490,4 +490,33 @@ test('坏掉的 baleen.view 回落「今天」，不能把首屏炸成空白', (
   ex.apply(s.makeCtx(ex.inject))
   const main = s.registered.find(r => r.slot === 'main').def.factory
   assert.match(flattenText(main({})).join(' '), /还没有跑过一轮/)
+})
+
+/* ---------------- 设置页注册（M5 Task 4，V4 闭环） ---------------- */
+
+test('settings.section 注册：meta 形状照 study-desk 实测（id/order/label），渲染不抛且出页签', () => {
+  const s = loadClient()
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  const section = s.registered.find(r => r.slot === 'settings.section')
+  assert.ok(section, 'settings.section 没注册——宿主设置页里不会有 Baleen 这一页')
+  const meta = section.def.meta
+  assert.equal(meta.name, 'settings.section')
+  assert.equal(meta.id, 'baleen-settings')
+  assert.equal(meta.order, 28)
+  assert.equal(meta.label, 'Baleen')
+  // 渲染出来的那一格：四页签齐全，首格落在「源」；桩 fetch 之下是"还没读到"的诚实空态
+  const node = section.def.factory({})
+  const text = flattenText(node).join(' ')
+  assert.match(text, /源/)
+  assert.match(text, /偏好/)
+  assert.match(text, /凭据与环境/)
+  assert.match(text, /库/)
+  assert.match(text, /还没读到/)
+  assert.doesNotMatch(text, /panel 装配中/)
+})
+
+test('设置页取数装配真的挂在 SettingsView 上（__test 暴露，改回纯视图这条就红）', () => {
+  const t = exportsOf(loadClient()).__test
+  assert.equal(typeof t.SettingsView, 'function', 'SettingsView 得能从装配层里拿到，接线测试靠它')
 })

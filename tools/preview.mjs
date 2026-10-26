@@ -23,8 +23,9 @@ import { ArticleView } from '../src/client/views/article.js'
 import { DigestView } from '../src/client/views/digest.js'
 import { LibraryView } from '../src/client/views/library.js'
 import { CollectionsView } from '../src/client/views/collections.js'
+import { SettingsPage } from '../src/client/views/settings.js'
 import { Drawer } from '../src/client/views/drawer.js'
-import { previewState, previewItems, previewFolders } from '../test/fixtures/preview-data.js'
+import { previewState, previewItems, previewFolders, previewPreference, previewCred, previewEnv } from '../test/fixtures/preview-data.js'
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -163,7 +164,21 @@ export function renderPreview({ outDir = path.join(ROOT, 'out'), empty = false }
       state,
       body: TodayView({ state: { ...state, sources: [{ id: 'demo-weekly', ok: false, error_class: 'timeout' }, { id: 'bili', ok: false, error_class: 'needs_login' }] }, items: [] }),
       problems: { runError: 'demo-weekly 超时（重试 1 次仍失败）', preferenceErrors: ['sources[3].max_age_days: ≥1 的整数'] }
-    }))
+    })),
+    // 设置页不是主面板的一格，不套外壳：四页签各渲染一次纵排，tab 条照真机（当前格不同）。
+    // 明暗两块是同一份标记（守卫测试盯着），预览是给人看的——四块全展，不用点四下。
+    settings: (() => {
+      const props = (tab, over = {}) => ({
+        loaded: true, pref: previewPreference, hostState: previewState, note: '', busy: false, tab,
+        srcDraft: { id: '', type: 'rss', url: '', label: '', interval_min: '', weight: '' },
+        onPickTab: () => {},
+        cred: previewCred, env: previewEnv, cookieDraft: '', diagText: null,
+        home: previewState.home, cleanupDays: '30', wipeText: '',
+        ...over
+      })
+      const node = vnode('div', {}, ['sources', 'pref', 'creds', 'library'].map((t) => SettingsPage(props(t))))
+      return both(node, ['明 · 设置页四页签纵排（源/偏好/凭据环境/库）', '暗 · 只换 token 值，代码一个字没改'])
+    })()
   }
   return Object.entries(pages).map(([id, blocks]) => {
     const file = path.join(outDir, `preview-${id}.html`)

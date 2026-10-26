@@ -164,3 +164,56 @@ test('路由整个缺席时 folders() 报 stale 且 data 为 null，由渲染层
   assert.equal(out.stale, true)
   assert.equal(out.data, null)
 })
+
+/* ---------------- 设置页取数面（M5 Task 4） ---------------- */
+
+test('设置页的四个 GET（preference/credential-status/env-check/diagnostics-tail）不写共享快照', async () => {
+  const storage = memStorage()
+  const { calls, fetchImpl } = recorder({
+    '/preference': { code: 200, json: { ok: true, pref: { charter: 'x' }, errors: [] } },
+    '/credential-status': { code: 200, json: { ok: true, bili: { present: true, updated_at: 7 } } },
+    '/env-check': { code: 200, json: { ok: true, node: '24.21.0' } },
+    '/diagnostics-tail': { code: 200, json: { ok: true, lines: ['a'] } }
+  })
+  const api = createApi({ fetch: fetchImpl, storage })
+  assert.deepEqual((await api.preferenceGet()).data.pref, { charter: 'x' })
+  assert.deepEqual((await api.credentialStatus()).data.bili, { present: true, updated_at: 7 })
+  assert.deepEqual((await api.envCheck()).data.node, '24.21.0')
+  assert.deepEqual((await api.diagTail(50)).data.lines, ['a'])
+  assert.equal(calls.find((c) => c.url.includes('/diagnostics-tail')).url.includes('lines=50'), true)
+  assert.equal(storage.getItem(SNAPSHOT_KEY), null, '共享快照是 /state 的：设置页的 GET 不许盖掉它')
+})
+
+test('preferencePut 发 PUT 白名单载荷；400 校验错误要原样带回（错误清单比 HTTP 码有用）', async () => {
+  const { calls, fetchImpl } = recorder()
+  const api = createApi({ fetch: fetchImpl, storage: memStorage() })
+  await api.preferencePut('themes', [{ group: '公共管理', any: ['治理'] }])
+  const c = calls[0]
+  assert.equal(c.init.method, 'PUT')
+  assert.equal(c.url, '/api/dsh-baleen/preference')
+  assert.deepEqual(JSON.parse(c.init.body), { section: 'themes', value: [{ group: '公共管理', any: ['治理'] }] })
+
+  const { fetchImpl: fail } = recorder({ '/preference': { code: 400, json: { ok: false, errors: ['themes[0].weight: 0–2'] } } })
+  const api2 = createApi({ fetch: fail, storage: memStorage() })
+  const out = await api2.preferencePut('themes', [])
+  assert.equal(out.ok, false)
+  assert.deepEqual(out.data.errors, ['themes[0].weight: 0–2'])
+})
+
+test('设置页的五个动作（tuning-reset/credential/export/cleanup/wipe）载荷与方法逐字', async () => {
+  const { calls, fetchImpl } = recorder()
+  const api = createApi({ fetch: fetchImpl, storage: memStorage() })
+  await api.tuningReset()
+  await api.credentialPut('bili', 'SESSDATA=x')
+  await api.exportMd()
+  await api.cleanup(30)
+  await api.wipe('清空库')
+  const bodies = calls.map((c) => [c.url.replace('/api/dsh-baleen', ''), c.init.method, JSON.parse(c.init.body)])
+  assert.deepEqual(bodies, [
+    ['/tuning-reset', 'POST', {}],
+    ['/credential', 'PUT', { which: 'bili', content: 'SESSDATA=x' }],
+    ['/export', 'POST', {}],
+    ['/cleanup', 'POST', { days: 30 }],
+    ['/wipe', 'POST', { confirm: '清空库' }]
+  ])
+})

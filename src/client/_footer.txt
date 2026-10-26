@@ -238,6 +238,198 @@
       ])
     }
 
+    /**
+     * 设置页（settings.section 槽）的装配树：与 Panel 平行的另一棵，取数走 view-api 的设置面，
+     * 视图（views/settings.js）保持纯函数可单测。四页签的 tab、各节草稿、确认态全在组件里——
+     * 不进 view-state 的 reducer：那套是主面板六格导航的账本，设置页的生命周期跟着宿主设置页走。
+     *
+     * 安全闸：偏好**没读到**（loaded=false 或 pref=null）时整个页签只读——
+     * 盲发 sources 全量 PUT 等于用一个空数组把现有源全部抹掉。
+     */
+    function SettingsView() {
+      const [api] = React.useState(() => createApi({ fetch: globalThis.fetch, storage: globalThis.localStorage }))
+      const [loaded, setLoaded] = React.useState(false)
+      const [pref, setPref] = React.useState(null)
+      const [hostState, setHostState] = React.useState(null)
+      const [cred, setCred] = React.useState(null)
+      const [env, setEnv] = React.useState(null)
+      const [tab, setTab] = React.useState('sources')
+      const [note, setNote] = React.useState('')
+      const [busy, setBusy] = React.useState(false)
+      // 源页签
+      const [srcDraft, setSrcDraft] = React.useState({ id: '', type: 'rss', url: '', label: '', interval_min: '', weight: '' })
+      const [askDelete, setAskDelete] = React.useState(null)
+      // 偏好页签的草稿：null = 没动过，视图回落 preference 现值（换页签不丢，关宿主设置页才丢——草稿本就是瞬时的）
+      const [themesDraft, setThemesDraft] = React.useState(null)
+      const [redlinesDraft, setRedlinesDraft] = React.useState(null)
+      const [scheduleDraft, setScheduleDraft] = React.useState(null)
+      const [limitsDraft, setLimitsDraft] = React.useState(null)
+      const [charterDraft, setCharterDraft] = React.useState(null)
+      const [askResetTuning, setAskResetTuning] = React.useState(false)
+      // 凭据页签
+      const [cookieDraft, setCookieDraft] = React.useState('')
+      const [diagText, setDiagText] = React.useState(null)
+      // 库页签
+      const [cleanupDays, setCleanupDays] = React.useState('')
+      const [askCleanup, setAskCleanup] = React.useState(false)
+      const [wipeText, setWipeText] = React.useState('')
+
+      function refresh() {
+        return Promise.all([api.preferenceGet(), api.state(), api.credentialStatus(), api.envCheck()]).then(([p, st, c, e]) => {
+          if (p.ok && p.data) {
+            setPref(p.data.pref ?? {})
+            // 坏文件上服务端会退默认值照常回 pref：不把 errors 亮出来，这页显示的就是
+            // "假默认"，用户一保存还会被 preference_invalid 打回——先说清文件本身坏了。
+            const errs = Array.isArray(p.data.errors) ? p.data.errors : []
+            if (errs.length) setNote(`preference.yaml 有 ${errs.length} 处问题：${errs.slice(0, 2).join('；')}——先手编修好，这期间的保存都会被拒`)
+          } else if (p.stale) {
+            setNote('偏好没读到（宿主接口没应上）——先别保存任何一节，等下一次打开再试')
+          }
+          if (st.ok) setHostState(st.data)
+          if (c.ok && c.data) setCred(c.data)
+          if (e.ok && e.data) setEnv(e.data)
+          setLoaded(true)
+        })
+      }
+      React.useEffect(() => { refresh() }, [])
+
+      const readOnly = !(loaded && pref != null)
+      const sources = Array.isArray(pref && pref.sources) ? pref.sources : []
+
+      /** PUT 一节偏好：读-改-写。失败回显优先服务端的错误清单（400 带 errors 的是"值不合法"）。 */
+      function putSection(section, value, okText) {
+        setBusy(true)
+        return api.preferencePut(section, value).then((r) => {
+          setBusy(false)
+          if (r.ok) {
+            if (r.data && r.data.pref) setPref(r.data.pref)
+            setNote(okText)
+            return true
+          }
+          const errs = Array.isArray(r.data && r.data.errors) ? r.data.errors : null
+          setNote(errs && errs.length ? `没存上：${errs.slice(0, 3).join('；')}` : `没存上（${r.error || '宿主接口没应答'}）`)
+          return false
+        })
+      }
+      function putSources(next, okText) { return putSection('sources', next, okText) }
+      function onToggleSource(id, next) {
+        if (!sources.some((s) => s.id === id)) return
+        putSources(sources.map((s) => (s.id === id ? { ...s, enabled: next } : s)), `已${next ? '启用' : '停用'} ${id}（下一轮抓取生效）`)
+      }
+      function onAddSource(d) {
+        const entry = { id: String(d.id).trim(), type: d.type, url: String(d.url).trim(), enabled: true }
+        if (String(d.label).trim()) entry.label = String(d.label).trim()
+        const iv = Number(d.interval_min)
+        if (String(d.interval_min).trim() !== '' && Number.isInteger(iv)) entry.interval_min = iv
+        const w = Number(d.weight)
+        if (String(d.weight).trim() !== '' && Number.isFinite(w)) entry.weight = w
+        putSources([...sources, entry], `源 ${entry.id} 已加（下一轮抓取才碰它）`)
+          .then((ok) => { if (ok) setSrcDraft({ id: '', type: 'rss', url: '', label: '', interval_min: '', weight: '' }) })
+      }
+      function onDeleteSource(id) {
+        putSources(sources.filter((s) => s.id !== id), `源 ${id} 已删（已抓的条目不动）`)
+          .then((ok) => { if (ok) setAskDelete(null) })
+      }
+      function onResetTuning() {
+        setBusy(true)
+        api.tuningReset().then((r) => {
+          setBusy(false)
+          setAskResetTuning(false)
+          if (r.ok) {
+            setNote('权重偏移已全部归零')
+            return api.preferenceGet().then((p) => { if (p.ok && p.data) setPref(p.data.pref ?? pref) })
+          }
+          setNote(`没归成（${r.error || '宿主接口没应答'}）——preference.yaml 坏了的话先手编修好`)
+          return undefined
+        })
+      }
+      /** 凭据写入：成功清输入框（零回显的一半），状态行换成应答里的新状态（另一半）。 */
+      function onCookieSubmit(content) {
+        setBusy(true)
+        api.credentialPut('bili', content).then((r) => {
+          setBusy(false)
+          if (r.ok) {
+            setCookieDraft('')
+            if (r.data && r.data.bili) setCred(r.data)
+            setNote('cookie 已写入（内容不回显，只记了字节数进日志）')
+            return api.envCheck().then((e) => { if (e.ok && e.data) setEnv(e.data) })
+          }
+          setNote(r.error === 'bad_payload' ? '空内容写不进去——整段粘贴后再按' : `没写上（${r.error || '宿主接口没应答'}）`)
+          return undefined
+        })
+      }
+      /** 复制诊断：tail 已在服务端逐行脱敏；剪贴板拿不到就降级成文本块让人手动复制。 */
+      function onCopyDiag() {
+        api.diagTail(50).then((r) => {
+          if (!r.ok) { setNote(`诊断没读到（${r.error || '宿主接口没应答'}）`); return }
+          const lines = Array.isArray(r.data && r.data.lines) ? r.data.lines : []
+          const text = lines.join('\n')
+          const clip = (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function')
+            ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard'))
+          clip.then(
+            () => setNote(`诊断已复制（最近 ${lines.length} 行，已脱敏）`),
+            () => { setDiagText(text || '（日志还是空的）'); setNote('剪贴板拿不到，诊断贴在下面——自己复制') }
+          )
+        })
+      }
+      function onExport() {
+        setBusy(true)
+        api.exportMd().then((r) => {
+          setBusy(false)
+          setNote(r.ok ? `${r.data.file} · ${r.data.bytes} 字节（out/ 目录里）` : `没导成（${r.error || '宿主接口没应答'}）`)
+        })
+      }
+      function onCleanup() {
+        const days = Number(cleanupDays)
+        setBusy(true)
+        api.cleanup(days).then((r) => {
+          setBusy(false)
+          if (r.ok) {
+            setAskCleanup(false)
+            setNote(`清了 ${r.data.removed} 条归档，备份：${r.data.backup}`)
+          } else {
+            setNote(r.error === 'running' ? '有一轮抓取正在跑，等它完再清理' : `没清成（${r.error || '宿主接口没应答'}）`)
+          }
+        })
+      }
+      function onWipe() {
+        setBusy(true)
+        api.wipe(wipeText).then((r) => {
+          setBusy(false)
+          if (r.ok) {
+            const rm = r.data.removed || {}
+            setWipeText('')
+            setNote(`已清空：条目 ${rm.items ?? '?'} · 轮次 ${rm.runs ?? '?'} · 汇报 ${rm.digests ?? '?'}，备份：${r.data.backup}`)
+            return api.state().then((st) => { if (st.ok) setHostState(st.data) })
+          }
+          setNote(r.error === 'running' ? '有一轮抓取正在跑，等它完再清空'
+            : r.error === 'confirm_required' ? '确认字没对上——要输入「清空库」三个字'
+              : `没清成（${r.error || '宿主接口没应答'}）`)
+          return undefined
+        })
+      }
+
+      const page = SettingsPage({
+        loaded, pref, hostState, note, busy, readOnly,
+        tab, onPickTab: setTab,
+        sources, srcDraft, onSrcDraft: (patch) => setSrcDraft((d) => ({ ...d, ...patch })),
+        askDelete, onAskDelete: setAskDelete, onCancelDelete: () => setAskDelete(null),
+        onToggleSource, onAddSource, onDeleteSource,
+        themesDraft, onThemesDraft: setThemesDraft,
+        redlinesDraft, onRedlinesDraft: setRedlinesDraft,
+        scheduleDraft, onScheduleDraft: (patch) => setScheduleDraft((d) => ({ ...(d ?? {}), ...patch })),
+        limitsDraft, onLimitsDraft: (patch) => setLimitsDraft((d) => ({ ...(d ?? {}), ...patch })),
+        charterDraft, onCharterDraft: setCharterDraft,
+        onSave: putSection,
+        askResetTuning, onAskResetTuning: () => setAskResetTuning(true), onCancelResetTuning: () => setAskResetTuning(false), onResetTuning,
+        cred, env, cookieDraft, onCookieDraft: setCookieDraft, onCookieSubmit, diagText, onCopyDiag,
+        home: hostState?.home ?? '<HOME>',
+        cleanupDays, onCleanupDays: setCleanupDays, askCleanup, onAskCleanup: () => setAskCleanup(true), onCancelCleanup: () => setAskCleanup(false), onCleanup,
+        wipeText, onWipeText: setWipeText, onWipe, onExport
+      })
+      return h('div', { className: 'bl-root' }, [toElement(page)])
+    }
+
     function apply(ctx) {
       clientCtx = ctx
       injectStyles()
@@ -276,6 +468,12 @@
       // main 的 key 必须与侧栏 id 同名，否则宿主 layout.selectPanel 抛
       reg('main', { name: 'main', key: PANEL_ID }, () => h(Panel, { key: 'panel' }), 'main')
 
+      // 设置页（M5，V4 闭环）：meta 形状照抄本机 study-desk 的实测（order 27 是它，28 紧随其后）
+      reg('settings.section',
+        { name: 'settings.section', id: 'baleen-settings', order: 28, label: 'Baleen' },
+        () => h(SettingsView, { key: 'settings' }),
+        'settings.section')
+
       return { registeredSlots: registered }
     }
 
@@ -284,7 +482,8 @@
     exports.__test = {
       PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER, viewQuery, NAV_ITEMS,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
-      reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView
+      reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView,
+      SettingsView, SettingsPage, parseThemes, serializeThemes, splitThemes
     }
     return module.exports
   }

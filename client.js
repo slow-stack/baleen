@@ -154,9 +154,18 @@ window.__ModuleLoader__.load({
        * 而用户真正需要知道的是那个夹已经被删了，换个夹再收一次。
        */
       async function post(urlPath, payload) {
+        return send('POST', urlPath, payload)
+      }
+
+      /** 设置页的 PUT（preference / credential）：与 post 同一套"错误体也要读回来"的规矩。 */
+      async function put(urlPath, payload) {
+        return send('PUT', urlPath, payload)
+      }
+
+      async function send(method, urlPath, payload) {
         try {
           const res = await fetchImpl(API_BASE + urlPath, {
-            method: 'POST',
+            method,
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(payload)
           })
@@ -175,6 +184,19 @@ window.__ModuleLoader__.load({
         } catch (e) {
           return { ok: false, stale: true, error: String((e && e.message) || e), data: null }
         }
+      }
+
+      /**
+       * 设置页的只读 GET。绝不走 get()：那会把应答写进共享快照（baleen.snapshot），
+       * 而 /state 的失败回落靠的是它——preference 的应答盖上去，面板顶栏就会
+       * 拿偏好数据冒充面板状态。
+       */
+      async function plainGet(urlPath) {
+        try {
+          const res = await fetchImpl(API_BASE + urlPath, { cache: 'no-store' })
+          if (!res || res.ok === false) return { ok: false, stale: true, data: null }
+          return { ok: true, stale: false, data: await res.json() }
+        } catch { return { ok: false, stale: true, data: null } }
       }
 
       return {
@@ -212,6 +234,17 @@ window.__ModuleLoader__.load({
           ...(typeof newFolder === 'string' && newFolder.trim() ? { new_folder: newFolder.trim() } : {})
         }),
         folderOp: (action, { id, name } = {}) => post('/folder', { action, ...(id != null ? { id } : {}), ...(name != null ? { name } : {}) }),
+        /* 设置页（settings.section）的取数与动作：GET 走 plainGet（不碰共享快照），写走 post/put */
+        preferenceGet: () => plainGet('/preference'),
+        preferencePut: (section, value) => put('/preference', { section, value }),
+        tuningReset: () => post('/tuning-reset', {}),
+        credentialStatus: () => plainGet('/credential-status'),
+        credentialPut: (which, content) => put('/credential', { which, content }),
+        envCheck: () => plainGet('/env-check'),
+        diagTail: (lines) => plainGet('/diagnostics-tail?lines=' + (Number.isInteger(lines) ? lines : 50)),
+        exportMd: () => post('/export', {}),
+        cleanup: (days) => post('/cleanup', { days }),
+        wipe: (confirmText) => post('/wipe', { confirm: confirmText }),
       }
     }
 
@@ -328,7 +361,7 @@ window.__ModuleLoader__.load({
     .bl-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));gap:12px;min-width:0}
     .bl-card,.bl-row{appearance:none;text-align:left;font-family:inherit;color:inherit;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:9px 10px;cursor:pointer;display:flex;flex-direction:column;gap:5px;min-height:32px;min-width:0}
     .bl-card:hover,.bl-row:hover,.bl-row[aria-selected="true"]{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
-    .bl-card:focus-visible,.bl-row:focus-visible,.bl-navitem:focus-visible,.bl-actions button:focus-visible,.bl-detail:focus-visible,.bl-dbtns button:focus-visible,.bl-dbar button:focus-visible,.bl-facets input:focus-visible,.bl-collect input:focus-visible,.bl-newfolder input:focus-visible,.bl-newfolder button:focus-visible,.bl-toolbar button:focus-visible,.bl-foldertab:focus-visible,.bl-confirm button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+    .bl-card:focus-visible,.bl-row:focus-visible,.bl-navitem:focus-visible,.bl-actions button:focus-visible,.bl-detail:focus-visible,.bl-dbtns button:focus-visible,.bl-dbar button:focus-visible,.bl-facets input:focus-visible,.bl-collect input:focus-visible,.bl-newfolder input:focus-visible,.bl-newfolder button:focus-visible,.bl-toolbar button:focus-visible,.bl-foldertab:focus-visible,.bl-confirm button:focus-visible,.bl-setsave:focus-visible,.bl-setflag input:focus-visible,.bl-srcrow-head button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
     .bl-card-title,.bl-row-title{font-size:13px;line-height:1.4;color:var(--dsw-alias-label-primary)}
     .bl-card-meta,.bl-row-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);display:flex;gap:6px;flex-wrap:wrap}
     .bl-why,.bl-row-why{font-size:12px;color:var(--dsw-alias-label-secondary);border-left:2px solid var(--dsw-alias-border-l2);padding-left:7px;margin-top:auto}
@@ -359,7 +392,6 @@ window.__ModuleLoader__.load({
     .bl-confirm p{margin:0;flex:1;min-width:180px}
     .bl-confirm button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 10px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
     .bl-confirm button:hover{background:var(--dsw-alias-interactive-bg-hover)}
-    .bl-confirm .bl-danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
     .bl-empty-state{padding:18px 16px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;font-size:12px;color:var(--dsw-alias-label-secondary)}
     .bl-dsum{padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:5px}
     .bl-dsum h3{margin:0;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}
@@ -394,7 +426,39 @@ window.__ModuleLoader__.load({
     .bl-dbtns button{flex:1;appearance:none;font-family:inherit;font-size:12px;min-height:32px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
     .bl-dbtns button:hover{background:var(--dsw-alias-interactive-bg-hover)}
     .bl-dbtns .bl-save{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
-    @media (max-width:820px){.bl-two,.bl-library,.bl-collections{grid-template-columns:minmax(0,1fr)}}
+    /* 设置页（settings.section，四页签）。tab 条复用收藏页的 folderlist/foldertab 那套 */
+    .bl-settings{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;align-items:start;min-width:0}
+    .bl-settings-body{display:flex;flex-direction:column;gap:14px;min-width:0}
+    .bl-setblock{display:flex;flex-direction:column;gap:8px;min-width:0}
+    .bl-setblock h4{margin:6px 0 0;font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary)}
+    .bl-setfield{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .bl-setlabel{font-size:12px;color:var(--dsw-alias-label-secondary)}
+    .bl-sethint{font-size:11px;color:var(--dsw-alias-label-tertiary);margin:0}
+    .bl-setfield textarea,.bl-setfield input,.bl-setfield select,.bl-setrow input,.bl-setrow select{font-family:inherit;font-size:12px;padding:5px 8px;min-height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+    .bl-setfield textarea{resize:vertical;min-height:56px}
+    .bl-setrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+    .bl-setrow input{width:120px;min-width:0}
+    .bl-setrow input[type="text"]{flex:1;min-width:140px;width:auto}
+    .bl-setsave{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;align-self:flex-start}
+    .bl-setsave:hover{background:var(--dsw-alias-interactive-bg-hover)}
+    .bl-setsave:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
+    .bl-setflag{display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:32px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}
+    .bl-setflag:hover{color:var(--dsw-alias-label-primary)}
+    .bl-setflag input{width:14px;height:14px;flex:none;cursor:pointer;accent-color:var(--dsw-alias-brand-primary)}
+    .bl-seterr{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dsw-alias-state-error-primary)}
+    .bl-seterr li{border-left:2px solid var(--dsw-alias-state-error-primary);padding-left:7px}
+    /* danger 不再只属于确认框：库页签的「清空库」按钮与说明行共用这枚红字 */
+    .bl-danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+    .bl-srcrow{display:flex;flex-direction:column;gap:5px;min-width:0;padding:9px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+    .bl-srcrow-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0}
+    .bl-srctoggle{display:flex;gap:7px;align-items:center;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;min-width:0}
+    .bl-srctoggle input{width:14px;height:14px;flex:none;cursor:pointer;accent-color:var(--dsw-alias-brand-primary)}
+    .bl-srcrow-head button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 10px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
+    .bl-srcrow-head button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+    .bl-srcform{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;align-items:center;margin-top:6px}
+    .bl-srcform input,.bl-srcform select{font-family:inherit;font-size:12px;padding:5px 8px;min-height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);min-width:0;width:100%}
+    .bl-diagtext{margin:0;padding:9px 10px;max-height:220px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;font-family:inherit;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:6px;color:var(--dsw-alias-label-secondary)}
+    @media (max-width:820px){.bl-two,.bl-library,.bl-collections,.bl-settings{grid-template-columns:minmax(0,1fr)}}
     @media (prefers-reduced-motion:reduce){.bl-root *{transition:none;animation:none}}
     `
 
@@ -1167,6 +1231,464 @@ window.__ModuleLoader__.load({
       ])
     }
 
+    // ---- src/client/views/settings.js ----
+    /**
+     * 设置页（settings.section 槽）的四页签视图：源 / 偏好 / 凭据与环境 / 库。
+     *
+     * 与别的视图同一套规矩：纯函数，不发请求、不读 window，产 {type, props, children}；
+     * 取数与草稿态全部由装配层（_footer.txt 的 SettingsView）持有并经 props 传进来。
+     *
+     * 三条本页特有的诚实底线：
+     *  1. 偏好没读到（readOnly）时不画开关不放保存——盲 PUT sources 会把现有源整个抹掉；
+     *  2. themes 的行格式只存得下 {group, any}：带必含/排除/权重的组不进文本、保存时原样并回
+     *     （splitThemes），开了下设置页不等于把手编的高级条件悄悄抹掉；
+     *  3. 坏行（theme/时间窗/数字/形态）当场标红并禁用保存——门在客户端，坏值根本轮不到发 PUT。
+     */
+
+    const SETTINGS_TABS = [['sources', '源'], ['pref', '偏好'], ['creds', '凭据与环境'], ['library', '库']]
+
+    /** 与宿主 lib/preference.js 的 WINDOW_RE 同一条：两边漂移就会"这边说好那边 400"。 */
+    const WINDOW_RE = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/
+    const KINDS = ['video', 'article', 'note']
+    const SOURCE_TYPES = ['rss', 'bili', 'yt']
+    const EMPTY_SRC_DRAFT = () => ({ id: '', type: 'rss', url: '', label: '', interval_min: '', weight: '' })
+
+    /* ---------------- 纯函数（导出给测试与装配层） ---------------- */
+
+    /** `组名: 词1,词2` 每行一组（全角冒号也认）。坏行不抛：带行号进 errors，让页签当场标红并禁保存。 */
+    function parseThemes(text) {
+      const errors = []
+      const themes = []
+      String(text ?? '').split(/\r?\n/).forEach((line, i) => {
+        const raw = line.trim()
+        if (!raw) return
+        const m = /^([^:：]{1,60})[:：]\s*(.*)$/.exec(raw)
+        if (!m) { errors.push({ line: i + 1, text: raw, reason: '组名后面要跟半角或全角冒号' }); return }
+        const group = m[1].trim()
+        if (!group) { errors.push({ line: i + 1, text: raw, reason: '组名不能为空' }); return }
+        const any = m[2].split(/[,，、]/).map((w) => w.trim()).filter(Boolean)
+        if (!any.length) { errors.push({ line: i + 1, text: raw, reason: '至少一个主题词' }); return }
+        themes.push({ group, any })
+      })
+      return { themes, errors }
+    }
+
+    const serializeThemes = (themes) =>
+      (themes ?? []).map((t) => `${t.group}: ${(t.any ?? []).join(',')}`).join('\n')
+
+    /**
+     * 高级字段（must/never/weight≠1）在行格式里存不下：这批组不进文本编辑器，
+     * 保存时原封不动并回去。宁可少给一个输入框，不悄悄丢用户手编的匹配条件。
+     */
+    function splitThemes(themes) {
+      const simple = []
+      const advanced = []
+      for (const t of themes ?? []) {
+        const isAdv = (t.must ?? []).length > 0 || (t.never ?? []).length > 0 || (t.weight != null && t.weight !== 1)
+        ;(isAdv ? advanced : simple).push(t)
+      }
+      return { simple, advanced }
+    }
+
+    /** 逗号（中英文与顿号）与换行都算分隔的清单解析：排除词、跳过形态共用。 */
+    const splitList = (text) =>
+      String(text ?? '').split(/[\n,，、]/).map((s) => s.trim()).filter(Boolean)
+
+    /** 源的"最近抓取"一句：/state 的 sources 里认得到的才说结果，认不到就说还没抓过。 */
+    function lastFetchNote(stateSources, id) {
+      const s = (stateSources ?? []).find((x) => x.id === id)
+      if (!s) return '还没抓过（保存后下一轮才碰它）'
+      if (s.ok) return '最近抓取：正常'
+      if (s.error_class === 'needs_login') return '最近抓取：需要重新登录（去「凭据与环境」贴 cookie）'
+      return `最近抓取：失败（${s.error_class ?? '未知'}），游标没推进，下轮自动补`
+    }
+
+    function fmtBytes(n) {
+      if (n == null) return '读不到'
+      const v = Number(n)
+      if (!Number.isFinite(v) || v < 0) return '读不到'
+      if (v < 1024) return `${v} B`
+      if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`
+      return `${(v / 1024 / 1024).toFixed(1)} MB`
+    }
+
+    const fmtDelta = (v) => (Number(v) > 0 ? `+${v}` : `${v}`)
+
+    /* ---------------- 小控件 ---------------- */
+
+    function Field({ label, hint, children }) {
+      return vnode('div', { className: 'bl-setfield' }, [
+        vnode('span', { className: 'bl-setlabel' }, [label]),
+        ...children,
+        hint ? vnode('span', { className: 'bl-sethint' }, [hint]) : null
+      ].filter(Boolean))
+    }
+
+    const ERR = (lines) => lines.length
+      ? vnode('ul', { className: 'bl-seterr' }, lines.map((e, i) => vnode('li', { key: i }, [e])))
+      : null
+
+    function SaveBtn({ text, disabled, onClick }) {
+      return vnode('button', { type: 'button', className: 'bl-setsave', disabled: disabled || undefined, onClick }, [text])
+    }
+
+    /* ---------------- 页签一：源 ---------------- */
+
+    function SourceRow({ s, status, confirming, busy, readOnly, onToggle, onAskDelete, onCancelDelete, onDelete }) {
+      const name = `${s.id}（${s.type}${s.label ? ' · ' + s.label : ''}）`
+      return vnode('div', { className: 'bl-srcrow', 'data-source': s.id, key: s.id }, [
+        vnode('div', { className: 'bl-srcrow-head' }, [
+          vnode('label', { className: 'bl-srctoggle' }, [
+            vnode('input', {
+              type: 'checkbox', 'aria-label': `启用 ${s.id}`,
+              checked: s.enabled !== false, disabled: readOnly || busy || undefined,
+              onChange: (e) => onToggle?.(s.id, Boolean(e?.target?.checked))
+            }),
+            name
+          ]),
+          confirming ? null : vnode('button', {
+            type: 'button', disabled: readOnly || busy || undefined, onClick: () => onAskDelete?.(s.id)
+          }, ['删除'])
+        ].filter(Boolean)),
+        vnode('div', { className: 'bl-card-meta' }, [
+          `每 ${s.interval_min ?? 720} 分钟`,
+          `权重 ${s.weight ?? 1}`,
+          s.enabled === false ? '已停用' : '启用中'
+        ]),
+        vnode('div', { className: 'bl-kv' }, [status]),
+        confirming
+          ? vnode('div', { className: 'bl-confirm', role: 'alertdialog', 'aria-label': `确认删除源 ${s.id}` }, [
+            vnode('p', {}, [`确认删除源 ${s.id}？只删配置（不再抓新的），已抓的条目不动、游标也保留。`]),
+            vnode('button', { type: 'button', onClick: () => onCancelDelete?.() }, ['取消']),
+            vnode('button', { type: 'button', className: 'bl-danger', disabled: busy || undefined, onClick: () => onDelete?.(s.id) }, ['确认删除'])
+          ])
+          : null
+      ].filter(Boolean))
+    }
+
+    function SourcesTab({ loaded, sources, pref, hostState, srcDraft = EMPTY_SRC_DRAFT(), onSrcDraft,
+      askDelete = null, onAskDelete, onCancelDelete, onToggleSource, onAddSource, onDeleteSource, readOnly = false, busy = false }) {
+      // sources 显式传入优先（装配层给的），纯函数调用时从 pref 里取——同一份形状，两个入口
+      const list = Array.isArray(sources) ? sources : (Array.isArray(pref?.sources) ? pref.sources : [])
+      const draftOk = String(srcDraft.id ?? '').trim() && String(srcDraft.url ?? '').trim()
+      return vnode('div', { className: 'bl-setblock' }, [
+        vnode('h4', {}, ['源（preference.yaml 的 sources 节，每次保存都是全量替换）']),
+        ...list.map((s) => SourceRow({
+          s,
+          status: lastFetchNote(hostState?.sources, s.id),
+          confirming: askDelete === s.id,
+          busy, readOnly,
+          onToggle: onToggleSource, onAskDelete, onCancelDelete, onDelete: onDeleteSource
+        })),
+        list.length ? null : vnode('p', { className: 'bl-empty' }, [
+          loaded
+            ? '一个源都还没配。用下面的表单加第一个（保存后下一轮抓取才碰它）。'
+            : '源列表还没读到（宿主接口没应上）——读不到时不画开关也不许编辑，防半盲写把现有源抹掉。'
+        ]),
+        vnode('div', { className: 'bl-srcform' }, [
+          vnode('input', { type: 'text', 'aria-label': '源 id', placeholder: '如 demo-weekly', value: srcDraft.id,
+            disabled: readOnly || undefined, onChange: (e) => onSrcDraft?.({ id: e?.target?.value ?? '' }) }),
+          vnode('select', { 'aria-label': '源类型', value: srcDraft.type,
+            onChange: (e) => onSrcDraft?.({ type: e?.target?.value ?? 'rss' }) },
+            SOURCE_TYPES.map((t) => vnode('option', { key: t, value: t }, [t]))),
+          vnode('input', { type: 'text', 'aria-label': '源 URL', placeholder: 'http(s) 地址 / UP 主 space 页', value: srcDraft.url,
+            disabled: readOnly || undefined, onChange: (e) => onSrcDraft?.({ url: e?.target?.value ?? '' }) }),
+          vnode('input', { type: 'text', 'aria-label': '源标签（可选）', placeholder: '标签（可选）', value: srcDraft.label,
+            disabled: readOnly || undefined, onChange: (e) => onSrcDraft?.({ label: e?.target?.value ?? '' }) }),
+          vnode('input', { type: 'number', 'aria-label': '抓取间隔（分钟，可选）', placeholder: '间隔分钟', value: srcDraft.interval_min,
+            disabled: readOnly || undefined, onChange: (e) => onSrcDraft?.({ interval_min: e?.target?.value ?? '' }) }),
+          vnode('input', { type: 'number', 'aria-label': '源权重（可选）', placeholder: '权重 0–2', value: srcDraft.weight,
+            disabled: readOnly || undefined, onChange: (e) => onSrcDraft?.({ weight: e?.target?.value ?? '' }) }),
+          SaveBtn({ text: '新增源', disabled: readOnly || busy || !draftOk, onClick: () => onAddSource?.(srcDraft) })
+        ])
+      ].filter(Boolean))
+    }
+
+    /* ---------------- 页签二：偏好 ---------------- */
+
+    function PrefsTab({ pref, themesDraft, onThemesDraft, redlinesDraft, onRedlinesDraft,
+      scheduleDraft, onScheduleDraft, limitsDraft, onLimitsDraft, charterDraft, onCharterDraft,
+      onSave, askResetTuning = false, onAskResetTuning, onCancelResetTuning, onResetTuning, readOnly = false, busy = false }) {
+      // themes：行格式存得下的才进文本，高级组并回不丢
+      const split = splitThemes(pref?.themes ?? [])
+      const themesValue = themesDraft ?? serializeThemes(split.simple)
+      const parsed = parseThemes(themesValue)
+      const themesBad = parsed.errors.length > 0
+
+      const redlinesValue = redlinesDraft ?? (pref?.redlines ?? []).join('\n')
+      const sched = scheduleDraft ?? {
+        windows: (pref?.schedule?.windows ?? []).join('\n'),
+        max_per_run: String(pref?.schedule?.max_per_run ?? ''),
+        max_per_day: String(pref?.schedule?.max_per_day ?? ''),
+        off_peak_only: pref?.schedule?.off_peak_only !== false
+      }
+      const winLines = String(sched.windows ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      const winErrs = winLines.filter((w) => !WINDOW_RE.test(w))
+      const intOf = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null }
+      const runN = intOf(sched.max_per_run)
+      const dayN = intOf(sched.max_per_day)
+      const schedBad = winErrs.length > 0 || runN == null || dayN == null || String(sched.max_per_run).trim() === '' || String(sched.max_per_day).trim() === ''
+      const schedErrs = [
+        ...winErrs.map((w) => `时间窗要写成 "07:00-09:00"：${w}`),
+        ...(runN == null ? ['每轮上限要是正整数'] : []),
+        ...(dayN == null ? ['每日上限要是正整数'] : [])
+      ]
+
+      const lim = limitsDraft ?? {
+        max_age_days: String(pref?.limits?.max_age_days ?? ''),
+        min_duration_sec: String(pref?.limits?.min_duration_sec ?? ''),
+        skip_kinds: (pref?.limits?.skip_kinds ?? []).join(',')
+      }
+      const nnOf = (v) => { const n = Number(v); return Number.isInteger(n) && n >= 0 && String(v).trim() !== '' ? n : null }
+      const ageN = nnOf(lim.max_age_days)
+      const durN = nnOf(lim.min_duration_sec)
+      const kinds = splitList(lim.skip_kinds)
+      const badKinds = kinds.filter((k) => !KINDS.includes(k))
+      const limBad = ageN == null || durN == null || badKinds.length > 0
+      const limErrs = [
+        ...(ageN == null ? ['最大保留天数要是非负整数'] : []),
+        ...(durN == null ? ['最短时长要是非负整数'] : []),
+        ...badKinds.map((k) => `跳过形态只有 video/article/note：${k}`)
+      ]
+
+      const charterValue = charterDraft ?? (pref?.charter ?? '')
+      const delta = pref?.tuning?.source_delta ?? {}
+      const deltaIds = Object.keys(delta).sort()
+      const flag = (key, label, hint, value) => vnode('label', { className: 'bl-setflag' }, [
+        vnode('input', {
+          type: 'checkbox', 'aria-label': key, checked: value !== false, disabled: readOnly || busy || undefined,
+          onChange: (e) => onSave?.(key, Boolean(e?.target?.checked), `${label}已更新`)
+        }),
+        label,
+        hint ? vnode('span', { className: 'bl-sethint' }, [hint]) : null
+      ].filter(Boolean))
+
+      return vnode('div', { className: 'bl-setblock' }, [
+        vnode('h4', {}, ['主题组（themes）']),
+        Field({
+          label: '每行一组：组名: 词1,词2（组内任一命中即算）',
+          hint: '带必含/排除/权重的组这份格式存不下，去手编 preference.yaml；保存时它们原样保留。',
+          children: [vnode('textarea', {
+            'aria-label': '主题组', rows: 5, value: themesValue,
+            disabled: readOnly || busy || undefined,
+            onChange: (e) => onThemesDraft?.(e?.target?.value ?? '')
+          })]
+        }),
+        split.advanced.length
+          ? vnode('p', { className: 'bl-sethint' }, [
+            `有 ${split.advanced.length} 组带必含/排除/权重字段（${split.advanced.map((t) => t.group).join('、')}），不进这个编辑框，保存时原样保留。`])
+          : null,
+        ERR(parsed.errors.map((e) => `第 ${e.line} 行：${e.reason}（${e.text}）`)),
+        SaveBtn({ text: '保存主题组', disabled: readOnly || busy || themesBad,
+          onClick: () => onSave?.('themes', [...split.advanced, ...parsed.themes], '主题组已存') }),
+
+        vnode('h4', {}, ['排除词（redlines）']),
+        Field({
+          label: '逗号或换行分隔；命中即整条丢弃，优先于任何加分',
+          children: [vnode('textarea', {
+            'aria-label': '排除词', rows: 2, value: redlinesValue,
+            disabled: readOnly || busy || undefined,
+            onChange: (e) => onRedlinesDraft?.(e?.target?.value ?? '')
+          })]
+        }),
+        SaveBtn({ text: '保存排除词', disabled: readOnly || busy,
+          onClick: () => onSave?.('redlines', splitList(redlinesValue), '排除词已存') }),
+
+        vnode('h4', {}, ['抓取时间窗（schedule）']),
+        Field({
+          label: '每行一个时间窗，写成 HH:MM-HH:MM',
+          children: [
+            vnode('textarea', {
+              'aria-label': '时间窗', rows: 2, value: sched.windows,
+              disabled: readOnly || busy || undefined,
+              onChange: (e) => onScheduleDraft?.({ windows: e?.target?.value ?? '' })
+            }),
+            vnode('div', { className: 'bl-setrow' }, [
+              vnode('input', { type: 'number', 'aria-label': '每轮上限', value: sched.max_per_run,
+                disabled: readOnly || busy || undefined,
+                onChange: (e) => onScheduleDraft?.({ max_per_run: e?.target?.value ?? '' }) }),
+              vnode('input', { type: 'number', 'aria-label': '每日上限', value: sched.max_per_day,
+                disabled: readOnly || busy || undefined,
+                onChange: (e) => onScheduleDraft?.({ max_per_day: e?.target?.value ?? '' }) }),
+              vnode('label', { className: 'bl-setflag' }, [
+                vnode('input', {
+                  type: 'checkbox', 'aria-label': '只在时间窗内抓', checked: sched.off_peak_only,
+                  disabled: readOnly || busy || undefined,
+                  onChange: (e) => onScheduleDraft?.({ off_peak_only: Boolean(e?.target?.checked) })
+                }),
+                '只在时间窗内抓（off_peak_only）'
+              ])
+            ])
+          ]
+        }),
+        ERR(schedErrs),
+        SaveBtn({ text: '保存时间窗', disabled: readOnly || busy || schedBad,
+          onClick: () => onSave?.('schedule', { windows: winLines, off_peak_only: sched.off_peak_only !== false, max_per_run: runN, max_per_day: dayN }, '时间窗已存') }),
+
+        vnode('h4', {}, ['限额（limits）']),
+        Field({
+          label: '最大保留天数 / 最短时长（秒）/ 跳过形态（video/article/note，逗号分隔）',
+          children: [vnode('div', { className: 'bl-setrow' }, [
+            vnode('input', { type: 'number', 'aria-label': '最大保留天数', value: lim.max_age_days,
+              disabled: readOnly || busy || undefined,
+              onChange: (e) => onLimitsDraft?.({ max_age_days: e?.target?.value ?? '' }) }),
+            vnode('input', { type: 'number', 'aria-label': '最短时长（秒）', value: lim.min_duration_sec,
+              disabled: readOnly || busy || undefined,
+              onChange: (e) => onLimitsDraft?.({ min_duration_sec: e?.target?.value ?? '' }) }),
+            vnode('input', { type: 'text', 'aria-label': '跳过形态', placeholder: 'video,note（可空）', value: lim.skip_kinds,
+              disabled: readOnly || busy || undefined,
+              onChange: (e) => onLimitsDraft?.({ skip_kinds: e?.target?.value ?? '' }) })
+          ])]
+        }),
+        ERR(limErrs),
+        SaveBtn({ text: '保存限额', disabled: readOnly || busy || limBad,
+          onClick: () => onSave?.('limits', { max_age_days: ageN, min_duration_sec: durN, skip_kinds: kinds }, '限额已存') }),
+
+        vnode('h4', {}, ['判断开关']),
+        flag('require_theme_hit', '没有命中任何主题组的条目直接丢弃', '关掉后全靠预筛分与源权重，条目会多很多', pref?.require_theme_hit),
+        flag('inject_prompt', '每轮把待判清单注入会话（判断轮的触发器）', '关掉能省一点上下文', pref?.inject_prompt),
+
+        vnode('h4', {}, ['章程（charter）']),
+        Field({
+          label: '写给判断那轮的话：给谁筛、什么算值得看',
+          children: [vnode('textarea', {
+            'aria-label': '章程', rows: 3, value: charterValue,
+            disabled: readOnly || busy || undefined,
+            onChange: (e) => onCharterDraft?.(e?.target?.value ?? '')
+          })]
+        }),
+        SaveBtn({ text: '保存章程', disabled: readOnly || busy,
+          onClick: () => onSave?.('charter', String(charterValue).replace(/\s+$/, ''), '章程已存') }),
+
+        vnode('h4', {}, ['权重微调（tuning，只读展示）']),
+        deltaIds.length
+          ? vnode('ul', { className: 'bl-kv' }, deltaIds.map((id) => vnode('li', { key: id }, [`${id}: ${fmtDelta(delta[id])}`])))
+          : vnode('p', { className: 'bl-kv' }, ['没有偏移']),
+        vnode('p', { className: 'bl-sethint' }, ['偏移由面板上的「这源多来点 / 不感兴趣」写入（限幅 ±0.5），这里只能看和一键归零。']),
+        askResetTuning
+          ? vnode('div', { className: 'bl-confirm', role: 'alertdialog', 'aria-label': '确认归零权重偏移' }, [
+            vnode('p', {}, [`确认把 ${deltaIds.length} 处权重偏移全部归零？下一轮抓取就从零开始调。`]),
+            vnode('button', { type: 'button', onClick: () => onCancelResetTuning?.() }, ['取消']),
+            vnode('button', { type: 'button', className: 'bl-danger', disabled: busy || undefined, onClick: () => onResetTuning?.() }, ['确认归零'])
+          ])
+          : vnode('button', { type: 'button', className: 'bl-setsave', disabled: busy || undefined, onClick: () => onAskResetTuning?.() }, ['一键归零'])
+      ].filter(Boolean))
+    }
+
+    /* ---------------- 页签三：凭据与环境 ---------------- */
+
+    function CredsTab({ cred, env, cookieDraft = '', onCookieDraft, onCookieSubmit,
+      diagText = null, onCopyDiag, busy = false }) {
+      const bili = cred?.bili
+      const cookieStatus = bili == null
+        ? 'B 站 cookie：状态还没读到'
+        : bili.present
+          ? `B 站 cookie：已写入（更新于 ${fmtTime(bili.updated_at)}，内容不回显）`
+          : 'B 站 cookie：还没写入'
+      const envLines = env == null
+        ? ['环境探测还没读到']
+        : [
+          `Node：${env.node ?? '—'}`,
+          `yt-dlp：${env.yt_dlp ? env.yt_dlp : '没探测到（yt 源抓取会失败）'}`,
+          `库大小：${fmtBytes(env.db_bytes)}`,
+          `家目录：${env.home_writable === false ? '不可写（检查磁盘权限）' : '可写'}`
+        ]
+      return vnode('div', { className: 'bl-setblock' }, [
+        vnode('h4', {}, ['B 站凭据']),
+        vnode('p', { className: 'bl-kv' }, [cookieStatus]),
+        Field({
+          label: '从浏览器整段粘贴 cookie（写入后这里清空，内容永不回显）',
+          hint: '文件落在本机 credentials/bili-cookie.txt，日志只记字节数。',
+          children: [
+            vnode('textarea', {
+              'aria-label': 'B 站 cookie', rows: 3, placeholder: '整段粘进来', value: cookieDraft,
+              disabled: busy || undefined, onChange: (e) => onCookieDraft?.(e?.target?.value ?? '')
+            }),
+            SaveBtn({ text: '写入 cookie', disabled: busy || !String(cookieDraft).trim(), onClick: () => onCookieSubmit?.(cookieDraft) })
+          ]
+        }),
+        vnode('h4', {}, ['环境']),
+        vnode('ul', { className: 'bl-kv' }, envLines.map((l, i) => vnode('li', { key: i }, [l]))),
+        vnode('p', { className: 'bl-empty' }, ['小红书：未接入（M4b 待做）']),
+        vnode('p', { className: 'bl-empty' }, ['转写依赖：未实现（随 ASR 一起）']),
+        vnode('h4', {}, ['诊断']),
+        vnode('div', { className: 'bl-setrow' }, [
+          vnode('button', { type: 'button', className: 'bl-setsave', disabled: busy || undefined, onClick: () => onCopyDiag?.() },
+            ['复制诊断（最近 50 行，已脱敏）'])
+        ]),
+        diagText != null ? vnode('pre', { className: 'bl-diagtext' }, [diagText]) : null
+      ].filter(Boolean))
+    }
+
+    /* ---------------- 页签四：库 ---------------- */
+
+    function LibTab({ home, cleanupDays = '', onCleanupDays, askCleanup = false, onAskCleanup,
+      onCancelCleanup, onCleanup, wipeText = '', onWipeText, onWipe, onExport, readOnly = false, busy = false }) {
+      const days = Number(cleanupDays)
+      const daysOk = Number.isInteger(days) && days >= 1
+      return vnode('div', { className: 'bl-setblock' }, [
+        vnode('h4', {}, ['数据目录']),
+        vnode('p', { className: 'bl-kv' }, [`数据目录：${home ?? '<HOME>'}/baleen（sqlite、日志、备份、导出都在这里）`]),
+        vnode('h4', {}, ['导出']),
+        vnode('p', { className: 'bl-sethint' }, ['全部条目按源分组写成 Markdown，落在 out/ 目录。']),
+        SaveBtn({ text: '导出 Markdown（未判条目也全量带上）', disabled: readOnly || busy, onClick: () => onExport?.() }),
+        vnode('h4', {}, ['按天数清理归档']),
+        Field({
+          label: '删除入库超过 N 天的归档条目（new/judged 不动，先自动备份）',
+          children: [vnode('div', { className: 'bl-setrow' }, [
+            vnode('input', { type: 'number', 'aria-label': '清理天数', placeholder: '如 30', value: cleanupDays,
+              disabled: readOnly || busy || undefined,
+              onChange: (e) => onCleanupDays?.(e?.target?.value ?? '') }),
+            askCleanup
+              ? vnode('div', { className: 'bl-confirm', role: 'alertdialog', 'aria-label': '确认清理归档' }, [
+                vnode('p', {}, [`将删除入库超过 ${cleanupDays} 天的归档条目（先自动备份）。已判与待判的不动。`]),
+                vnode('button', { type: 'button', onClick: () => onCancelCleanup?.() }, ['取消']),
+                vnode('button', { type: 'button', className: 'bl-danger', disabled: busy || undefined, onClick: () => onCleanup?.() }, ['确认清理'])
+              ])
+              : vnode('button', { type: 'button', className: 'bl-setsave', disabled: readOnly || busy || !daysOk || undefined,
+                onClick: () => onAskCleanup?.() }, ['按天数清理'])
+          ])]
+        }),
+        vnode('h4', {}, ['清空库（不可撤销，靠备份救）']),
+        vnode('p', { className: 'bl-seterr' }, ['清空库：删除全部条目、抓取记录与汇报（先自动备份；收藏夹与游标保留）。']),
+        Field({
+          label: '输入「清空库」三个字，按钮才会亮',
+          children: [vnode('div', { className: 'bl-setrow' }, [
+            vnode('input', { type: 'text', 'aria-label': '清空库确认字', placeholder: '清空库', value: wipeText,
+              disabled: busy || undefined,
+              onChange: (e) => onWipeText?.(e?.target?.value ?? '') }),
+            vnode('button', {
+              type: 'button', className: 'bl-danger',
+              disabled: busy || wipeText !== '清空库' || undefined,
+              onClick: () => onWipe?.()
+            }, ['清空库'])
+          ])]
+        })
+      ].filter(Boolean))
+    }
+
+    /* ---------------- 顶层：页签条 + 当前页签 ---------------- */
+
+    function SettingsPage(props) {
+      const { tab = 'sources', onPickTab, note = '' } = props
+      const body = tab === 'pref' ? PrefsTab(props)
+        : tab === 'creds' ? CredsTab(props)
+          : tab === 'library' ? LibTab(props)
+            : SourcesTab(props)
+      return vnode('div', { className: 'bl-settings' }, [
+        vnode('aside', { className: 'bl-folderlist', 'aria-label': '设置页签' },
+          SETTINGS_TABS.map(([id, label]) => vnode('button', {
+            type: 'button', key: id, className: 'bl-foldertab', 'data-tab': id,
+            'aria-current': tab === id ? 'page' : 'false',
+            onClick: () => onPickTab?.(id)
+          }, [label]))),
+        vnode('div', { className: 'bl-settings-body' }, [
+          note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
+          body
+        ].filter(Boolean))
+      ])
+    }
+
 
     /**
      * 视图只产 {type, props, children} 这种纯数据（不碰 React，才能在 Node 里断言），
@@ -1407,6 +1929,198 @@ window.__ModuleLoader__.load({
       ])
     }
 
+    /**
+     * 设置页（settings.section 槽）的装配树：与 Panel 平行的另一棵，取数走 view-api 的设置面，
+     * 视图（views/settings.js）保持纯函数可单测。四页签的 tab、各节草稿、确认态全在组件里——
+     * 不进 view-state 的 reducer：那套是主面板六格导航的账本，设置页的生命周期跟着宿主设置页走。
+     *
+     * 安全闸：偏好**没读到**（loaded=false 或 pref=null）时整个页签只读——
+     * 盲发 sources 全量 PUT 等于用一个空数组把现有源全部抹掉。
+     */
+    function SettingsView() {
+      const [api] = React.useState(() => createApi({ fetch: globalThis.fetch, storage: globalThis.localStorage }))
+      const [loaded, setLoaded] = React.useState(false)
+      const [pref, setPref] = React.useState(null)
+      const [hostState, setHostState] = React.useState(null)
+      const [cred, setCred] = React.useState(null)
+      const [env, setEnv] = React.useState(null)
+      const [tab, setTab] = React.useState('sources')
+      const [note, setNote] = React.useState('')
+      const [busy, setBusy] = React.useState(false)
+      // 源页签
+      const [srcDraft, setSrcDraft] = React.useState({ id: '', type: 'rss', url: '', label: '', interval_min: '', weight: '' })
+      const [askDelete, setAskDelete] = React.useState(null)
+      // 偏好页签的草稿：null = 没动过，视图回落 preference 现值（换页签不丢，关宿主设置页才丢——草稿本就是瞬时的）
+      const [themesDraft, setThemesDraft] = React.useState(null)
+      const [redlinesDraft, setRedlinesDraft] = React.useState(null)
+      const [scheduleDraft, setScheduleDraft] = React.useState(null)
+      const [limitsDraft, setLimitsDraft] = React.useState(null)
+      const [charterDraft, setCharterDraft] = React.useState(null)
+      const [askResetTuning, setAskResetTuning] = React.useState(false)
+      // 凭据页签
+      const [cookieDraft, setCookieDraft] = React.useState('')
+      const [diagText, setDiagText] = React.useState(null)
+      // 库页签
+      const [cleanupDays, setCleanupDays] = React.useState('')
+      const [askCleanup, setAskCleanup] = React.useState(false)
+      const [wipeText, setWipeText] = React.useState('')
+
+      function refresh() {
+        return Promise.all([api.preferenceGet(), api.state(), api.credentialStatus(), api.envCheck()]).then(([p, st, c, e]) => {
+          if (p.ok && p.data) {
+            setPref(p.data.pref ?? {})
+            // 坏文件上服务端会退默认值照常回 pref：不把 errors 亮出来，这页显示的就是
+            // "假默认"，用户一保存还会被 preference_invalid 打回——先说清文件本身坏了。
+            const errs = Array.isArray(p.data.errors) ? p.data.errors : []
+            if (errs.length) setNote(`preference.yaml 有 ${errs.length} 处问题：${errs.slice(0, 2).join('；')}——先手编修好，这期间的保存都会被拒`)
+          } else if (p.stale) {
+            setNote('偏好没读到（宿主接口没应上）——先别保存任何一节，等下一次打开再试')
+          }
+          if (st.ok) setHostState(st.data)
+          if (c.ok && c.data) setCred(c.data)
+          if (e.ok && e.data) setEnv(e.data)
+          setLoaded(true)
+        })
+      }
+      React.useEffect(() => { refresh() }, [])
+
+      const readOnly = !(loaded && pref != null)
+      const sources = Array.isArray(pref && pref.sources) ? pref.sources : []
+
+      /** PUT 一节偏好：读-改-写。失败回显优先服务端的错误清单（400 带 errors 的是"值不合法"）。 */
+      function putSection(section, value, okText) {
+        setBusy(true)
+        return api.preferencePut(section, value).then((r) => {
+          setBusy(false)
+          if (r.ok) {
+            if (r.data && r.data.pref) setPref(r.data.pref)
+            setNote(okText)
+            return true
+          }
+          const errs = Array.isArray(r.data && r.data.errors) ? r.data.errors : null
+          setNote(errs && errs.length ? `没存上：${errs.slice(0, 3).join('；')}` : `没存上（${r.error || '宿主接口没应答'}）`)
+          return false
+        })
+      }
+      function putSources(next, okText) { return putSection('sources', next, okText) }
+      function onToggleSource(id, next) {
+        if (!sources.some((s) => s.id === id)) return
+        putSources(sources.map((s) => (s.id === id ? { ...s, enabled: next } : s)), `已${next ? '启用' : '停用'} ${id}（下一轮抓取生效）`)
+      }
+      function onAddSource(d) {
+        const entry = { id: String(d.id).trim(), type: d.type, url: String(d.url).trim(), enabled: true }
+        if (String(d.label).trim()) entry.label = String(d.label).trim()
+        const iv = Number(d.interval_min)
+        if (String(d.interval_min).trim() !== '' && Number.isInteger(iv)) entry.interval_min = iv
+        const w = Number(d.weight)
+        if (String(d.weight).trim() !== '' && Number.isFinite(w)) entry.weight = w
+        putSources([...sources, entry], `源 ${entry.id} 已加（下一轮抓取才碰它）`)
+          .then((ok) => { if (ok) setSrcDraft({ id: '', type: 'rss', url: '', label: '', interval_min: '', weight: '' }) })
+      }
+      function onDeleteSource(id) {
+        putSources(sources.filter((s) => s.id !== id), `源 ${id} 已删（已抓的条目不动）`)
+          .then((ok) => { if (ok) setAskDelete(null) })
+      }
+      function onResetTuning() {
+        setBusy(true)
+        api.tuningReset().then((r) => {
+          setBusy(false)
+          setAskResetTuning(false)
+          if (r.ok) {
+            setNote('权重偏移已全部归零')
+            return api.preferenceGet().then((p) => { if (p.ok && p.data) setPref(p.data.pref ?? pref) })
+          }
+          setNote(`没归成（${r.error || '宿主接口没应答'}）——preference.yaml 坏了的话先手编修好`)
+          return undefined
+        })
+      }
+      /** 凭据写入：成功清输入框（零回显的一半），状态行换成应答里的新状态（另一半）。 */
+      function onCookieSubmit(content) {
+        setBusy(true)
+        api.credentialPut('bili', content).then((r) => {
+          setBusy(false)
+          if (r.ok) {
+            setCookieDraft('')
+            if (r.data && r.data.bili) setCred(r.data)
+            setNote('cookie 已写入（内容不回显，只记了字节数进日志）')
+            return api.envCheck().then((e) => { if (e.ok && e.data) setEnv(e.data) })
+          }
+          setNote(r.error === 'bad_payload' ? '空内容写不进去——整段粘贴后再按' : `没写上（${r.error || '宿主接口没应答'}）`)
+          return undefined
+        })
+      }
+      /** 复制诊断：tail 已在服务端逐行脱敏；剪贴板拿不到就降级成文本块让人手动复制。 */
+      function onCopyDiag() {
+        api.diagTail(50).then((r) => {
+          if (!r.ok) { setNote(`诊断没读到（${r.error || '宿主接口没应答'}）`); return }
+          const lines = Array.isArray(r.data && r.data.lines) ? r.data.lines : []
+          const text = lines.join('\n')
+          const clip = (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function')
+            ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard'))
+          clip.then(
+            () => setNote(`诊断已复制（最近 ${lines.length} 行，已脱敏）`),
+            () => { setDiagText(text || '（日志还是空的）'); setNote('剪贴板拿不到，诊断贴在下面——自己复制') }
+          )
+        })
+      }
+      function onExport() {
+        setBusy(true)
+        api.exportMd().then((r) => {
+          setBusy(false)
+          setNote(r.ok ? `${r.data.file} · ${r.data.bytes} 字节（out/ 目录里）` : `没导成（${r.error || '宿主接口没应答'}）`)
+        })
+      }
+      function onCleanup() {
+        const days = Number(cleanupDays)
+        setBusy(true)
+        api.cleanup(days).then((r) => {
+          setBusy(false)
+          if (r.ok) {
+            setAskCleanup(false)
+            setNote(`清了 ${r.data.removed} 条归档，备份：${r.data.backup}`)
+          } else {
+            setNote(r.error === 'running' ? '有一轮抓取正在跑，等它完再清理' : `没清成（${r.error || '宿主接口没应答'}）`)
+          }
+        })
+      }
+      function onWipe() {
+        setBusy(true)
+        api.wipe(wipeText).then((r) => {
+          setBusy(false)
+          if (r.ok) {
+            const rm = r.data.removed || {}
+            setWipeText('')
+            setNote(`已清空：条目 ${rm.items ?? '?'} · 轮次 ${rm.runs ?? '?'} · 汇报 ${rm.digests ?? '?'}，备份：${r.data.backup}`)
+            return api.state().then((st) => { if (st.ok) setHostState(st.data) })
+          }
+          setNote(r.error === 'running' ? '有一轮抓取正在跑，等它完再清空'
+            : r.error === 'confirm_required' ? '确认字没对上——要输入「清空库」三个字'
+              : `没清成（${r.error || '宿主接口没应答'}）`)
+          return undefined
+        })
+      }
+
+      const page = SettingsPage({
+        loaded, pref, hostState, note, busy, readOnly,
+        tab, onPickTab: setTab,
+        sources, srcDraft, onSrcDraft: (patch) => setSrcDraft((d) => ({ ...d, ...patch })),
+        askDelete, onAskDelete: setAskDelete, onCancelDelete: () => setAskDelete(null),
+        onToggleSource, onAddSource, onDeleteSource,
+        themesDraft, onThemesDraft: setThemesDraft,
+        redlinesDraft, onRedlinesDraft: setRedlinesDraft,
+        scheduleDraft, onScheduleDraft: (patch) => setScheduleDraft((d) => ({ ...(d ?? {}), ...patch })),
+        limitsDraft, onLimitsDraft: (patch) => setLimitsDraft((d) => ({ ...(d ?? {}), ...patch })),
+        charterDraft, onCharterDraft: setCharterDraft,
+        onSave: putSection,
+        askResetTuning, onAskResetTuning: () => setAskResetTuning(true), onCancelResetTuning: () => setAskResetTuning(false), onResetTuning,
+        cred, env, cookieDraft, onCookieDraft: setCookieDraft, onCookieSubmit, diagText, onCopyDiag,
+        home: hostState?.home ?? '<HOME>',
+        cleanupDays, onCleanupDays: setCleanupDays, askCleanup, onAskCleanup: () => setAskCleanup(true), onCancelCleanup: () => setAskCleanup(false), onCleanup,
+        wipeText, onWipeText: setWipeText, onWipe, onExport
+      })
+      return h('div', { className: 'bl-root' }, [toElement(page)])
+    }
+
     function apply(ctx) {
       clientCtx = ctx
       injectStyles()
@@ -1445,6 +2159,12 @@ window.__ModuleLoader__.load({
       // main 的 key 必须与侧栏 id 同名，否则宿主 layout.selectPanel 抛
       reg('main', { name: 'main', key: PANEL_ID }, () => h(Panel, { key: 'panel' }), 'main')
 
+      // 设置页（M5，V4 闭环）：meta 形状照抄本机 study-desk 的实测（order 27 是它，28 紧随其后）
+      reg('settings.section',
+        { name: 'settings.section', id: 'baleen-settings', order: 28, label: 'Baleen' },
+        () => h(SettingsView, { key: 'settings' }),
+        'settings.section')
+
       return { registeredSlots: registered }
     }
 
@@ -1453,7 +2173,8 @@ window.__ModuleLoader__.load({
     exports.__test = {
       PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER, viewQuery, NAV_ITEMS,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
-      reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView
+      reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView,
+      SettingsView, SettingsPage, parseThemes, serializeThemes, splitThemes
     }
     return module.exports
   }
