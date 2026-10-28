@@ -52,10 +52,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/slow-stack/dsh-baleen.git"
+    "url": "git+https://github.com/slow-stack/baleen.git"
   },
   "bugs": {
-    "url": "https://github.com/slow-stack/dsh-baleen/issues"
+    "url": "https://github.com/slow-stack/baleen/issues"
   },
-  "homepage": "https://github.com/slow-stack/dsh-baleen#readme"
+  "homepage": "https://github.com/slow-stack/baleen#readme"
 }
