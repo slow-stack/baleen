@@ -97,18 +97,23 @@ test('偏好校验不过时不起跑，并把 errors 交回去', async () => {
   db.close()
 })
 
-test('手动触发把 force 传下去：定时轮被节流挡住时，手动轮仍能真的跑', async () => {
+test('手动触发把 force 传下去：定时轮不许 force，否则节流形同虚设', async () => {
   const db = dbOf()
+  // 源刚试过、还没到 720 分钟 → 定时轮被节流挡在 fire 之前
+  upsertSource(db, { id: 'slow', type: 'rss', url: 'https://e.com/f', enabled: true, interval_min: 720, weight: 1 })
+  setSourceResult(db, 'slow', { ok: true, at: at('08:00') })
   const seen = []
-  const s = createScheduler({
+  const lockFile = path.join(dirOf(), 'run.lock')
+  const mk = (clock) => createScheduler({
     db, getPref: () => ({ pref, errors: [] }),
     runOnce: async (opts) => { seen.push({ trigger: opts.trigger, force: opts.force }); return { runId: 1, status: 'done', stats: {} } },
-    now: () => at('08:00'), log: () => {}, lockFile: path.join(dirOf(), 'run.lock')
+    now: clock, log: () => {}, lockFile
   })
-  await s.triggerNow()
-  await s.tick()
+  await mk(() => at('08:00')).triggerNow()
   assert.deepEqual(seen[0], { trigger: 'manual', force: true }, '手动轮要 force')
-  assert.deepEqual(seen[1], { trigger: 'schedule', force: false }, '定时轮不许 force，否则节流形同虚设')
+  // 定时轮：08:05 没到点，连 fire 都不开
+  assert.deepEqual(mk(() => at('08:05')).tick(), { skipped: true, why: 'idle' })
+  assert.equal(seen.length, 1, '没到点的定时轮不该把 force:false 递下去——它压根不该开轮')
   db.close()
 })
 
