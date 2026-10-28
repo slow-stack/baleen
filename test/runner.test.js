@@ -85,6 +85,33 @@ test('interval_min 为 0 视为不节流（配置层不许，但库里被手改�
   assert.ok(planJobs({ db, pref, now: () => 5001 }).some(j => j.source.id === 'ok'))
 })
 
+test('一个源都不到点时这一轮根本不发生：不留空轮记录，返回 idle', async () => {
+  const db = dbOf()
+  syncSources(db, pref)
+  // 三源都刚试过，interval_min 60 分钟 —— 此刻再 tick 一次应该什么都不做
+  for (const id of ['ok', 'bad']) setSourceResult(db, id, { ok: true, at: 5000 })
+  let called = 0
+  const spy = { rss: { type: 'rss', async fetch() { called++; return [] } } }
+  const r = await runOnce({ db, pref, now: () => 5001, adapters: spy })
+  assert.equal(r.status, 'idle')
+  assert.equal(r.runId, null)
+  assert.equal(called, 0, '没到点就不该碰网络')
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 0,
+    '空转不该在库里留 run 行——102 轮里 86 条 partial 就是这么堆出来的')
+})
+
+test('手动触发带 force：用户点"现在跑一轮"不拿 interval_min 挡他', async () => {
+  const db = dbOf()
+  syncSources(db, pref)
+  for (const id of ['ok', 'bad']) setSourceResult(db, id, { ok: true, at: 5000 })
+  // 定时轮此刻是 idle
+  assert.equal((await runOnce({ db, pref, now: () => 5001, adapters: adapters() })).status, 'idle')
+  // 手动轮照跑
+  const r = await runOnce({ db, pref, now: () => 5002, adapters: adapters(), trigger: 'manual', force: true })
+  assert.notEqual(r.status, 'idle')
+  assert.equal(r.stats.fetched, 3)
+})
+
 test('一轮：好源入库、坏源不推进游标、never 条目被预筛丢弃', async () => {
   const db = dbOf()
   const { runId, status, stats } = await runOnce({ db, pref, now: () => 5000, adapters: adapters(), trigger: 'manual' })

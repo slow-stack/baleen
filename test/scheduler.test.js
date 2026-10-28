@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openStore, migrate, createRun, finishRun } from '../lib/store.js'
+import { openStore, migrate, createRun, finishRun, upsertSource, setSourceResult } from '../lib/store.js'
 import { withinWindow, dueReason, createScheduler } from '../lib/scheduler.js'
 
 // 用本地时区构造时刻，避免测试依赖机器是不是 +08
@@ -94,6 +94,45 @@ test('偏好校验不过时不起跑，并把 errors 交回去', async () => {
   assert.equal(r.skipped, true)
   assert.equal(r.why, 'preference')
   assert.equal(runs, 0)
+  db.close()
+})
+
+test('手动触发把 force 传下去：定时轮被节流挡住时，手动轮仍能真的跑', async () => {
+  const db = dbOf()
+  const seen = []
+  const s = createScheduler({
+    db, getPref: () => ({ pref, errors: [] }),
+    runOnce: async (opts) => { seen.push({ trigger: opts.trigger, force: opts.force }); return { runId: 1, status: 'done', stats: {} } },
+    now: () => at('08:00'), log: () => {}, lockFile: path.join(dirOf(), 'run.lock')
+  })
+  await s.triggerNow()
+  await s.tick()
+  assert.deepEqual(seen[0], { trigger: 'manual', force: true }, '手动轮要 force')
+  assert.deepEqual(seen[1], { trigger: 'schedule', force: false }, '定时轮不许 force，否则节流形同虚设')
+  db.close()
+})
+
+test('没有源到点时 tick 直接跳过，连锁都不拿：interval 720 的源不该每分钟被叫醒一次', () => {
+  const db = dbOf()
+  upsertSource(db, { id: 'slow', type: 'rss', url: 'https://e.com/f', enabled: true, interval_min: 720, weight: 1 })
+  setSourceResult(db, 'slow', { ok: true, at: at('08:00') })
+  let fired = 0
+  const lockFile = path.join(dirOf(), 'run.lock')
+  const s = createScheduler({
+    db, getPref: () => ({ pref, errors: [] }), runOnce: async () => { fired++; return { runId: 1, status: 'done', stats: {} } },
+    now: () => at('08:05'), log: () => {}, lockFile
+  })
+  assert.deepEqual(s.tick(), { skipped: true, why: 'idle' })
+  assert.equal(fired, 0, '没到点就不该开轮')
+  assert.equal(fs.existsSync(lockFile), false, '空转连锁都不该拿')
+  // 12 小时后到点，照常跑（这次把时段窗放开，免得 window 先把它挡掉——测的是节流，不是窗）
+  const open = { schedule: { windows: [], max_per_run: 10 } }
+  const s2 = createScheduler({
+    db, getPref: () => ({ pref: open, errors: [] }), runOnce: async () => { fired++; return { runId: 2, status: 'done', stats: {} } },
+    now: () => at('08:00') + 12 * 3600000, log: () => {}, lockFile
+  })
+  assert.deepEqual(s2.tick(), { skipped: false })
+  assert.equal(fired, 1)
   db.close()
 })
 
