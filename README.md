@@ -27,6 +27,17 @@ BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮�
 
 `tools/live-ingest.mjs` 不经 DSH、用假宿主上下文直接跑一轮，`BALEEN_HOME` 指到临时目录就不会碰你真实的 `~/.dsh/baleen`。
 
+## 装进 DSH
+
+```bash
+npm i -g dsh-baleen          # 或 npm i dsh-baleen 装进 profile
+dsh plugin --profile desktop add dsh-baleen
+```
+
+装完**重启 DSH** 才会装配（link 挂载不等于热加载）。重启前用 `dsh --profile desktop --dump-config` 确认插件在装配列表里——宿主运行中重写 `cordis.patch.yml` 会把条目丢掉。
+
+首次启动会在 `~/.dsh/baleen/` 生成 `preference.yaml` 与空库；改偏好走面板设置页，或直接编辑那个 YAML（面板写的是同一份真源）。
+
 ## 设计原则（改代码前先读这几条）
 
 - **只读世界**：不注册任何平台写操作。没有评论、私信、点赞、关注、发布——不是"暂时没做"，是产品红线。
