@@ -6,7 +6,7 @@
  */
 import { vnode } from '../vnode.js'
 import { matchInfo } from '../match.js'
-import { fmtDuration, readbackMiss, foldersUnreadNote } from '../format.js'
+import { fmtDuration, readbackMiss, foldersUnreadNote, httpUrl } from '../format.js'
 
 const DELTA = { dismiss: '-0.1', save: '+0.1' }
 /** 每种 body_state 一句说法：正文区与能力边界共用，别两处各写一遍再各自漂移 */
@@ -78,7 +78,7 @@ export function drawerItemWithFolders(found, knownFolders) {
 const namesOf = (item, folders, ids) => (ids ?? []).map((id) =>
   (folders ?? []).find((f) => f.id === id)?.name ?? `#${id}（这个夹已经没了）`).join(' / ') || '（现在不在任何夹里）'
 
-export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {} }) {
+export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {}, onOpenUrl, onOpenSidebar }) {
   async function fire(action) {
     let res = null
     try {
@@ -140,6 +140,9 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
   const m = matchInfo(item)
   const body = typeof item.body_text === 'string' ? item.body_text.trim() : ''
   const hasFolders = (folders ?? []).length > 0
+  const link = httpUrl(item.url)
+  // 宿主有没有侧栏浏览器页签，由装配层探好后传进来（探不到就是 false，只给一条路）
+  const canSidebar = Boolean(onOpenSidebar)
 
   return vnode('aside', { className: 'bl-drawer', role: 'dialog', 'aria-label': '条目详情' }, [
     vnode('header', { className: 'bl-dbar' }, [
@@ -204,7 +207,27 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
           ])
         ]
       }),
-      item.url ? Section({ title: '链接', children: [vnode('p', { className: 'bl-url' }, [item.url])] }) : null,
+      // 原文地址：真的 <a href>。早先这里是 <p>，那句话"跳到浏览器里看"等于空头支票。
+      // 地址不是 http/https 就整段不画——不拿一个点不动的假链接充数。
+      link ? Section({
+        title: '原文',
+        children: [
+          vnode('p', {}, [vnode('a', { className: 'bl-url', href: link, target: '_blank', rel: 'noopener noreferrer' }, [link])]),
+          // 侧栏浏览器每次都从全新分区起（宿主实现：随机 partition，无 persist:），
+          // 没登录态就只能看个开头。所以两条路都摆在明面上，由她自己选。
+          canSidebar
+            ? vnode('div', { className: 'bl-openbtns' }, [
+              vnode('button', { type: 'button', onClick: () => onOpenSidebar?.(link) }, ['侧栏打开']),
+              vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link) }, ['浏览器打开'])
+            ])
+            : vnode('div', { className: 'bl-openbtns' }, [
+              vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link) }, ['浏览器打开'])
+            ]),
+          canSidebar
+            ? null
+            : vnode('p', { className: 'bl-note' }, ['侧栏浏览器这次没开起来（宿主的浏览器页签不在），只能走系统浏览器。'])
+        ]
+      }) : null,
       vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])
     ]),
     note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,

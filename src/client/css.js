@@ -38,13 +38,14 @@ export const CSS = `
 .bl-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));gap:12px;min-width:0}
 .bl-card,.bl-row{appearance:none;text-align:left;font-family:inherit;color:inherit;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:9px 10px;cursor:pointer;display:flex;flex-direction:column;gap:5px;min-height:32px;min-width:0}
 .bl-card:hover,.bl-row:hover,.bl-row[aria-selected="true"]{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
-.bl-card:focus-visible,.bl-row:focus-visible,.bl-navitem:focus-visible,.bl-actions button:focus-visible,.bl-detail:focus-visible,.bl-dbtns button:focus-visible,.bl-dbar button:focus-visible,.bl-facets input:focus-visible,.bl-collect input:focus-visible,.bl-newfolder input:focus-visible,.bl-newfolder button:focus-visible,.bl-toolbar button:focus-visible,.bl-foldertab:focus-visible,.bl-confirm button:focus-visible,.bl-setsave:focus-visible,.bl-setflag input:focus-visible,.bl-srcrow-head button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.bl-card:focus-visible,.bl-row:focus-visible,.bl-navitem:focus-visible,.bl-actions button:focus-visible,.bl-detail:focus-visible,.bl-dbtns button:focus-visible,.bl-dbar button:focus-visible,.bl-facets input:focus-visible,.bl-collect input:focus-visible,.bl-newfolder input:focus-visible,.bl-newfolder button:focus-visible,.bl-toolbar button:focus-visible,.bl-foldertab:focus-visible,.bl-openbtns button:focus-visible,.bl-url:focus-visible,.bl-confirm button:focus-visible,.bl-setsave:focus-visible,.bl-setflag input:focus-visible,.bl-srcrow-head button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .bl-card-title,.bl-row-title{font-size:13px;line-height:1.4;color:var(--dsw-alias-label-primary)}
 .bl-card-meta,.bl-row-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);display:flex;gap:6px;flex-wrap:wrap}
 .bl-why,.bl-row-why{font-size:12px;color:var(--dsw-alias-label-secondary);border-left:2px solid var(--dsw-alias-border-l2);padding-left:7px;margin-top:auto}
 .bl-tier{font-size:11px;color:var(--dsw-alias-label-primary)}
 .bl-play{font-size:11px;color:var(--dsw-alias-label-dimmed)}
-.bl-thumb{position:relative;aspect-ratio:16/9;border-radius:6px;background:var(--dsw-alias-bg-layer-3);display:block}
+.bl-thumb{position:relative;aspect-ratio:16/9;border-radius:6px;background:var(--dsw-alias-bg-layer-3);display:block;overflow:hidden}
+.bl-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .bl-dur{position:absolute;right:5px;bottom:5px;font-size:11px;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
 .bl-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start;min-width:0}
 .bl-list{display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -97,7 +98,10 @@ export const CSS = `
 .bl-newfolder button:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .bl-newfolder button:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
 .bl-kw{font-size:11px;color:var(--dsw-alias-label-secondary)}
-.bl-url{font-size:12px;color:var(--dsw-alias-brand-primary);word-break:break-all}
+.bl-url{font-size:12px;color:var(--dsw-alias-brand-primary);word-break:break-all;text-decoration:underline}
+.bl-openbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.bl-openbtns button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
+.bl-openbtns button:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .bl-feedback{margin:0;padding:7px 14px;font-size:12px;background:var(--dsw-alias-bg-layer-2);border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary)}
 .bl-dbtns{display:flex;gap:8px;padding:11px 14px;border-top:1px solid var(--dsw-alias-border-l1)}
 .bl-dbtns button{flex:1;appearance:none;font-family:inherit;font-size:12px;min-height:32px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}

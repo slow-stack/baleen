@@ -19,7 +19,7 @@ export const REASONS_READABLE = GAP_LABELS
 const n = (v) => Number(v) || 0
 import { vnode } from '../vnode.js'
 import { reasonOf } from '../match.js'
-import { fmtDuration, judgeHint } from '../format.js'
+import { fmtDuration, judgeHint, thumbSrc } from '../format.js'
 
 /** 一轮的结局 → 面板上的说法。'interrupted' 是进程被打断，不是抓取失败，得单独说。 */
 const RUN_LABELS = {
@@ -64,7 +64,10 @@ function sourceIssues(state) {
 
 function Card({ item, onOpen }) {
   return vnode('button', { type: 'button', className: 'bl-card', onClick: () => onOpen?.(item.id) }, [
-    item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])]) : null,
+    item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [
+      thumbSrc(item.thumb) ? vnode('img', { src: thumbSrc(item.thumb), alt: '', loading: 'lazy' }) : null,
+      vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])
+    ].filter(Boolean)) : null,
     vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
     vnode('span', { className: 'bl-card-meta' }, [item.source_id, item.kind === 'note' ? '图文笔记' : item.kind === 'video' ? '视频' : '文章']),
     vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `已判：${item.verdict_tier}` : '待判']),

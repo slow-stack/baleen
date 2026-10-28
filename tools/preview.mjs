@@ -132,7 +132,7 @@ export function renderPreview({ outDir = path.join(ROOT, 'out'), empty = false }
   // 空态传空夹表：抽屉走"没有夹列表"那一支，收藏页走"读不到夹"那一支——诚实的缺席也要演一遍。
   const folders = empty ? [] : previewFolders
   const drawer = drawerItem
-    ? Drawer({ item: drawerItem, api: {}, folders, note: empty ? '' : 'demo-longform 权重 +0.1——只改 tuning，你的 themes 一个字没动' })
+    ? Drawer({ item: drawerItem, api: {}, folders, note: empty ? '' : 'demo-longform 权重 +0.1——只改 tuning，你的 themes 一个字没动', onOpenUrl: () => {}, onOpenSidebar: () => {} })
     : Drawer({ item: null, api: {}, folders })
   const pages = {
     today: both(shell({ view: 'today', state, body: TodayView({ state, items: live, onRun: () => {}, onOpen: () => {}, onPickView: () => {} }) })),

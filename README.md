@@ -20,7 +20,7 @@ open out/preview-today.html # 浏览器直接打开即可
 
 ```bash
 npm install            # 唯一依赖：yaml（纯 JS，无 install 脚本）
-npm test               # 578 个测试，node --test，不需要网络
+npm test               # 586 个测试，node --test，不需要网络
 cp preference.example.yaml ~/baleen-trial/preference.yaml   # 先自己建目录
 BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮公开 feed
 ```
@@ -47,6 +47,7 @@ dsh plugin --profile desktop add dsh-baleen
 - **首轮收存货**：某个源还没有游标时不看发布日期——低频作者的 feed 里全是几个月的旧文，而刚订阅的你没读过，那正是首轮最值钱的部分。之后才用 `max_age_days`，且**可以按源覆盖**（慢更源 365 天，高频源 14 天）。
 - **成本三道闸**：本地预筛在前 → `max_per_run` → `max_per_day`；工具失败两次就记跳过，不许反复重跑。
 - **默认按偏好过滤**：`require_theme_hit: true` 时，没命中任何主题且不是关注 feed 的内容不进候选。关掉它就退回"启用一个源=它全部内容都进候选"。
+- **封面与原文都是真链接**：卡片上的封面图直接读库里 `items.thumb`（平台原样地址，只认 http/https，坏值退回灰占位而不是空 `src` 的裂图标）；抽屉里给真 `<a href>` 加两颗按钮——「侧栏打开」走宿主原生 Browser 页签，「浏览器打开」走你自己的系统浏览器。侧栏那台每次启动都是全新分区（没有登录态），所以它只适合扫一眼，长视频还是系统浏览器。
 
 完整约束见 [AGENTS.md](AGENTS.md)，设计见 [docs/superpowers/specs/2026-10-23-baleen-design.md](docs/superpowers/specs/2026-10-23-baleen-design.md)，实测记录见 [docs/verification.md](docs/verification.md)。
 
@@ -86,6 +87,7 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 
 - 小红书通道（扫码 MCP 方案，需先做代码审查）
 - 汇报的图文排版（当前是 Markdown，图片位留白）
+- 抽屉内嵌播放器（M4a 裁定 V5 才评估：侧栏浏览器的登录态不跨重启，嵌进去也只能看个开头）
 
 ## 名字提示
 

@@ -31,6 +31,31 @@
       try { return (clientCtx && clientCtx.layout) || null } catch { return null }
     }
 
+    /**
+     * 打开原链接的两条路。侧栏那个是宿主原生 Browser 页签（实现里每次启动都是随机
+     * 新分区、没有登录态），系统浏览器是她自己那个——两条都摆出来，不替她选。
+     * 探测照 ds-bot 的写法：运行时 get + try/catch，**不往 inject 里加 sidebarRight**，
+     * 加了而宿主没提供的话整个面板都不注册（比少一颗按钮严重得多）。
+     */
+    function hasSidebarBrowser() {
+      try {
+        const tabs = safeGet('sidebarRightTabs')
+        return Boolean(tabs && tabs.get('browser'))
+      } catch { return false }
+    }
+
+    function openInBrowser(url) {
+      try { window.open(url, '_blank', 'noopener,noreferrer') } catch { /* 弹窗被拦：链接本身还点得开 */ }
+    }
+
+    function openInSidebar(url) {
+      const right = safeGet('sidebarRight')
+      try {
+        if (!right) throw new Error('no sidebarRight')
+        right.openTab('browser', { params: { url } })
+      } catch { openInBrowser(url) }
+    }
+
     /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。
      *  六个值全是视图本身：收藏页要多带的夹列表、草稿与二次确认态由 Panel 在调用时并进 props
      *  （那些 state 只存在于组件里，包在 VIEW_RENDER 里反而取不到）。 */
@@ -223,6 +248,9 @@
             collecting,
             newFolderName,
             onNewFolderName: setNewFolderName,
+            onOpenUrl: openInBrowser,
+            // 探不到浏览器页签就不传：抽屉按"有没有这个回调"决定摆几颗按钮，不会摆出一颗点了没用的
+            onOpenSidebar: hasSidebarBrowser() ? openInSidebar : null,
             onClose: () => { setFeedbackMsg(''); setNewFolderName(''); dispatch({ type: 'close-drawer' }) },
             onDone: (r) => {
               setFeedbackMsg(r.message)
@@ -482,6 +510,7 @@
     exports.__test = {
       PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER, viewQuery, NAV_ITEMS,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
+      hasSidebarBrowser, openInBrowser, openInSidebar,
       reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView,
       SettingsView, SettingsPage, parseThemes, serializeThemes, splitThemes
     }

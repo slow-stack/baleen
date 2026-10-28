@@ -259,3 +259,45 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 **做法**：同样先在 `/tmp` 镜像干跑（122 提交不少、树哈希不变），再对本仓库改写；强推 main 与两个 tag 都走 `--force-with-lease`，推完恢复 main 保护。
 
 **代价（如实）**：所有 commit hash 再次变化，任何已克隆的副本都会与远端分叉。改写时仓库 0 fork / 0 star、建库两天，实际影响为零。
+
+## 宿主侧栏浏览器：能不能给 Baleen 用（2026-10-28，探通，附一条硬门槛）
+
+抽屉里那句「跳到浏览器里看」要兑现，先得知道宿主那台侧栏浏览器能不能被插件调用。结论：**能，而且 B 站完整播放页真的在里面放出来了**——但有个硬门槛（登录态不跨重启），所以只能当"试看窗口"，不能当主力播放器。
+
+### 插件侧的入口（asar 静态取证 + 真机验证）
+
+- 页签控制器在客户端根上下文里：`ctx.sidebarRight.openTab(kind, options)`，浏览器页签的 kind 是 `'browser'`，参数形状 `{ params: { url } }`；URL 与地址栏输入走同一套校验。
+- 探测页签在不在：`ctx.get('sidebarRightTabs')?.get('browser') !== undefined`。
+- 宿主自己就是这么干的——聊天里的链接在侧栏打开那条路（`openExternalLink`）用的正是 `ctx.sidebarRight.openTab("browser", { params: { url } })`。所以这不是给插件留的后门，是公开入口。
+
+### 真机实测（右侧栏「＋」→ 浏览器页签，Ctrl+T）
+
+| 地址 | 结果 |
+|---|---|
+| `player.bilibili.com/player.html?bvid=…` | 只出 B 站的空态占位页，播放器壳没渲染 |
+| `www.bilibili.com/video/BV…` | 完整播放页加载成功，标题/播放数/弹幕数/互动数据齐全，**画面真实渲染** |
+
+也就是说没有 `X-Frame-Options` / CSP 拦着——挡路的是登录，不是嵌入。
+
+### 硬门槛：每次启动都是全新分区（登录态清零）
+
+宿主实现（`DesktopBrowserGuests`）里，分区名是 `dsh-sidebar-browser-` 前缀拼一个随机 UUID，然后 `session.fromPartition(partition)`。**没有 `persist:` 前缀**——每次启动一个随机新分区；进程内同一 workspace 复用（同一次运行里 cookie 留得住），重启即清。实测印证：视频能播，约 30 秒后 B 站自动弹登录浮层。
+
+那层会话还有硬边界（`configureSession`）：权限请求一律 `callback(false)`、`will-download` 全部 `preventDefault()`、只放行 http/https/ws/wss（且拒带凭据的 URL 与宿主自身 origin）、webview 强制 `sandbox:true / contextIsolation:true / nodeIntegration:false`、不发 referrer。所以它是个"只读的陌生人窗口"，不是第二个登录态浏览器。
+
+### 因此 Baleen 的接法（档 A 已落地）
+
+两条路都摆出来，不替用户选：
+
+| 打开方式 | 登录态 | 适合 |
+|---|---|---|
+| 宿主侧栏 Browser | 每次重启清零 | 快速看一眼封面 / 前 30 秒 |
+| 系统浏览器（`window.open`） | 用户自己已登录 | 真要看完整视频 |
+
+装配层的三条规矩（`test/client-boot.test.js` 有钉子）：
+
+1. **不往 `inject` 里加 `sidebarRight`**——加了而宿主没提供，整个面板都不注册（比少一颗按钮严重得多）。照 `ds-bot` 的写法运行时探测 + `try/catch`。
+2. 探不到浏览器页签时**不传那个回调**，抽屉只摆一颗「浏览器打开」，并明说「侧栏浏览器这次没开起来（宿主的浏览器页签不在）」，不摆一颗点了没用的按钮。
+3. 侧栏打开失败（宿主版本没有这个 API）**退回系统浏览器**，不静默失败。
+
+**未验（如实）**：① 本机 desktop profile 的 `dsh.profile.bundles` 49 项里看不到 `ui-sidebar-browser`，但页签真机确实存在（bundles 列的是包名，装配路径不止一条）；Web profile 下该包默认关闭，Web 端这条路要额外开。② 档 A 的两颗按钮目前只有单测与预览门覆盖，**还没在真机上点过**。

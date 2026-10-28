@@ -89,6 +89,54 @@ test('抽屉把上一次反馈的结果念出来，不留"点了不知道有没�
   assert.match(t, /bili 权重 -0\.1/)
 })
 
+// 档 A：抽屉里那句"跳到浏览器里看"曾经是空头支票——URL 渲染成的是 <p>，点不动。
+// 现在它必须是真链接；且地址不是 http/https 就整段不画，不摆一颗点不动的假按钮。
+test('原文地址是真链接，不是一段点不动的文本', () => {
+  const tree = Drawer({ item: item({ url: 'https://www.bilibili.com/video/BV1xx' }), api: {} })
+  const a = findAll(tree, 'bl-url').find((n) => n.type === 'a')
+  assert.ok(a, '链接得是 <a>，不是 <p>')
+  assert.equal(a.props.href, 'https://www.bilibili.com/video/BV1xx')
+  assert.equal(a.props.target, '_blank')
+  assert.match(String(a.props.rel), /noopener/)
+  assert.match(String(a.props.rel), /noreferrer/)
+})
+
+test('地址不是 http/https 时整段不画：没有链接也没有打开按钮', () => {
+  for (const bad of [null, '', '   ', 'file:///c/x.mp4', 'javascript:alert(1)']) {
+    const tree = Drawer({ item: item({ url: bad }), api: {} })
+    assert.equal(findAll(tree, 'bl-url').length, 0, '坏地址不许出链接：' + String(bad))
+    assert.equal(findAll(tree, 'bl-openbtns').length, 0, '坏地址不许出打开按钮：' + String(bad))
+  }
+})
+
+test('宿主有侧栏浏览器时给两条路，没有时只给系统浏览器并说明为什么', () => {
+  const both = findAll(Drawer({ item: item(), api: {}, onOpenUrl: () => {}, onOpenSidebar: () => {} }), 'bl-openbtns')[0]
+  const labels = both.children.map((b) => text(b))
+  assert.deepEqual(labels, ['侧栏打开', '浏览器打开'])
+
+  const only = Drawer({ item: item(), api: {}, onOpenUrl: () => {} })
+  const btns = findAll(only, 'bl-openbtns')[0].children.map((b) => text(b))
+  assert.deepEqual(btns, ['浏览器打开'])
+  assert.match(text(only), /侧栏浏览器这次没开起来/, '少一条路要说清是宿主的页签不在，不是我们忘了做')
+})
+
+test('两颗按钮各自把真地址交给回调', () => {
+  const got = []
+  const tree = Drawer({
+    item: item({ url: 'https://www.bilibili.com/video/BV1xx' }),
+    api: {},
+    onOpenUrl: (u) => got.push(['browser', u]),
+    onOpenSidebar: (u) => got.push(['sidebar', u])
+  })
+  const btns = findAll(tree, 'bl-openbtns')[0].children
+  btns[0].props.onClick()
+  btns[1].props.onClick()
+  assert.deepEqual(got, [
+    ['sidebar', 'https://www.bilibili.com/video/BV1xx'],
+    ['browser', 'https://www.bilibili.com/video/BV1xx']
+  ])
+})
+
 test('关闭按钮只负责关，不做别的', () => {
   let closed = 0
   const tree = Drawer({ item: item(), api: {}, onClose: () => { closed++ } })

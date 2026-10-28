@@ -320,6 +320,21 @@ window.__ModuleLoader__.load({
      */
     const judgeHint = '对会话说一句「把今天的候选判一下」'
 
+    /**
+     * 只认 http/https 的绝对地址，其余（空、非字符串、别的协议、javascript:）一律 null。
+     * 库里 url/thumb 都是平台给的原样字段，直接塞进 href/src 等于把外来的字符串当可执行入口。
+     */
+    function httpUrl(v) {
+      const s = typeof v === 'string' ? v.trim() : ''
+      return /^https?:\/\//i.test(s) ? s : null
+    }
+
+    /**
+     * 封面地址：和链接同一套判定。视图拿它决定画不画 <img>——坏值不许变成
+     * "空 src 的裂图标"，那比灰占位更难看也更可疑。
+     */
+    const thumbSrc = (thumb) => httpUrl(thumb)
+
     // ---- src/client/css.js ----
     /**
      * 面板样式。**这份 CSS 里一个颜色字面量都没有**：所有颜色都从宿主 token 取，
@@ -361,13 +376,14 @@ window.__ModuleLoader__.load({
     .bl-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));gap:12px;min-width:0}
     .bl-card,.bl-row{appearance:none;text-align:left;font-family:inherit;color:inherit;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:9px 10px;cursor:pointer;display:flex;flex-direction:column;gap:5px;min-height:32px;min-width:0}
     .bl-card:hover,.bl-row:hover,.bl-row[aria-selected="true"]{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
-    .bl-card:focus-visible,.bl-row:focus-visible,.bl-navitem:focus-visible,.bl-actions button:focus-visible,.bl-detail:focus-visible,.bl-dbtns button:focus-visible,.bl-dbar button:focus-visible,.bl-facets input:focus-visible,.bl-collect input:focus-visible,.bl-newfolder input:focus-visible,.bl-newfolder button:focus-visible,.bl-toolbar button:focus-visible,.bl-foldertab:focus-visible,.bl-confirm button:focus-visible,.bl-setsave:focus-visible,.bl-setflag input:focus-visible,.bl-srcrow-head button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+    .bl-card:focus-visible,.bl-row:focus-visible,.bl-navitem:focus-visible,.bl-actions button:focus-visible,.bl-detail:focus-visible,.bl-dbtns button:focus-visible,.bl-dbar button:focus-visible,.bl-facets input:focus-visible,.bl-collect input:focus-visible,.bl-newfolder input:focus-visible,.bl-newfolder button:focus-visible,.bl-toolbar button:focus-visible,.bl-foldertab:focus-visible,.bl-openbtns button:focus-visible,.bl-url:focus-visible,.bl-confirm button:focus-visible,.bl-setsave:focus-visible,.bl-setflag input:focus-visible,.bl-srcrow-head button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
     .bl-card-title,.bl-row-title{font-size:13px;line-height:1.4;color:var(--dsw-alias-label-primary)}
     .bl-card-meta,.bl-row-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);display:flex;gap:6px;flex-wrap:wrap}
     .bl-why,.bl-row-why{font-size:12px;color:var(--dsw-alias-label-secondary);border-left:2px solid var(--dsw-alias-border-l2);padding-left:7px;margin-top:auto}
     .bl-tier{font-size:11px;color:var(--dsw-alias-label-primary)}
     .bl-play{font-size:11px;color:var(--dsw-alias-label-dimmed)}
-    .bl-thumb{position:relative;aspect-ratio:16/9;border-radius:6px;background:var(--dsw-alias-bg-layer-3);display:block}
+    .bl-thumb{position:relative;aspect-ratio:16/9;border-radius:6px;background:var(--dsw-alias-bg-layer-3);display:block;overflow:hidden}
+    .bl-thumb img{width:100%;height:100%;object-fit:cover;display:block}
     .bl-dur{position:absolute;right:5px;bottom:5px;font-size:11px;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
     .bl-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start;min-width:0}
     .bl-list{display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -420,7 +436,10 @@ window.__ModuleLoader__.load({
     .bl-newfolder button:hover{background:var(--dsw-alias-interactive-bg-hover)}
     .bl-newfolder button:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
     .bl-kw{font-size:11px;color:var(--dsw-alias-label-secondary)}
-    .bl-url{font-size:12px;color:var(--dsw-alias-brand-primary);word-break:break-all}
+    .bl-url{font-size:12px;color:var(--dsw-alias-brand-primary);word-break:break-all;text-decoration:underline}
+    .bl-openbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+    .bl-openbtns button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
+    .bl-openbtns button:hover{background:var(--dsw-alias-interactive-bg-hover)}
     .bl-feedback{margin:0;padding:7px 14px;font-size:12px;background:var(--dsw-alias-bg-layer-2);border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary)}
     .bl-dbtns{display:flex;gap:8px;padding:11px 14px;border-top:1px solid var(--dsw-alias-border-l1)}
     .bl-dbtns button{flex:1;appearance:none;font-family:inherit;font-size:12px;min-height:32px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
@@ -583,7 +602,10 @@ window.__ModuleLoader__.load({
 
     function Card({ item, onOpen }) {
       return vnode('button', { type: 'button', className: 'bl-card', onClick: () => onOpen?.(item.id) }, [
-        item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])]) : null,
+        item.kind === 'video' ? vnode('span', { className: 'bl-thumb' }, [
+          thumbSrc(item.thumb) ? vnode('img', { src: thumbSrc(item.thumb), alt: '', loading: 'lazy' }) : null,
+          vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])
+        ].filter(Boolean)) : null,
         vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
         vnode('span', { className: 'bl-card-meta' }, [item.source_id, item.kind === 'note' ? '图文笔记' : item.kind === 'video' ? '视频' : '文章']),
         vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `已判：${item.verdict_tier}` : '待判']),
@@ -658,7 +680,10 @@ window.__ModuleLoader__.load({
 
     function VideoCard({ item, onOpen }) {
       return vnode('button', { type: 'button', className: 'bl-card', key: item.id, onClick: () => onOpen?.(item.id) }, [
-        vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])]),
+        vnode('span', { className: 'bl-thumb' }, [
+          thumbSrc(item.thumb) ? vnode('img', { src: thumbSrc(item.thumb), alt: '', loading: 'lazy' }) : null,
+          vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])
+        ].filter(Boolean)),
         vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
         vnode('span', { className: 'bl-card-meta' }, [
           item.author || item.source_id,
@@ -975,7 +1000,7 @@ window.__ModuleLoader__.load({
     const namesOf = (item, folders, ids) => (ids ?? []).map((id) =>
       (folders ?? []).find((f) => f.id === id)?.name ?? `#${id}（这个夹已经没了）`).join(' / ') || '（现在不在任何夹里）'
 
-    function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {} }) {
+    function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {}, onOpenUrl, onOpenSidebar }) {
       async function fire(action) {
         let res = null
         try {
@@ -1037,6 +1062,9 @@ window.__ModuleLoader__.load({
       const m = matchInfo(item)
       const body = typeof item.body_text === 'string' ? item.body_text.trim() : ''
       const hasFolders = (folders ?? []).length > 0
+      const link = httpUrl(item.url)
+      // 宿主有没有侧栏浏览器页签，由装配层探好后传进来（探不到就是 false，只给一条路）
+      const canSidebar = Boolean(onOpenSidebar)
 
       return vnode('aside', { className: 'bl-drawer', role: 'dialog', 'aria-label': '条目详情' }, [
         vnode('header', { className: 'bl-dbar' }, [
@@ -1101,7 +1129,27 @@ window.__ModuleLoader__.load({
               ])
             ]
           }),
-          item.url ? Section({ title: '链接', children: [vnode('p', { className: 'bl-url' }, [item.url])] }) : null,
+          // 原文地址：真的 <a href>。早先这里是 <p>，那句话"跳到浏览器里看"等于空头支票。
+          // 地址不是 http/https 就整段不画——不拿一个点不动的假链接充数。
+          link ? Section({
+            title: '原文',
+            children: [
+              vnode('p', {}, [vnode('a', { className: 'bl-url', href: link, target: '_blank', rel: 'noopener noreferrer' }, [link])]),
+              // 侧栏浏览器每次都从全新分区起（宿主实现：随机 partition，无 persist:），
+              // 没登录态就只能看个开头。所以两条路都摆在明面上，由她自己选。
+              canSidebar
+                ? vnode('div', { className: 'bl-openbtns' }, [
+                  vnode('button', { type: 'button', onClick: () => onOpenSidebar?.(link) }, ['侧栏打开']),
+                  vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link) }, ['浏览器打开'])
+                ])
+                : vnode('div', { className: 'bl-openbtns' }, [
+                  vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link) }, ['浏览器打开'])
+                ]),
+              canSidebar
+                ? null
+                : vnode('p', { className: 'bl-note' }, ['侧栏浏览器这次没开起来（宿主的浏览器页签不在），只能走系统浏览器。'])
+            ]
+          }) : null,
           vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])
         ]),
         note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
@@ -1732,6 +1780,31 @@ window.__ModuleLoader__.load({
       try { return (clientCtx && clientCtx.layout) || null } catch { return null }
     }
 
+    /**
+     * 打开原链接的两条路。侧栏那个是宿主原生 Browser 页签（实现里每次启动都是随机
+     * 新分区、没有登录态），系统浏览器是她自己那个——两条都摆出来，不替她选。
+     * 探测照 ds-bot 的写法：运行时 get + try/catch，**不往 inject 里加 sidebarRight**，
+     * 加了而宿主没提供的话整个面板都不注册（比少一颗按钮严重得多）。
+     */
+    function hasSidebarBrowser() {
+      try {
+        const tabs = safeGet('sidebarRightTabs')
+        return Boolean(tabs && tabs.get('browser'))
+      } catch { return false }
+    }
+
+    function openInBrowser(url) {
+      try { window.open(url, '_blank', 'noopener,noreferrer') } catch { /* 弹窗被拦：链接本身还点得开 */ }
+    }
+
+    function openInSidebar(url) {
+      const right = safeGet('sidebarRight')
+      try {
+        if (!right) throw new Error('no sidebarRight')
+        right.openTab('browser', { params: { url } })
+      } catch { openInBrowser(url) }
+    }
+
     /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。
      *  六个值全是视图本身：收藏页要多带的夹列表、草稿与二次确认态由 Panel 在调用时并进 props
      *  （那些 state 只存在于组件里，包在 VIEW_RENDER 里反而取不到）。 */
@@ -1924,6 +1997,9 @@ window.__ModuleLoader__.load({
             collecting,
             newFolderName,
             onNewFolderName: setNewFolderName,
+            onOpenUrl: openInBrowser,
+            // 探不到浏览器页签就不传：抽屉按"有没有这个回调"决定摆几颗按钮，不会摆出一颗点了没用的
+            onOpenSidebar: hasSidebarBrowser() ? openInSidebar : null,
             onClose: () => { setFeedbackMsg(''); setNewFolderName(''); dispatch({ type: 'close-drawer' }) },
             onDone: (r) => {
               setFeedbackMsg(r.message)
@@ -2183,6 +2259,7 @@ window.__ModuleLoader__.load({
     exports.__test = {
       PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER, viewQuery, NAV_ITEMS,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
+      hasSidebarBrowser, openInBrowser, openInSidebar,
       reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView,
       SettingsView, SettingsPage, parseThemes, serializeThemes, splitThemes
     }

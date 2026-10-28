@@ -433,6 +433,49 @@ test('抽屉的过期归属覆盖真的消费读回数据：点一个勾再渲�
   } finally { rt.restore() }
 })
 
+// 档 A 的接线半边：抽屉那两颗按钮的回调是装配层给的，视图只负责摆。
+// 少接一根，抽屉里那颗按钮就是"点了没反应"——纯视图测试抓不到，因为视图的默认值是 undefined。
+test('抽屉的两条打开路都接在装配层上，且侧栏那条要探到页签才传（源码级）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
+  assert.match(src, /onOpenUrl: openInBrowser/, '系统浏览器那条没接：抽屉里的按钮点了不会有任何反应')
+  // 括号要转义：不然 () 会被当成空分组，正则永远匹配不上（这条一开始就红在这儿）
+  assert.match(src, /onOpenSidebar: hasSidebarBrowser\(\) \? openInSidebar : null/,
+    '侧栏那条必须探到浏览器页签才传：探不到还传，等于摆一颗点了没用的按钮')
+  assert.match(src, /right.openTab\('browser', \{ params: \{ url \} \}\)/, '宿主的页签 API 是 openTab(\'browser\', { params: { url } })')
+  assert.match(src, /catch \{ openInBrowser\(url\) \}/, '侧栏开不起来要退回系统浏览器，不许静默失败')
+  assert.doesNotMatch(src, /const inject = \[[^\]]*sidebarRight/, 'inject 里不许加 sidebarRight：宿主没提供时整个面板都不注册')
+  const built = fs.readFileSync(path.join(process.cwd(), 'client.js'), 'utf8')
+  assert.equal(built.includes('onOpenSidebar: hasSidebarBrowser() ? openInSidebar : null'), true,
+    'client.js 是生成的：改了源没跑 node tools/build-client.mjs')
+})
+
+test('抽屉里真的画出了可点的原文链接（渲染级，不只看源码有没有写）', async () => {
+  const persisted = JSON.stringify({ v: 1, view: 'today', filters: {}, selectedId: null, drawerItemId: 7, scroll: 0 })
+  const item7 = { id: 7, kind: 'article', source_id: 'demo', title: '今天里的一条', status: 'new', body_state: 'full', verdict_tier: null, match_json: '{}', url: 'https://example.invalid/7' }
+  const s = loadClient({
+    storage: { 'baleen.view': persisted },
+    fetchImpl: async (url) => {
+      const key = String(url).replace('/api/dsh-baleen', '').split('?')[0]
+      const json = key === '/folders' ? { ok: true, folders: [{ id: 1, name: '默认', is_default: 1, count: 0 }] }
+        : key === '/items' ? { ok: true, items: [item7] }
+        : { ok: true, counts: { new: 1, judged: 0, digest: 0, archived: 0, total: 1 }, sources: [], preference_errors: [], last_run: null, digest_count: 0 }
+      return { ok: true, status: 200, json: async () => json }
+    }
+  })
+  const rt = hookRuntime(s.React, exportsOf(s).__test.Panel)
+  try {
+    rt.render()
+    await rt.flush()
+    const tree = rt.render()
+    const links = findAll(tree, 'bl-url').filter((n) => n.type === 'a')
+    assert.equal(links.length, 1, '原文地址必须是 <a>：还是 <p> 的话那句话"跳到浏览器里看"就是空头支票')
+    assert.equal(links[0].props.href, 'https://example.invalid/7')
+    assert.equal(links[0].props.target, '_blank')
+    assert.match(String(links[0].props.rel), /noopener/)
+    assert.equal(findAll(tree, 'bl-openbtns').length, 1, '打开按钮那一组要画出来')
+  } finally { rt.restore() }
+})
+
 test('收藏页的取数形状：按夹筛、不限状态（收过的东西不会因归档就消失）', () => {
   const t = exportsOf(loadClient()).__test
   assert.deepEqual(t.viewQuery('collections', 3), { folder: 3, limit: 200 })

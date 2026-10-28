@@ -62,6 +62,27 @@ test('暂无内嵌播放：B 站与其它平台都只给跳转，文案不假装
   assert.doesNotMatch(t, /可在抽屉内播/, '播放器还没定，卡片不许许诺抽屉内播')
 })
 
+// 档 A：封面是库里已有的 items.thumb，只是视图一直没读。占位灰块要换成真图，
+// 但坏值（空、非字符串、非 http 协议）不许变成空 src 的裂图标——那比灰块更像 bug。
+test('封面有真地址就画 <img>，时长徽章还在', () => {
+  const card = cardOf(VideoView({ items: [mk({ thumb: 'https://i0.hdslb.com/bfs/archive/x.jpg' })], filters: {} }), 1)
+  const thumb = findAll(card, 'bl-thumb')[0]
+  const img = thumb.children.find((n) => n.type === 'img')
+  assert.ok(img, '有 thumb 就该出 img')
+  assert.equal(img.props.src, 'https://i0.hdslb.com/bfs/archive/x.jpg')
+  assert.equal(img.props.alt, '', '封面是装饰，alt 留空不念两遍标题')
+  assert.match(text(thumb), /18:22/, '时长徽章不能被图挤掉')
+})
+
+test('封面地址坏掉时退回灰占位，不画空 src 的图', () => {
+  for (const bad of [null, undefined, '', '   ', 42, 'file:///c/x.jpg', 'javascript:alert(1)']) {
+    const card = cardOf(VideoView({ items: [mk({ thumb: bad })], filters: {} }), 1)
+    const thumb = findAll(card, 'bl-thumb')[0]
+    assert.equal(thumb.children.some((n) => n.type === 'img'), false, '坏 thumb 不许画图：' + String(bad))
+    assert.match(text(thumb), /18:22/)
+  }
+})
+
 test('筛选后一条都不剩时，说的是"筛选太窄"而不是"库里没东西"', () => {
   const t = text(VideoView({ items: [mk()], filters: { tier: '不值当' } }))
   assert.match(t, /把筛选清一下/)

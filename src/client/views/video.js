@@ -5,7 +5,7 @@
  */
 import { vnode } from '../vnode.js'
 import { reasonOf } from '../match.js'
-import { fmtDuration } from '../format.js'
+import { fmtDuration, thumbSrc } from '../format.js'
 
 export const TIER_LABELS = { '值得看': 'good', '可以看': 'ok', '不值当': 'bad' }
 const STATE_LABELS = {
@@ -35,7 +35,10 @@ function Picker({ label, filterKey, view, options, value, onFilter }) {
 
 function VideoCard({ item, onOpen }) {
   return vnode('button', { type: 'button', className: 'bl-card', key: item.id, onClick: () => onOpen?.(item.id) }, [
-    vnode('span', { className: 'bl-thumb' }, [vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])]),
+    vnode('span', { className: 'bl-thumb' }, [
+      thumbSrc(item.thumb) ? vnode('img', { src: thumbSrc(item.thumb), alt: '', loading: 'lazy' }) : null,
+      vnode('span', { className: 'bl-dur' }, [fmtDuration(item.duration_sec) || '—'])
+    ].filter(Boolean)),
     vnode('span', { className: 'bl-card-title' }, [item.title || '（无标题）']),
     vnode('span', { className: 'bl-card-meta' }, [
       item.author || item.source_id,

@@ -36,3 +36,18 @@ export const foldersUnreadNote = `读不到夹（${readbackMiss('夹列表')}）
  * 两处各写一遍的话，迟早漂移成两种说法，用户就得猜哪个才是对的。
  */
 export const judgeHint = '对会话说一句「把今天的候选判一下」'
+
+/**
+ * 只认 http/https 的绝对地址，其余（空、非字符串、别的协议、javascript:）一律 null。
+ * 库里 url/thumb 都是平台给的原样字段，直接塞进 href/src 等于把外来的字符串当可执行入口。
+ */
+export function httpUrl(v) {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return /^https?:\/\//i.test(s) ? s : null
+}
+
+/**
+ * 封面地址：和链接同一套判定。视图拿它决定画不画 <img>——坏值不许变成
+ * "空 src 的裂图标"，那比灰占位更难看也更可疑。
+ */
+export const thumbSrc = (thumb) => httpUrl(thumb)
