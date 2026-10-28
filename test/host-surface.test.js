@@ -946,10 +946,12 @@ test('GET /diagnostics-tail：逐行 redact、行数消毒与上限、文件不�
   const { h } = await apiOf(home)
   const logFile = path.join(home, 'logs', 'diagnostics.jsonl')
   // 夹具：两条可数的 JSON 行 + 一条带家目录路径的手写旧行（双保险脱敏要罩住的"历史行"形态）
+  // 旧行必须显式写 os.homedir() 而不是 home：home 是 os.tmpdir() 下的临时目录，Windows 上
+  // 它恰好在用户目录里（所以本地能过），Linux 上 /tmp 与 /home/runner 无关，那条断言就空了。
   fs.appendFileSync(logFile, [
     JSON.stringify({ level: 'info', event: 'fixture', detail: '第 0 行' }),
     JSON.stringify({ level: 'info', event: 'fixture', detail: '第 1 行' }),
-    `2026-10-26 旧行：字幕缓存在 ${path.join(home, 'tmp', 'yt-subs')} 已清`,
+    `2026-10-26 旧行：字幕缓存在 ${path.join(os.homedir(), 'baleen', 'tmp', 'yt-subs')} 已清`,
   ].join('\n') + '\n', 'utf8')
   const res = fakeRes()
   await h({ url: '/api/dsh-baleen/diagnostics-tail?lines=2', method: 'GET' }, res)

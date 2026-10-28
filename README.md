@@ -90,4 +90,6 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 
 ## 许可
 
-Apache License 2.0，全文见 [LICENSE](LICENSE)。设计参考与第三方组件署名见后续 `NOTICE.md`（M4 vendor 时补）。
+Apache License 2.0，全文见 [LICENSE](LICENSE)。
+
+第三方代码：无。B 站通道的 vendor 方案（BiliStalkerMCP）已在 M4a 落地前废弃，源码未进本仓库——现在的 B 站适配器是自研的纯 fetch 直连。设计参考（DSH 插件形态、面板写法）来自本机已验证的 dsh-study-desk，属于思路借鉴而非代码复制。
