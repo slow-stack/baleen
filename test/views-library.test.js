@@ -67,7 +67,7 @@ test('已判过的条目说清改判归谁做，不放假的改判按钮', () =>
 
 test('批量归档只是入口，没有真动作时标未接入而不是假装可用', () => {
   const t = text(LibraryView({ items, filters: {} }))
-  assert.match(t, /批量归档（M3）尚未接入/)
+  assert.match(t, /批量归档还没做/)
 })
 
 test('一屏只放 100 条，剩下的说还有多少', () => {

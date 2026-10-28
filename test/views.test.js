@@ -122,7 +122,8 @@ test('未判条目在卡片上显示"待判"，不显示成已判', () => {
 
 test('空库时两个区各说各的话，不画假卡片', () => {
   const t = text(TodayView({ state: { ...state, counts: { new: 0, total: 0 }, gaps: { by_reason: {}, total_dropped: 0 } }, items: [] }))
-  assert.match(t, /B 站 /)
+  // 视频区空态指向"去订阅一个视频源"，不再许诺某个里程碑会接入
+  assert.match(t, /订阅一个 B 站或 YouTube 源/)
   assert.match(t, /文章区是空的/)
   assert.equal(findAll(TodayView({ state: { ...state, counts: { new: 0, total: 0 } }, items: [] }), 'bl-card').length, 0)
 })

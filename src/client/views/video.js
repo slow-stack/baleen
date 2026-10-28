@@ -70,6 +70,6 @@ export function VideoView({ items = [], filters = {}, onFilter, onOpen }) {
       ? vnode('div', { className: 'bl-grid' }, list.map((i) => VideoCard({ item: i, onOpen })))
       : vnode('div', { className: 'bl-empty' }, [all.length
         ? '这个筛选下没有东西。库里有货但没显示出来时，通常是档位或平台筛过了——把筛选清一下。'
-        : '库里还没有视频。B 站与小红书视频笔记在 M4 接入；现在订阅的都是文章源的话，这里就该是空的。'])
+        : '库里还没有视频。订阅一个 B 站或 YouTube 源试试；现在订阅的都是文章源的话，这里就该是空的。'])
   ])
 }

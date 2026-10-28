@@ -94,7 +94,7 @@ export function TodayView({ state, items = [], onPickView, onOpen, onRun, busy }
     vnode('section', { className: 'bl-rail' }, [
       vnode('h3', {}, [`视频区 · ${videos.length}`]),
       videos.length ? vnode('div', { className: 'bl-grid' }, videos.map((it) => Card({ item: it, onOpen })))
-        : vnode('p', { className: 'bl-empty' }, ['这个库里还没有视频。B 站 / 小红书视频笔记在 M4 接入。'])
+        : vnode('p', { className: 'bl-empty' }, ['这个库里还没有视频。订阅一个 B 站或 YouTube 源，或者去设置页加一个。'])
     ]),
     vnode('section', { className: 'bl-rail' }, [
       vnode('h3', {}, [`文章区 · ${writings.length}`]),

@@ -377,7 +377,7 @@ export function CredsTab({ cred, env, cookieDraft = '', onCookieDraft, onCookieS
     }),
     vnode('h4', {}, ['环境']),
     vnode('ul', { className: 'bl-kv' }, envLines.map((l, i) => vnode('li', { key: i }, [l]))),
-    vnode('p', { className: 'bl-empty' }, ['小红书：未接入（M4b 待做）']),
+    vnode('p', { className: 'bl-empty' }, ['小红书：未接入']),
     vnode('p', { className: 'bl-empty' }, ['转写依赖：未实现（随 ASR 一起）']),
     vnode('h4', {}, ['诊断']),
     vnode('div', { className: 'bl-setrow' }, [

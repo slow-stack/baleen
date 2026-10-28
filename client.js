@@ -12,7 +12,7 @@
  * 挂载点（M2）：
  *   sidebar.panellist → 左侧栏入口，id 与 main 的 key 同为 baleen（不同名宿主会抛）
  *   main              → 整页面板：顶部五项导航 + 视图 + 抽屉
- * 设置页 settings.section 在 M5 才注册，本里程碑不挂。
+ * 设置页 settings.section（M5 起已注册，四页签）。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-baleen',
@@ -613,7 +613,7 @@ window.__ModuleLoader__.load({
         vnode('section', { className: 'bl-rail' }, [
           vnode('h3', {}, [`视频区 · ${videos.length}`]),
           videos.length ? vnode('div', { className: 'bl-grid' }, videos.map((it) => Card({ item: it, onOpen })))
-            : vnode('p', { className: 'bl-empty' }, ['这个库里还没有视频。B 站 / 小红书视频笔记在 M4 接入。'])
+            : vnode('p', { className: 'bl-empty' }, ['这个库里还没有视频。订阅一个 B 站或 YouTube 源，或者去设置页加一个。'])
         ]),
         vnode('section', { className: 'bl-rail' }, [
           vnode('h3', {}, [`文章区 · ${writings.length}`]),
@@ -693,7 +693,7 @@ window.__ModuleLoader__.load({
           ? vnode('div', { className: 'bl-grid' }, list.map((i) => VideoCard({ item: i, onOpen })))
           : vnode('div', { className: 'bl-empty' }, [all.length
             ? '这个筛选下没有东西。库里有货但没显示出来时，通常是档位或平台筛过了——把筛选清一下。'
-            : '库里还没有视频。B 站与小红书视频笔记在 M4 接入；现在订阅的都是文章源的话，这里就该是空的。'])
+            : '库里还没有视频。订阅一个 B 站或 YouTube 源试试；现在订阅的都是文章源的话，这里就该是空的。'])
       ])
     }
 
@@ -892,7 +892,7 @@ window.__ModuleLoader__.load({
               ? '这些勾选下没有条目。库里是有东西的——把勾选清一下。'
               : '库里还没有条目。先去「今天」跑一轮。']),
           rows.length > PAGE ? vnode('p', { className: 'bl-more' }, [`还有 ${rows.length - PAGE} 条，翻分页看（这一屏只放 ${PAGE} 条）`]) : null,
-          vnode('p', { className: 'bl-note' }, ['改判由会话通过 baleen_save_verdicts 做，这里不放改判按钮；批量归档（M3）尚未接入。'])
+          vnode('p', { className: 'bl-note' }, ['改判由会话通过 baleen_save_verdicts 做，这里不放改判按钮；批量归档还没做。'])
         ].filter(Boolean))
       ])
     }
@@ -1102,7 +1102,7 @@ window.__ModuleLoader__.load({
             ]
           }),
           item.url ? Section({ title: '链接', children: [vnode('p', { className: 'bl-url' }, [item.url])] }) : null,
-          vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页（M5）能看到也能一键归零。'])
+          vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])
         ]),
         note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
         vnode('footer', { className: 'bl-dbtns' }, [
@@ -1618,7 +1618,7 @@ window.__ModuleLoader__.load({
         }),
         vnode('h4', {}, ['环境']),
         vnode('ul', { className: 'bl-kv' }, envLines.map((l, i) => vnode('li', { key: i }, [l]))),
-        vnode('p', { className: 'bl-empty' }, ['小红书：未接入（M4b 待做）']),
+        vnode('p', { className: 'bl-empty' }, ['小红书：未接入']),
         vnode('p', { className: 'bl-empty' }, ['转写依赖：未实现（随 ASR 一起）']),
         vnode('h4', {}, ['诊断']),
         vnode('div', { className: 'bl-setrow' }, [

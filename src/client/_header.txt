@@ -12,7 +12,7 @@
  * 挂载点（M2）：
  *   sidebar.panellist → 左侧栏入口，id 与 main 的 key 同为 baleen（不同名宿主会抛）
  *   main              → 整页面板：顶部五项导航 + 视图 + 抽屉
- * 设置页 settings.section 在 M5 才注册，本里程碑不挂。
+ * 设置页 settings.section（M5 起已注册，四页签）。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-baleen',

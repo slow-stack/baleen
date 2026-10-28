@@ -204,7 +204,7 @@ test('设置页预览：四页签各一块纵排，源/偏好/凭据/库的关�
   // 凭据与环境：cookie 状态、env 四行、两个诚实占位（文案逐字）
   assert.match(html, /B 站 cookie：已写入/)
   assert.match(html, /yt-dlp：没探测到/)
-  assert.match(html, /小红书：未接入（M4b 待做）/)
+  assert.match(html, /小红书：未接入/)
   assert.match(html, /转写依赖：未实现（随 ASR 一起）/)
   // 库：数据目录占位、清空库红字 danger
   assert.match(html, /数据目录：&lt;HOME&gt;\/baleen/)

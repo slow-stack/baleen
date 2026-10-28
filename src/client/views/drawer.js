@@ -205,7 +205,7 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
         ]
       }),
       item.url ? Section({ title: '链接', children: [vnode('p', { className: 'bl-url' }, [item.url])] }) : null,
-      vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页（M5）能看到也能一键归零。'])
+      vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])
     ]),
     note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
     vnode('footer', { className: 'bl-dbtns' }, [

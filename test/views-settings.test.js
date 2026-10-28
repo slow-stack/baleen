@@ -327,7 +327,7 @@ test('env-check 四行：node/yt-dlp/库大小/家目录，缺的说不缺的谎
 
 test('xhs 与 ASR 的诚实占位逐字：未接入不做假按钮', () => {
   const t = text(SettingsPage(pageProps({ tab: 'creds' })))
-  assert.match(t, /小红书：未接入（M4b 待做）/)
+  assert.match(t, /小红书：未接入/)
   assert.match(t, /转写依赖：未实现（随 ASR 一起）/)
   assert.doesNotMatch(t, /扫码/)
 })
