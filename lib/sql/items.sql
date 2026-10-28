@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS sources (
   cursor TEXT,
   last_error_class TEXT,
   last_error TEXT,
-  last_ok_at INTEGER
+  last_ok_at INTEGER,
+  last_attempt_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS runs (

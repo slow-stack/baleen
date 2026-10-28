@@ -261,6 +261,8 @@ test('candidates 上限读 preference 的 schedule.max_per_run（缺省 25），
   assert.equal(out.max_per_run, 2, '没读到 preference 里的每轮上限')
   assert.equal(out.total, 3, 'total 该是待判总数，不是截断后的条数')
   assert.equal(out.items.length, 2)
+  assert.equal(out.max_per_day, 60, '没写每日上限时取缺省 60')
+  assert.equal(out.day_left, 60, '今天还没判过，额度是满的')
   assert.ok(!('body_text' in out.items[0]), '候选摘要同 query 形状，不带正文')
 
   const home2 = freshHome()
@@ -269,8 +271,45 @@ test('candidates 上限读 preference 的 schedule.max_per_run（缺省 25），
   for (let i = 0; i < 30; i++) seedItem(r2.baleen.db, { external_id: `d${i}` })
   const out2 = await toolOf(r2.ctx, 'baleen_candidates').execute({})
   assert.equal(out2.max_per_run, 25, '没写偏好时应取缺省 25')
-  assert.equal(out2.items.length, 25)
+  assert.equal(out2.items.length, 25, '缺省每日上限 60 不该截断 25 条')
   assert.equal(out2.total, 30)
+})
+
+test('candidates 受 max_per_day 当日额度约束：判完就截，额度用完返回空列表而不是报错', async () => {
+  const home = freshHome()
+  fs.writeFileSync(path.join(home, 'preference.yaml'),
+    'version: 1\nsources: []\nschedule:\n  max_per_run: 5\n  max_per_day: 4\n')
+  const { ctx, baleen } = await applyOf(home)
+  fireToolsInject(ctx)
+  // save_verdicts 落 digest 要挂在一轮上（run_id NOT NULL），真实流程里也是先有抓取轮才有待判条目
+  createRun(baleen.db, 'schedule', () => 1000)
+  for (let i = 0; i < 10; i++) seedItem(baleen.db, { external_id: `m${i}` })
+  const cand = toolOf(ctx, 'baleen_candidates')
+
+  // 今天还没判过：额度 4 < 每轮 5，所以按额度截
+  const first = await cand.execute({})
+  assert.equal(first.max_per_run, 5)
+  assert.equal(first.max_per_day, 4)
+  assert.equal(first.judged_today, 0)
+  assert.equal(first.day_left, 4)
+  assert.equal(first.items.length, 4, '每轮 5 但今天只剩 4 条额度 → 只能给 4 条')
+
+  // 判掉 3 条（真写库，走 save_verdicts 落 digest 的同一路径）：今天还剩 1 条额度
+  const pick = first.items.slice(0, 3).map(it => ({ id: it.id, tier: '可以看', why: '测额度' }))
+  const save = toolOf(ctx, 'baleen_save_verdicts')
+  await save.execute({ verdicts: pick })
+  const second = await cand.execute({})
+  assert.equal(second.judged_today, 3, 'judged_today 要数出今天真判了几条')
+  assert.equal(second.day_left, 1)
+  assert.equal(second.items.length, 1, '剩 1 条额度就只给 1 条')
+
+  // 额度用光：ok 仍为 true、列表为空、day_left 为 0——配额到了不是库坏了
+  await save.execute({ verdicts: [{ id: second.items[0].id, tier: '可以看', why: '测额度' }] })
+  const third = await cand.execute({})
+  assert.equal(third.ok, true, '额度用完不是错误，别让调用方以为库坏了')
+  assert.equal(third.day_left, 0)
+  assert.deepEqual(third.items, [])
+  assert.ok(third.total > 0, 'total 仍是待判总数（库里还有没判的）')
 })
 
 test('run_status 给最近一轮摘要 + counts + inject_prompt 占位', async () => {

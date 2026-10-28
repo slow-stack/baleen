@@ -21,11 +21,20 @@ import { vnode } from '../vnode.js'
 import { reasonOf } from '../match.js'
 import { fmtDuration, judgeHint } from '../format.js'
 
+/** 一轮的结局 → 面板上的说法。'interrupted' 是进程被打断，不是抓取失败，得单独说。 */
+export const RUN_LABELS = {
+  done: '跑完',
+  partial: '部分源失败',
+  failed: '失败',
+  interrupted: '被打断',
+  running: '在跑',
+}
+
 export function summaryLine(state) {
   const c = state?.counts ?? {}
   const run = state?.last_run
   const head = run
-    ? `上一轮 ${run.status === 'done' ? '跑完' : run.status === 'partial' ? '部分源失败' : '失败'} · 过筛 ${n(c.total)} → 候选 ${n(run.candidates)} → 待判 ${n(c.new)}`
+    ? `上一轮 ${RUN_LABELS[run.status] ?? '失败'} · 过筛 ${n(c.total)} → 候选 ${n(run.candidates)} → 待判 ${n(c.new)}`
     : `库里 ${n(c.total)} 条 · 还没有跑过一轮`
   return `${head}｜已判 ${n(c.judged) + n(c.digest)}`
 }

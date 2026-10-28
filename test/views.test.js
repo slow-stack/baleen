@@ -35,6 +35,22 @@ test('统计行说清过筛→候选→待判，不把待判说成已筛', () =>
   assert.doesNotMatch(line, /已筛 12/)
 })
 
+test('被打断的一轮说"被打断"，不混进"失败"（进程重启不是抓取失败）', () => {
+  const line = summaryLine({ ...state, last_run: { ...state.last_run, status: 'interrupted' } })
+  assert.match(line, /上一轮 被打断/)
+  assert.doesNotMatch(line, /失败/, '被打断不许说成失败——那一轮没跑完，源可能一个都没事')
+})
+
+test('四种结局各有各的说法，未识别的状态不冒充"跑完"', () => {
+  const label = (status) => summaryLine({ ...state, last_run: { ...state.last_run, status } }).match(/上一轮 (\S+)/)[1]
+  assert.equal(label('done'), '跑完')
+  assert.equal(label('partial'), '部分源失败')
+  assert.equal(label('failed'), '失败')
+  assert.equal(label('interrupted'), '被打断')
+  assert.equal(label('running'), '在跑')
+  assert.equal(label('weird-new-status'), '失败', '没见过的状态按最坏的说，不谎报成功')
+})
+
 test('丢弃明细逐条可读，带标记的保留项单独出现', () => {
   const t = gapText(state.gaps)
   assert.match(t, /没命中主题 20/)

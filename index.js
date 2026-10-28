@@ -69,6 +69,24 @@ function num(v, dflt, max) {
 
 /* ---------------- 判断轮的触发注入（spec §10.2） ---------------- */
 
+/** 一轮的"在跑"判定窗口。正常一轮最多几分钟（bili/yt 每源 90s × 4 并发），30 分钟足够宽。 */
+const STALE_MS = 30 * 60000
+
+/**
+ * 库侧状态 + 新鲜度 → 对外呈现的状态。
+ * 'running' 但 started_at 已经老到不像还在跑 → 'interrupted'（被打断），不是 failed：
+ * 进程被重启/断电打断不是这一轮抓取失败，混进 failed 会冤枉源，也会让"上轮源全部正常"
+ * 这句话在被打断的那一轮上撒错谎。
+ * started_at 缺失或非数（手工插的行）按新鲜处理——宁可不放行，也不误放行并发清库。
+ */
+export function effectiveRunStatus(run, at) {
+  if (!run) return null
+  if (run.status !== 'running') return run.status
+  const started = Number(run.started_at)
+  if (!Number.isFinite(started) || started <= 0) return 'running'
+  return Number(at) - started >= STALE_MS ? 'interrupted' : 'running'
+}
+
 /** 注入有 ≤200 字的硬顶：标题与源 id 都不许整段放行，超长截断加省略号 */
 function clipText(s, n) {
   const t = String(s ?? '')
@@ -92,7 +110,7 @@ function failedSourceIds(run) {
  * 条目正文一字不进、URL 不进、themes/charter 等用户可编辑文本不进。
  * 候选 0 且无失败源时返回 null——不给会话添噪音，一句废话都不说。
  */
-function pendingSectionText(db) {
+function pendingSectionText(db, at = Date.now()) {
   const c = counts(db)
   const run = lastRun(db)
   const failed = failedSourceIds(run)
@@ -102,8 +120,12 @@ function pendingSectionText(db) {
     const top = candidates(db, 3).map((r) => clipText(r.title, 20) || '无标题')
     segs.push(`待判 ${c.new} 条（Top：${top.join('；')}）`)
   }
+  const status = effectiveRunStatus(run, at)
   if (failed.length) segs.push(`上轮源：失败 ${failed.join('；')}`)
-  else if (run && run.status !== 'running') segs.push('上轮源：全部正常')
+  // 正在跑的那一轮不评价源（还没结果）；被打断的那一轮也不能说"全部正常"——它没跑完，
+  // per_source 是空的，空不等于好。
+  else if (status === 'interrupted') segs.push('上轮源：被打断（未跑完，下一轮会补）')
+  else if (status && status !== 'running') segs.push('上轮源：全部正常')
   segs.push('可用工具：baleen_candidates / read_item / save_verdicts')
   return `Baleen：${segs.join('。')}。`
 }
@@ -281,7 +303,7 @@ export function apply(ctx, config = {}) {
       digest_count: db.prepare('SELECT COUNT(*) n FROM digests').get().n,
       digests: digestRows(latestDigests(db, 5)),
       last_run: prev ? {
-        id: prev.id, status: prev.status, at: prev.started_at, finished_at: prev.finished_at,
+        id: prev.id, status: effectiveRunStatus(prev, now()), at: prev.started_at, finished_at: prev.finished_at,
         candidates: prev.candidates, judged: prev.judged
       } : null,
       gaps,
@@ -296,14 +318,17 @@ export function apply(ctx, config = {}) {
   }
 
   /**
-   * "正在跑的一轮"以库侧状态为准：scheduler 的 busy 是私有闭包（createScheduler
-   * 返回的实例上没有），而 createRun 起手就写 'running'、finishRun 才收尾——
-   * lastRun 停在 'running' 正是抓取在写库的窗口，清库不与它并发。
-   * 边界：runOnce 半途崩溃会留一条 'running' 假尸，下一次跑完（含手动 /run）自动
-   * 愈合；这行防护挡的是并发，不是崩溃恢复。
+   * "正在跑的一轮"以库侧状态 + 时间戳新鲜度为准：scheduler 的 busy 是私有闭包
+   * （createScheduler 返回的实例上没有），而 createRun 起手就写 'running'、finishRun
+   * 才收尾——lastRun 停在 'running' 且时间还新，正是抓取在写库的窗口，清库不与它并发。
+   *
+   * 为什么要看时间戳：进程被重启打断时 finishRun 没机会跑，库里会留一条 finished_at
+   * 为 NULL 的 'running' 假尸，而它永远不会自己愈合——只看 status 的话，清库和清空库
+   * 会被一条早已死掉的记录 409 到底。超过 STALE_MS 就认定它死了，放行。
+   * 这里只读不写：真正的愈合留给下一轮 runOnce（它跑完会写新的 lastRun）。
    */
   function runningNow() {
-    return lastRun(db)?.status === 'running'
+    return effectiveRunStatus(lastRun(db), now()) === 'running'
   }
 
   async function handleApi(req, res) {
@@ -633,7 +658,7 @@ export function apply(ctx, config = {}) {
         text: () => {
           try {
             if (getPref().pref.inject_prompt === false) return ''
-            return pendingSectionText(db)
+            return pendingSectionText(db, now())
           } catch { return '' }
         }
       })

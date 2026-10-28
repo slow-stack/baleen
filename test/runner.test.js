@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import os from 'node:os'
-import { openStore, migrate, listSources, getCursor, candidates, counts, createFolder, setItemFolders } from '../lib/store.js'
+import {
+  openStore, migrate, listSources, getCursor, candidates, counts, createFolder, setItemFolders,
+  setSourceResult, upsertSource
+} from '../lib/store.js'
 import { runOnce, syncSources, planJobs } from '../lib/runner.js'
 import { fakeAdapter, rawOf, timeoutError } from './helpers/fake-adapter.js'
 
@@ -19,6 +22,10 @@ const pref = {
   ]
 }
 const dbOf = () => { const { db } = openStore(':memory:'); migrate(db); return db }
+
+// 三源的 interval_min 都是 60 分钟：想跑第二轮就得把时钟推过去，
+// 否则节流按设计就该跳过它——那是功能，不是 bug。
+const NEXT = 5000 + 60 * 60000
 
 const goodItems = () => [
   rawOf('ok', { external_id: 'a' }),
@@ -45,6 +52,39 @@ test('planJobs 只给启用的源，带上该源游标和本轮窗口终点', ()
   assert.equal(jobs[0].windowEnd, 5000)
 })
 
+test('interval_min 生效：没到间隔的源不排 job，失败过的源也照样按间隔等', () => {
+  const db = dbOf()
+  syncSources(db, pref)                       // 三源 interval_min 都是 60
+  assert.deepEqual(planJobs({ db, pref, now: () => 5000 }).map(j => j.source.id).sort(), ['bad', 'ok'],
+    '从没试过（last_attempt_at 为空）→ 放行，首轮该全抓')
+
+  // 坏源失败一次：last_attempt_at 也要写，否则它每 tick 都"到点"，节流对它等于没开
+  setSourceResult(db, 'bad', { ok: false, error_class: 'timeout', error: 'x', at: 5000 })
+  assert.deepEqual(planJobs({ db, pref, now: () => 5000 + 60 * 60000 - 1 }).map(j => j.source.id).sort(), ['ok'],
+    '差 1ms 到 60 分钟：坏源还得等（这就是修 86 条空转 partial 的那道闸）')
+  assert.deepEqual(planJobs({ db, pref, now: () => 5000 + 60 * 60000 }).map(j => j.source.id).sort(), ['bad', 'ok'],
+    '刚好 60 分钟 → 到点')
+})
+
+test('interval_min 是每源独立的：改一个源的频率只影响它自己', () => {
+  const db = dbOf()
+  syncSources(db, pref)
+  upsertSource(db, { id: 'ok', type: 'rss', url: 'https://e.com/feed', enabled: true, interval_min: 15, weight: 1 })
+  upsertSource(db, { id: 'bad', type: 'rss', url: 'https://e.com/bad', enabled: true, interval_min: 720, weight: 1 })
+  setSourceResult(db, 'ok', { ok: true, at: 5000 })
+  setSourceResult(db, 'bad', { ok: true, at: 5000 })
+  assert.deepEqual(planJobs({ db, pref, now: () => 5000 + 15 * 60000 }).map(j => j.source.id), ['ok'],
+    '15 分钟的到点了，720 分钟的没有')
+})
+
+test('interval_min 为 0 视为不节流（配置层不许，但库里被手改成 0 时不该永久停摆）', () => {
+  const db = dbOf()
+  syncSources(db, pref)
+  upsertSource(db, { id: 'ok', type: 'rss', url: 'https://e.com/feed', enabled: true, interval_min: 0, weight: 1 })
+  setSourceResult(db, 'ok', { ok: true, at: 5000 })
+  assert.ok(planJobs({ db, pref, now: () => 5001 }).some(j => j.source.id === 'ok'))
+})
+
 test('一轮：好源入库、坏源不推进游标、never 条目被预筛丢弃', async () => {
   const db = dbOf()
   const { runId, status, stats } = await runOnce({ db, pref, now: () => 5000, adapters: adapters(), trigger: 'manual' })
@@ -69,7 +109,7 @@ test('下一轮把上轮游标当 since；旧条目回来也只 update 不重复
   // 假适配器不做 since 过滤（那是 rss 适配器的职责，另有测试盯它），
   // 所以这里正好验证第二道防线：回来的旧条目不会变成第二行、也不会重新排队判断。
   const B = fakeAdapter('rss', { ok: { items: [rawOf('ok', { external_id: 'a', published_at: 4000 })] }, bad: { items: [] } })
-  const r2 = await runOnce({ db, pref, now: () => 9000, adapters: { rss: B }, trigger: 'schedule' })
+  const r2 = await runOnce({ db, pref, now: () => NEXT, adapters: { rss: B }, trigger: 'schedule' })
   assert.equal(sinceFor(B, 'ok'), 5000)
   assert.equal(sinceFor(B, 'bad'), null)
   assert.equal(r2.stats.inserted, 0)
@@ -82,11 +122,11 @@ test('坏源恢复后补齐缺口：因为游标一直是 null', async () => {
   const db = dbOf()
   await runOnce({ db, pref, now: () => 5000, adapters: adapters() })
   const fix = fakeAdapter('rss', { ok: { items: [] }, bad: { items: [rawOf('bad', { external_id: 'late', title: 'DSH 会话的注入点在哪' })] } })
-  const r = await runOnce({ db, pref, now: () => 9000, adapters: { rss: fix } })
+  const r = await runOnce({ db, pref, now: () => NEXT, adapters: { rss: fix } })
   assert.equal(sinceFor(fix, 'bad'), null)
   assert.equal(r.status, 'done')
   assert.ok(db.prepare("SELECT id FROM items WHERE external_id='late'").get())
-  assert.equal(getCursor(db, 'bad'), new Date(9000).toISOString())
+  assert.equal(getCursor(db, 'bad'), new Date(NEXT).toISOString())
 })
 
 test('全部源失败 → failed；只留一个启用的成功源 → done', async () => {
@@ -107,7 +147,7 @@ test('已 judged 的条目不会重新进入候选队列', async () => {
   await runOnce({ db, pref, now: () => 5000, adapters: adapters() })
   const [first] = candidates(db, 10)
   db.prepare("UPDATE items SET status='judged' WHERE id=?").run(first.id)
-  await runOnce({ db, pref, now: () => 9000, adapters: { rss: fakeAdapter('rss', { ok: { items: [rawOf('ok', { external_id: first.external_id, published_at: 8000 })] }, bad: { items: [] } }) } })
+  await runOnce({ db, pref, now: () => NEXT, adapters: { rss: fakeAdapter('rss', { ok: { items: [rawOf('ok', { external_id: first.external_id, published_at: 8000 })] }, bad: { items: [] } }) } })
   assert.ok(!candidates(db, 50).some(r => r.id === first.id))
 })
 
@@ -144,12 +184,13 @@ test('首轮 backlog 不看过期；之后按该源的过期窗过滤', async ()
   assert.equal(r1.stats.archived, 0)
 
   const B = fakeAdapter('rss', { slow: { items: [rawOf('slow', { external_id: 'x2', title: 'DSH 太老的文', published_at: 5000 - 400 * DAY })] } })
-  const r2 = await runOnce({ db, pref: p, now: () => 5000, adapters: { rss: B } })
+  // 每轮都要跨过 60 分钟间隔，否则第二轮被节流挡掉，压根测不到过期窗
+  const r2 = await runOnce({ db, pref: p, now: () => NEXT, adapters: { rss: B } })
   assert.equal(r2.stats.candidates, 0)          // 第二轮起才用 365 天窗
   assert.match(db.prepare("SELECT archived_reason FROM items WHERE external_id='x2'").get().archived_reason, /^stale:400 天前/)
 
   const C = fakeAdapter('rss', { slow: { items: [rawOf('slow', { external_id: 'x3', title: 'DSH 中年的文', published_at: 5000 - 200 * DAY })] } })
-  const r3 = await runOnce({ db, pref: p, now: () => 5000, adapters: { rss: C } })
+  const r3 = await runOnce({ db, pref: p, now: () => NEXT + 60 * 60000, adapters: { rss: C } })
   assert.equal(r3.stats.candidates, 1)          // 200 天在该源的窗内，全局 14 天被覆盖掉了
 })
 
@@ -238,7 +279,7 @@ test('fetch 选项带 knownIds：该源已入库 external_id 的 Set（bili/yt �
   await runOnce({ db, pref, now: () => 5000, adapters: adapters() })
   const seen = []
   await runOnce({
-    db, pref, now: () => 9000,
+    db, pref, now: () => NEXT,
     adapters: { rss: { type: 'rss', async fetch(source, opts) { seen.push({ id: source.id, knownIds: opts.knownIds }); return [] } } }
   })
   assert.equal(seen.length, 2)

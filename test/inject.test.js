@@ -45,10 +45,10 @@ function makeCtx(home) {
   }
 }
 
-const applyOf = async (home) => {
+const applyOf = async (home, nowFn = () => 1000) => {
   const ctx = makeCtx(home)
   const { apply } = await import('../index.js')
-  const baleen = apply(ctx, { now: () => 1000, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval })
+  const baleen = apply(ctx, { now: nowFn, setInterval: ctx.setInterval, clearInterval: ctx.clearInterval })
   return { ctx, baleen }
 }
 
@@ -153,6 +153,20 @@ test('候选 0 且无失败源时完全不注入：空库、全正常的一轮�
   assert.equal((await fireAssemble(ctx))?.sections.length ?? -1, 0, '全正常的一轮不该注入')
   createRun(baleen.db, 'schedule', () => 3000) // status='running'，per_source 还没落
   assert.equal((await fireAssemble(ctx))?.sections.length ?? -1, 0, '进行中的一轮不该注入')
+})
+
+test('被打断的一轮也不谎报「全部正常」：它没跑完，per_source 是空的', async () => {
+  const home = freshHome()
+  writePref(home)
+  const T = 1748000000000
+  const { ctx, baleen } = await applyOf(home, () => T)
+  seedItem(baleen.db)
+  // started_at 在 31 分钟前 → 判定为进程重启留下的假尸，即"被打断"
+  createRun(baleen.db, 'schedule', () => T - 31 * 60000)
+  const sec = sectionOf(await fireAssemble(ctx))
+  assert.ok(sec, '有候选该注入')
+  assert.ok(!sec.text.includes('上轮源：全部正常'), '没跑完的一轮不许说"全部正常"')
+  assert.match(sec.text, /被打断/)
 })
 
 test('进行中的一轮不谎报：有候选时照常注入，但没有「上轮源」段', async () => {

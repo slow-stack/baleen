@@ -1188,3 +1188,41 @@ test('抓取轮在跑时 cleanup 与 wipe 都 409 running：不删、不备份',
   assert.equal(baleen.db.prepare('SELECT COUNT(*) n FROM items').get().n, 1, '与抓取并发时动了库')
   assert.equal(fs.existsSync(path.join(home, 'backups')), false, '被 409 的危险操作不该先做备份')
 })
+
+test('陈旧 running 假尸不再挡住 cleanup / wipe：进程被重启打断留下的那条不该永久 409', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { now: () => T })
+  seedRich(baleen, { status: 'archived', fetched_at: T - 40 * DAY })
+  // 进程被重启打断：finishRun 没机会跑，库里留下 finished_at 为 NULL 的 'running' 假尸。
+  // 它永远不会自己愈合——只看 status 的话，清库会被一条早已死掉的记录挡到天荒地老。
+  baleen.db.prepare("INSERT INTO runs (started_at, trigger, status) VALUES (?, 'manual', 'running')").run(T - 31 * 60000)
+  const c = fakeRes()
+  await h({ url: '/api/dsh-baleen/cleanup', method: 'POST', ...bodyOf({ days: 30 }) }, c)
+  assert.equal(c.code, 200, '31 分钟前的 running 已经不算在跑，该放行')
+  assert.equal(JSON.parse(c.body).ok, true)
+  assert.equal(JSON.parse(c.body).removed, 1)
+  assert.equal(fs.existsSync(path.join(home, 'backups')), true, '放行之后备份该照做')
+})
+
+test('假尸的边界是 30 分钟：29 分钟前开始的 running 仍然挡，31 分钟的放行', async () => {
+  const fresh = async (agoMs) => {
+    const home = freshHome()
+    const { h, baleen } = await apiOf(home, { now: () => T })
+    baleen.db.prepare("INSERT INTO runs (started_at, trigger, status) VALUES (?, 'manual', 'running')").run(T - agoMs)
+    const c = fakeRes()
+    await h({ url: '/api/dsh-baleen/wipe', method: 'POST', ...bodyOf({ confirm: '清空库' }) }, c)
+    return c.code
+  }
+  assert.equal(await fresh(29 * 60000), 409, '29 分钟还在合理的一轮时长内，不许放行并发清库')
+  assert.equal(await fresh(31 * 60000), 200, '超过 30 分钟判定为被打断的假尸')
+})
+
+test('state().last_run.status 把陈旧 running 报成 interrupted，面板不会把它说成"失败"', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { now: () => T })
+  baleen.db.prepare("INSERT INTO runs (started_at, trigger, status) VALUES (?, 'schedule', 'running')").run(T - 40 * 60000)
+  const r = fakeRes()
+  await h({ url: '/api/dsh-baleen/state', method: 'GET' }, r)
+  assert.equal(r.code, 200)
+  assert.equal(JSON.parse(r.body).last_run.status, 'interrupted', '被打断不是失败，更不是"还在跑"')
+})

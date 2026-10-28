@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   openStore, migrate, setCursor, getCursor, upsertSource, listSources,
   createRun, patchRun, finishRun, lastRun, candidates, setStatus, counts,
-  getItemByKey, listItems, setSourceResult, knownExternalIds
+  getItemByKey, listItems, setSourceResult, knownExternalIds, judgedSince
 } from '../lib/store.js'
 
 const dbOf = () => { const { db } = openStore(':memory:'); migrate(db); return db }
@@ -66,6 +66,12 @@ test('老库补列：291d55d 时代的 sources 没有 max_age_days，migrate 后
   assert.equal(col.type, 'INTEGER')
   assert.equal(col.notnull, 0)
   assert.equal(col.dflt_value, null)
+  // 同一轮补列还得多补一个 last_attempt_at（interval_min 节流靠它），形状同上
+  const attempt = db.prepare('PRAGMA table_info(sources)').all().find(r => r.name === 'last_attempt_at')
+  assert.ok(attempt, '老库没有 last_attempt_at，migrate 要补上')
+  assert.equal(attempt.type, 'INTEGER')
+  assert.equal(attempt.notnull, 0)
+  assert.equal(attempt.dflt_value, null)
   db.close()
 })
 
@@ -94,14 +100,18 @@ test('upsertSource 镜像配置但不覆盖运行态', () => {
   db.close()
 })
 
-test('setSourceResult 失败时记录错误类别并保留上一次成功时间', () => {
+test('setSourceResult 失败时记录错误类别、保留上一次成功时间，但推进 last_attempt_at', () => {
   const db = dbOf()
   upsertSource(db, { id: 's1', type: 'rss', url: 'https://e.com/f' })
   setSourceResult(db, 's1', { ok: true, at: 100 })
-  setSourceResult(db, 's1', { ok: false, error_class: 'timeout', error: '超过 20000ms 无响应', at: 200 })
-  const [s] = listSources(db)
-  assert.equal(s.last_error_class, 'timeout')
+  let [s] = listSources(db)
   assert.equal(s.last_ok_at, 100)
+  assert.equal(s.last_attempt_at, 100, '成功也算一次尝试')
+  setSourceResult(db, 's1', { ok: false, error_class: 'timeout', error: '超过 20000ms 无响应', at: 200 })
+  ;[s] = listSources(db)
+  assert.equal(s.last_error_class, 'timeout')
+  assert.equal(s.last_ok_at, 100, 'last_ok_at 是"上次真的成功过"的证据，失败不许抹掉')
+  assert.equal(s.last_attempt_at, 200, '失败也是尝试过：节流按它算，否则坏源每 5 分钟重试一次')
   db.close()
 })
 
@@ -203,5 +213,20 @@ test('listItems 支持 status / kind / tier 组合筛选与分页', () => {
   assert.deepEqual(listItems(db, { status: 'archived' }), [])
   assert.equal(listItems(db, { limit: 1 }).length, 1)
   assert.equal(listItems(db, { limit: 1, offset: 1 }).length, 1)
+  db.close()
+})
+
+test('judgedSince 只数 since 之后落的 digest，坏 stats_json 跳过不炸', () => {
+  const db = dbOf()
+  const runId = createRun(db, 'schedule', () => 500)
+  const ins = db.prepare('INSERT INTO digests (run_id, created_at, headline, stats_json) VALUES (?, ?, ?, ?)')
+  ins.run(runId, 1000, 'h1', JSON.stringify({ judged: 3, tiers: {}, at: 1000 }))
+  ins.run(runId, 2000, 'h2', JSON.stringify({ judged: 5, tiers: {}, at: 2000 }))
+  ins.run(runId, 3000, 'h3', 'not json at all')
+  ins.run(runId, 4000, 'h4', JSON.stringify({ tiers: {} }))
+  ins.run(runId, 5000, 'h5', JSON.stringify({ judged: 0 }))
+  assert.equal(judgedSince(db, 0), 8, '3 + 5；坏行、缺字段、0 条都不该混进来')
+  assert.equal(judgedSince(db, 1500), 5, '只看 2000 之后：就剩 5 条')
+  assert.equal(judgedSince(db, 9999), 0, '窗口里什么都没有')
   db.close()
 })
