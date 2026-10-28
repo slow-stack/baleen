@@ -241,6 +241,6 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 
 **核对**：从远端重新 `git clone --mirror` 全量拉一遍，提交数 120、真名命中 0、HEAD 树哈希与改写前一致；CI 在新提交 `c6a55eb` 上 success；Release `v0.1.0` 仍正常挂在新 tag 上；npm 包不受影响（tarball 是发出去的不可变产物，`files` 白名单里本来就没有 `docs/`，真名从未进包）。
 
-**顺带查过的**：`vendor/bilibili-mcp/**` 历史里还有 BiliStalkerMCP 上游源码（MIT），其中的 `<UPSTREAM-AUTHOR-EMAIL>` 是**上游作者的**公开联系方式，不是本机的，保留；`SESSDATA=` / `bili_jct=` 命中的全是测试夹具假值（`SESSDATA=fake-value; bili_jct=fake`），无真 cookie；`sk-` 命中全是 `sk-control` 这个词本身。
+**顺带查过的**：`vendor/bilibili-mcp/**` 历史里还有 BiliStalkerMCP 上游源码（MIT），其中含上游作者的个人联系方式与账号名——这类**第三方的个人信息不该被我们长期保存**，已在历史改写中一并替换为占位符，只保留项目名与提交哈希做署名；`SESSDATA=` / `bili_jct=` 命中的全是测试夹具假值（`SESSDATA=fake-value; bili_jct=fake`），无真 cookie；`sk-` 命中全是 `sk-control` 这个词本身。
 
 **代价（如实）**：所有 commit hash 变了，任何已克隆的副本都会与远端分叉。改写时仓库 0 fork / 0 star、建库两天，实际影响为零。
