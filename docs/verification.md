@@ -193,3 +193,31 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 - 红线真机抽查：PUT 白名单无 tuning/version；凭据零回显（页面上只有状态行）；偏好读不到时整页只读（防半盲写）。
 - 偏好页签含 themes/redlines/schedule/limits/开关们/charter/tuning 一览与一键归零（客户端测试已钉，真机操作留给用户日常）。
 - **M5 验收：通过。** M0-M5 全部里程碑完成；余项：xhs（扫码+审查）、ASR（转写）、substack/medium 代理、若干 minor 分诊项。
+
+## 节流与配额：真机验收记录（2026-10-28，**通过**）
+
+上一版代码里 `interval_min` / `max_per_day` / `off_peak_only` 三个字段只在校验层和 UI 层出现，调度层一次都没读过；`runningNow()` 又只看 `status === 'running'`，重启打断留下的假尸会让清库路由永远 409。这一轮把四件事一起修了（`77dd578` `47949d2` `1afae73` `88d0ee2` `5c11aec` `aa863a6`），下面是真机上电后的实测。
+
+**修复前的库（作为对照）**：`runs` 共 102 行，其中 86 条 `partial`；最后 12 轮严格每 5 分钟一轮（run 99/100/101/102 的 `started_at` 间隔 300000ms）；run 24 与 run 101 是 `status='running'`、`finished_at IS NULL` 的假尸，分别起于 2 天前和 7 小时前。
+
+**上电**：重启宿主后诊断日志落新的 `plugin_loaded` + `tool_registered` ×6 + `pending_section_mounted`，`migrate()` 在加载时补列成功——`PRAGMA table_info(sources)` 从「没有 `last_attempt_at`」变为有（这就是老库的升级路径，无需手工迁移）。
+
+**首轮（run 103，手动触发）**：16:41:37 起、16:41:59 收，`partial`；五个源全部写入 `last_attempt_at = 16:41:59`（含两个 `network` 失败的源——失败也记账，这正是坏源不会每 5 分钟重试的原因）；三个成功的源同时写了 `last_ok_at`。
+
+**节流生效（用真代码直接打线上库，只读）**：
+
+| 断言 | 结果 |
+|---|---|
+| `anyDue(now)` | `false` |
+| `planJobs({now})` 不带 force | `0` 个 job |
+| `planJobs({now, force:true})` | `5` 个 job（手动触发保留全量能力） |
+| `anyDue(now + 720min)` / `planJobs(now + 720min)` | `true` / `5` 个 job |
+| 下一轮到点 | 当日 16:41:59 + 720 分钟 = 次日 04:41:59 |
+
+**空转消失**：重启后 4 小时以上，`runs` 一直停在 103，`SELECT COUNT(*) FROM runs WHERE id > 103` 为 0；诊断日志里 `run_idle` 计数为 0（空转轮按设计静默跳过，不写日志也不留 run 记录）。对照修复前同时段本该多出约 48 轮。
+
+**假尸放行**：run 24（起于 2026-10-26 07:20:32）与 run 101（起于 2026-10-28 07:50:38）在 `effectiveRunStatus(run, now)` 下均返回 `interrupted` 而非 `running`，清库/归档清理路由不再被这两条永远挂着。库里保留原始记录不删——判定在读取侧做，不动历史。
+
+**顺带**：id 41 的 Fireship 待判条目已判为「可以看」并经 `saveVerdicts` 落库（同时落一条 digest），`items` 状态从 `new 1 / judged 20` 变为 `judged 21 / new 0`。
+
+**未验（如实）**：`max_per_day` 的当日额度闸只在单测里钉住（`test/tools.test.js`），真机上当天判断量远低于 60，没有触发过截断——要等某天判得多才看得见；`off_peak_only` 关掉后的放行行为同样只有单测覆盖，真机偏好里它是开着的。
