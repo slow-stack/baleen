@@ -41,7 +41,7 @@ BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮�
 
 ## 数据放在哪
 
-插件运行后全部落在自己的家目录（默认 `~/.dsh/baleen/`，本机因 junction 实际在 D 盘；可用 `DSH_HOME` 或 `BALEEN_HOME` 覆盖）：
+插件运行后全部落在自己的家目录（默认 `~/.dsh/baleen/`，可用 `DSH_HOME` 或 `BALEEN_HOME` 覆盖）：
 
 ```
 preference.yaml     你编辑的偏好真源（themes / follow / sources / tuning）
@@ -80,6 +80,14 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 
 "Baleen" 在 NLP 圈已有同名 RSS 摄取项目（DistrictDataLabs/baleen 等），带 `dsh-` 前缀才是这个插件。
 
+## 安全
+
+本插件读本地库、只出只读路由，但它会替你持有 B 站 cookie。凭据怎么存、发现漏洞往哪报，见 [SECURITY.md](SECURITY.md)。
+
+## 参与
+
+改了代码想提上来，先看 [CONTRIBUTING.md](CONTRIBUTING.md)——里面有本机实测过的坑（CRLF、生成产物、宿主装配）和提交规范。
+
 ## 许可
 
-MIT。设计参考与第三方组件署名见后续 `NOTICE.md`（M4 vendor 时补）。
+Apache License 2.0，全文见 [LICENSE](LICENSE)。设计参考与第三方组件署名见后续 `NOTICE.md`（M4 vendor 时补）。

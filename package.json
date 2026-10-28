@@ -1,7 +1,7 @@
 {
   "name": "dsh-baleen",
   "version": "0.1.0",
-  "description": "信息源聚合 DSH 插件：定时摄取入库（RSS 为主、平台 MCP 为辅），本地预筛 + 三档判断 + 每轮增量汇报。彻底不做平台互动。",
+  "description": "信息源聚合 DSH 插件：定时摄取入库（RSS / B 站 / YouTube 三通道直连），本地预筛 + 三档判断 + 每轮增量汇报。彻底不做平台互动。",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -37,6 +37,8 @@
     "cordis.patch.yml",
     "AGENTS.md",
     "README.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
     "client.js",
     "src/client/",
     "tools/"
@@ -47,9 +49,9 @@
     "rss",
     "aggregation",
     "bilibili",
-    "xiaohongshu"
+    "youtube"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/slow-stack/baleen.git"
