@@ -4,7 +4,7 @@
 >
 > 名字来自鲸须——须鲸的滤食结构。这个产品做的同一件事。
 
-**当前状态：M1（摄取）、M2（面板）、M2.5（收藏页、抽屉多选收进夹）完成并已装载进 DSH 真机验收（六格导航、收藏页建删夹全流程实测通过）；M3（判断轮）代码完成——五个只读工具 + 唯一写工具 save_verdicts（三档枚举锁死）+ system-prompt 注入触发器 + 汇报视图接真 digest，真机会话实测待做。** 摄取侧：按计划抓 RSS 源 → 规范化入库 → 两级去重 → 本地预筛 → 记账。B 站/小红书通道在 M4，设置页在 M5。
+**当前状态：M0–M5 全部完成并已装载进 DSH 真机验收。** 摄取（RSS / B 站 / YouTube 三通道，读正文与字幕）→ 本地预筛 → 面板六格导航与收藏页 → 判断轮（五个只读工具 + 唯一写工具 save_verdicts，三档枚举锁死）→ 每轮增量汇报 → 设置页四页签，全链路真机跑过。小红书通道未做（需先做代码审查）。
 
 ## 看面板长什么样（不装 DSH、不联网）
 
@@ -20,7 +20,7 @@ open out/preview-today.html # 浏览器直接打开即可
 
 ```bash
 npm install            # 唯一依赖：yaml（纯 JS，无 install 脚本）
-npm test               # 399 个测试，node --test，不需要网络
+npm test               # 573 个测试，node --test，不需要网络
 cp preference.example.yaml ~/baleen-trial/preference.yaml   # 先自己建目录
 BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮公开 feed
 ```
@@ -51,14 +51,16 @@ logs/diagnostics.jsonl   脱敏后的运行日志
 run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被自动接管）
 ```
 
-不上传、不遥测、不含凭据（M4 接入小红书扫码后，凭据也只落这个目录）。
+不上传、不遥测。凭据只落这个目录（`credentials/`，B 站 cookie 用 `chmod 600` 保护，从不进仓库、不进日志），偏好里的 `themes` / `follow` 只在本机。
 
 ## 代码地图
 
 | 文件 | 责任 |
 |---|---|
 | `index.js` | 宿主半入口：装配、`/api/dsh-baleen` 只读路由、服务注册、调度启动 |
-| `lib/adapters/rss.js` | 唯一已实现的适配器；失败时抛 `status` / `empty` 供上层分类 |
+| `lib/adapters/rss.js` | RSS/Atom 适配器；失败时抛 `status` / `empty` 供上层分类 |
+| `lib/adapters/bili.js` `lib/adapters/bili-wbi.js` | B 站：纯 fetch 直连 + 自研 wbi 签名 + 风控指纹；字幕走 player/wbi/v2 |
+| `lib/adapters/yt.js` `lib/adapters/yt-captions.js` | YouTube：yt-dlp 直连取列表与字幕轨（轨间回退），已入库的 external_id 跳过重抓 |
 | `lib/feed.js` | RSS2 + Atom 容错解析（CDATA、坏日期、双重转义、时长三种写法） |
 | `lib/pool.js` | 并发 4、单 job 超时 20s、**重试固定 1 次**、错误分类 |
 | `lib/normalize.js` | RawItem → items 行：`kind` / `body_state` / 命中理由与得分 |
@@ -71,10 +73,8 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 
 ## 还没做
 
-- M3 headless 判断轮 + 每轮增量汇报
-- M4 B 站（纯 fetch 直连，wbi 签名自研）/ 小红书（扫码 MCP，需先做代码审查）/ YouTube
-- M5 DSH 设置页四页签
-- 装载进 DSH desktop profile（需要应用退出后操作，见 verification 文档）
+- 小红书通道（扫码 MCP 方案，需先做代码审查）
+- 汇报的图文排版（当前是 Markdown，图片位留白）
 
 ## 名字提示
 

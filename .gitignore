@@ -20,8 +20,3 @@ preference.live.yaml
 # SDD 过程台账与本地工具缓存，只留本机
 .superpowers/
 .v2c/
-
-# vendor 的 Python 安装产物（pip install -e / 本地 venv），不入库
-vendor/bilibili-mcp/.venv/
-vendor/bilibili-mcp/*.egg-info/
-vendor/bilibili-mcp/**/__pycache__/
