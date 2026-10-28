@@ -221,3 +221,26 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 **顺带**：id 41 的 Fireship 待判条目已判为「可以看」并经 `saveVerdicts` 落库（同时落一条 digest），`items` 状态从 `new 1 / judged 20` 变为 `judged 21 / new 0`。
 
 **未验（如实）**：`max_per_day` 的当日额度闸只在单测里钉住（`test/tools.test.js`），真机上当天判断量远低于 60，没有触发过截断——要等某天判得多才看得见；`off_peak_only` 关掉后的放行行为同样只有单测覆盖，真机偏好里它是开着的。
+
+## 公开历史脱敏：真名路径改写记录（2026-10-28）
+
+仓库转 public 后复查 commit 历史，发现 `a50f88c`（docs: M0+M1 实现计划）里有一行调试命令含本机家目录真名路径；`3a200ea` 是事后修这一行的提交，所以 `git log -S` 也会命中它。HEAD 树上早已是 `<USER>` 占位，只有历史里残留原文。已做历史改写。
+
+**改写前后对照**（`git filter-repo --replace-text`，规则：把本机用户名一律替换为 `<USER>` 占位）：
+
+| 项 | 改写前 | 改写后 |
+|---|---|---|
+| 提交数 | 120 | 120 |
+| `git log -S` 真名命中提交 | 2（a50f88c、3a200ea） | 0 |
+| 全历史 `git grep` 命中 | 55 个提交含该串 | 0 |
+| HEAD 树哈希 | `2ecfa50` | `2ecfa50`（逐字节相同） |
+| HEAD 提交 | `6342423` | `c6a55eb` |
+| `v0.1.0` tag 对象 | `a4fe0ea` → 指向 `b1d029c` | `e168d89` → 指向 `002a9f8` |
+
+**做法**：先在 `/tmp` 镜像里干跑（确认 120 提交不少、树哈希不变、tag 自动跟随），再备份完整镜像到 `/tmp/baleen-backup.git`，然后对本仓库执行改写。强推走 `--force-with-lease`（旧值 `6342423`），tag 同样带 lease 强推。改写期间临时删除 main 保护、推完按原参数恢复（`strict:true`、contexts 两个 matrix 作业名、`allow_force_pushes:false`、`allow_deletions:false`、`enforce_admins:false`）。
+
+**核对**：从远端重新 `git clone --mirror` 全量拉一遍，提交数 120、真名命中 0、HEAD 树哈希与改写前一致；CI 在新提交 `c6a55eb` 上 success；Release `v0.1.0` 仍正常挂在新 tag 上；npm 包不受影响（tarball 是发出去的不可变产物，`files` 白名单里本来就没有 `docs/`，真名从未进包）。
+
+**顺带查过的**：`vendor/bilibili-mcp/**` 历史里还有 BiliStalkerMCP 上游源码（MIT），其中的 `<UPSTREAM-AUTHOR-EMAIL>` 是**上游作者的**公开联系方式，不是本机的，保留；`SESSDATA=` / `bili_jct=` 命中的全是测试夹具假值（`SESSDATA=fake-value; bili_jct=fake`），无真 cookie；`sk-` 命中全是 `sk-control` 这个词本身。
+
+**代价（如实）**：所有 commit hash 变了，任何已克隆的副本都会与远端分叉。改写时仓库 0 fork / 0 star、建库两天，实际影响为零。
