@@ -1566,6 +1566,7 @@ window.__ModuleLoader__.load({
             onChange: (e) => onCharterDraft?.(e?.target?.value ?? '')
           })]
         }),
+        vnode('p', { className: 'bl-sethint' }, ['存下来但还没接进判断轮：现在没有任何环节读这段文字，改它不影响三档结果。']),
         SaveBtn({ text: '保存章程', disabled: readOnly || busy,
           onClick: () => onSave?.('charter', String(charterValue).replace(/\s+$/, ''), '章程已存') }),
 

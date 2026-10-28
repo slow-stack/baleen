@@ -228,6 +228,8 @@ test('偏好页其余各节：草稿回落现值，保存交整节；坏值（�
   assert.equal(byLabel(tree, '最大保留天数').props.value, '14')
   assert.equal(byLabel(tree, '跳过形态').props.value, 'note')
   assert.equal(byLabel(tree, '章程').props.value, '写给关心公共管理的人')
+  // 章程存得下但没人读：旁边必须写清楚，别让人以为填了有用
+  assert.match(text(tree), /还没接进判断轮/)
   // 各节保存把结构化的整节交出去
   btn(tree, '保存排除词').props.onClick()
   assert.deepEqual(saved.at(-1), ['redlines', ['广告代理', '引流私聊']])
