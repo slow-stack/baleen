@@ -20,7 +20,7 @@ open out/preview-today.html # 浏览器直接打开即可
 
 ```bash
 npm install            # 唯一依赖：yaml（纯 JS，无 install 脚本）
-npm test               # 577 个测试，node --test，不需要网络
+npm test               # 578 个测试，node --test，不需要网络
 cp preference.example.yaml ~/baleen-trial/preference.yaml   # 先自己建目录
 BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮公开 feed
 ```
