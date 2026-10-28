@@ -117,14 +117,16 @@ test('没有源到点时 tick 直接跳过，连锁都不拿：interval 720 的�
   upsertSource(db, { id: 'slow', type: 'rss', url: 'https://e.com/f', enabled: true, interval_min: 720, weight: 1 })
   setSourceResult(db, 'slow', { ok: true, at: at('08:00') })
   let fired = 0
+  const lines = []
   const lockFile = path.join(dirOf(), 'run.lock')
   const s = createScheduler({
     db, getPref: () => ({ pref, errors: [] }), runOnce: async () => { fired++; return { runId: 1, status: 'done', stats: {} } },
-    now: () => at('08:05'), log: () => {}, lockFile
+    now: () => at('08:05'), log: (e) => lines.push(e), lockFile
   })
   assert.deepEqual(s.tick(), { skipped: true, why: 'idle' })
   assert.equal(fired, 0, '没到点就不该开轮')
   assert.equal(fs.existsSync(lockFile), false, '空转连锁都不该拿')
+  assert.deepEqual(lines, [], '空转也不该留日志——一天 288 次 tick，记一行就等于把噪音搬进日志')
   // 12 小时后到点，照常跑（这次把时段窗放开，免得 window 先把它挡掉——测的是节流，不是窗）
   const open = { schedule: { windows: [], max_per_run: 10 } }
   const s2 = createScheduler({
