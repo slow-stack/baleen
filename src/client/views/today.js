@@ -22,7 +22,7 @@ import { reasonOf } from '../match.js'
 import { fmtDuration, judgeHint } from '../format.js'
 
 /** 一轮的结局 → 面板上的说法。'interrupted' 是进程被打断，不是抓取失败，得单独说。 */
-export const RUN_LABELS = {
+const RUN_LABELS = {
   done: '跑完',
   partial: '部分源失败',
   failed: '失败',
