@@ -54,6 +54,19 @@ test('不在窗内报 window；正在跑报 running；离上次太近报 too-soo
   db.close()
 })
 
+test('off_peak_only 关掉后时段窗不再拦：设置页那个复选框不是装饰', () => {
+  const db = dbOf()
+  // 窗外（20:00）+ 默认（缺省即 true）→ 拦
+  assert.equal(dueReason({ db, pref, now: () => at('20:00'), running: false }), 'window')
+  // 显式关掉 → 窗外也放行
+  const off = { schedule: { ...pref.schedule, off_peak_only: false } }
+  assert.equal(dueReason({ db, pref: off, now: () => at('20:00'), running: false }), null)
+  // 开着（true）与缺省行为一致，不许两种写法两种结果
+  const on = { schedule: { ...pref.schedule, off_peak_only: true } }
+  assert.equal(dueReason({ db, pref: on, now: () => at('20:00'), running: false }), 'window')
+  db.close()
+})
+
 test('triggerNow 无视时段窗，但受单实例锁约束', async () => {
   let runs = 0
   const slow = async () => { runs++; await new Promise(r => setTimeout(r, 30)); return { runId: 1, status: 'done', stats: {} } }
