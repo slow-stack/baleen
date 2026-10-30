@@ -300,4 +300,43 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 2. 探不到浏览器页签时**不传那个回调**，抽屉只摆一颗「浏览器打开」，并明说「侧栏浏览器这次没开起来（宿主的浏览器页签不在）」，不摆一颗点了没用的按钮。
 3. 侧栏打开失败（宿主版本没有这个 API）**退回系统浏览器**，不静默失败。
 
-**未验（如实）**：① 本机 desktop profile 的 `dsh.profile.bundles` 49 项里看不到 `ui-sidebar-browser`，但页签真机确实存在（bundles 列的是包名，装配路径不止一条）；Web profile 下该包默认关闭，Web 端这条路要额外开。② 档 A 的两颗按钮目前只有单测与预览门覆盖，**还没在真机上点过**。
+**未验（如实）**：① 本机 desktop profile 的 `dsh.profile.bundles` 49 项里看不到 `ui-sidebar-browser`，但页签真机确实存在（bundles 列的是包名，装配路径不止一条）；Web profile 下该包默认关闭，Web 端这条路要额外开。② 档 A 的两颗按钮目前只有单测与预览门覆盖，**还没在真机上点过**。（2026-10-31 已真机点过：双双哑火，见下文。）
+
+## 抽屉两颗打开按钮真机验收：双双哑火，根因两条（2026-10-31）
+
+销 2026-10-28 条目的未验②。前置：DSH 于 10-30 12:00 重启过，`dsh-baleen: link:D:/dsh-baleen` 挂在 desktop profile 的 `package.json`（`cordis.patch.yml` 里只剩 placement 条目——装配条目以 profile `package.json` 为准，本轮实测它没丢），运行代码即工作副本 v0.1.1；库 43 条，fireship 抽屉带真 URL 与真封面。
+
+**测法**：桌面自动化真点（坐标 event click；UIA AXPress 通道在独立窗口上频繁 `surface_replaced`，只作辅助），然后把 DevTools 停靠进主窗口，在 `dsh-app://app/` 页面的 console 里直探同一段调用。
+
+### 结果
+
+| 按钮 | 现象 | console 实证 |
+|---|---|---|
+| 浏览器打开 | 点击命中（按钮获焦），Chrome 零进程，无任何反应 | `window.open('https://…','_blank','noopener,noreferrer')` 返回 `null`，宿主 deny 弹窗且**不调** `shell.openExternal` |
+| 侧栏打开 | 同上，无任何反应 | `sidebarRight.openTab('browser',{params:{url}})` 抛 `sidebarRight: no session surface is mounted`；随后按设计回退到 window.open，被同一条路吞掉 |
+
+同抽屉的「关闭」按钮点击通路完好，排除"面板点击没接上"的可能；console 历史里也没有任何 baleen 侧的异常——两条失败路径都是**静默**的，正是 10-28 担心的那种。
+
+**反事实对照**：切一个聊天会话回主区（会话挂载）后，在同一个 console 里调同一个 `openTab`，成功——右栏弹出浏览器页签，YouTube 完整播放页真实渲染（频道、订阅数、点赞数、弹幕齐全，视频可放），与 10-28 的探通结论互证。
+
+### 根因
+
+1. **侧栏打开**：宿主 `SidebarRightController.require()` 要求"当前有会话挂载"，否则抛上句。Baleen 面板占据主区时**永远没有会话在屏**——从面板抽屉里这个调用注定失败，与宿主版本无关。
+2. **浏览器打开**：客户端页面（`dsh-app://app/`，主窗口里的 webview 客体，`webviewTag: primary`）的弹窗走客体管理器，静默 deny。asar 里带 `openExternal` 的 `setWindowOpenHandler` / `will-navigate` handler 属于别的窗口路径（内嵌充值页的 WebContentsView、带 webviewTag 的主窗口模板），对这个客体不生效。默认浏览器（Chrome）因此永远不会被拉起。
+
+两处与代码注释假设不符：
+
+- `_footer.txt` 注释赌「弹窗被拦：链接本身还点得开」——`will-navigate → openExternal` 那条路不在本客体上，原文 `<a>` 在客体里点了去哪**本次未验**（不敢拿真机页面试 `location` 跳转）。
+- `hasSidebarBrowser()` 探 `sidebarRightTabs` 里有没有 `'browser'`——实测这个键与 openTab 成败**无关**（键缺失时按钮照渲染；成功开页后键才出现），它预测不了"会话挂载"这个真正的门槛。
+
+### 修复方向（待拍板，先记不先动）
+
+- 侧栏打开：面板态下宿主侧无解。短期现实做法是探测不到"会话挂载"就不摆这颗按钮——但 `hasSidebarBrowser()` 现有探法测不出这个状态，得另找探针或干脆只留一颗按钮。
+- 浏览器打开：需要一条不经过 `window.open` 的出口。宿主若有开放的外链 IPC 就走它；没有的话桌面端这颗按钮只能先撤，留 `<a>` 链接（前提是 `<a>` 路径验通）。
+
+### 附带观察
+
+- 抽屉滚到底后数秒内会弹回顶部（疑似面板轮询重渲染导致抽屉重挂载、scrollTop 清零）。不影响本次结论，但长文抽屉的阅读会被打断，值得单开一条修。
+- UIA 元素动作通道（AXPress / `performSecondaryAction`）在本宿主上大面积 `surface_replaced`，坐标 event click 始终可靠——只影响自动化，不影响人手。
+
+**清理（如实）**：DevTools 已关（停靠后关闭）；实验开的两个侧栏浏览器页签已关；主区停在 Amarre 会话（验收前停在「查看仓库议题533…」，需要自己切回）；Amarre / Mentor 会话只是被切到过，没发过一个字。
