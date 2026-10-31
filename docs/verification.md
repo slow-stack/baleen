@@ -348,3 +348,10 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 至此抽屉的三条外部出路——侧栏打开、浏览器打开、原文链接——在当前宿主上**全部静默失效**。"只留链接"的处置选项随之作废，剩下的路：撤掉假动作换诚实的纯文本地址、或给宿主侧加一条只放行库内 URL 的 open-external 路由（真修，需拍板）。
 
 **未验（如实）**：同页导航（`location.href`）那条路没敢在真机上试——两种宿主窗口变体的 will-navigate 都会拦，但拦不住时整个客户端页面会被 YouTube 顶掉，代价不对等。
+
+### 处置落地（同日，拍板选了真修）
+
+- **宿主侧**：新增 `POST /api/dsh-baleen/open`。安全契约：面板只报 `item_id`，URL 由宿主从 `items` 表查——不接受调用方传地址；scheme 白名单 http/https 且拒带凭据的 URL（对齐宿主自己 openExternal 的守卫）；opener 走 `createRequire('electron')` 惰性解析，纯 Node 环境如实 500 `open_unavailable`。opener 可注入，三条拒绝路径与 opener 抛错各有单测（`host-surface.test.js`）。
+- **面板侧**：「浏览器打开」改走该路由（成功静默——浏览器自己会弹到前头；失败回显"宿主没能拉起系统浏览器，直接复制上面的地址吧"）；「侧栏打开」撤除（宿主开侧栏页签要求"有会话在前台"，面板在前台时永远不满足），按规矩留了一行说明；`<a>` 链接保留（URL 语义、右键复制仍可用，且在带 openExternal handler 的宿主变体上可点）。
+- **未验（如实）**：改动进了 `client.js` 与 `index.js`，link 挂载不等于热加载——**真机验收待重启 DSH 后点一次「浏览器打开」**，预期默认浏览器弹出该条目页；opener 在宿主主进程里能不能经 `createRequire('electron')` 拿到 `shell`，也只有重启后才见分晓（拿不到会是 500 open_unavailable + 回显，不会静默）。
+
