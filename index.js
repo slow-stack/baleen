@@ -32,17 +32,29 @@ const FOLDER_ACTIONS = new Set(['create', 'rename', 'delete'])
 /** store 抛的是短码（name_taken / bad_name / …），这里只负责翻成 HTTP 语义 */
 const FOLDER_ERRORS = { name_taken: 409, name_too_long: 400, bad_name: 400, no_folder: 404, default_folder: 403 }
 
-/** Electron 的 shell.openExternal：apply 跑在宿主主进程里，createRequire('electron')
- *  是标准互操作路；纯 Node（测试、live-ingest）拿不到，返回 null——/open 路由据此
- *  如实回 500 open_unavailable，而不是静默 ok。 */
-async function resolveOpenExternal() {
+/** 「浏览器打开」的 opener 解析链：① 注入（测试/明确指定）；② Electron 的
+ *  shell.openExternal（apply 若跑在宿主主进程里，createRequire('electron') 拿得到）；
+ *  ③ Windows 兜底 rundll32 走 ShellExecute → 默认浏览器（本机 2026-10-31 实证：
+ *  Start-Process 同一条 ShellExecute 路能拉起 Edge）。都拿不到返回 null——/open
+ *  路由据此如实回 500 open_unavailable，而不是静默 ok。
+ *  rundll32 的 exit code 不可靠，只当"发得出去"；真开不开由系统关联决定。 */
+async function resolveOpenExternal(log) {
   try {
     const { createRequire } = await import('node:module')
     const electron = createRequire(import.meta.url)('electron')
     if (electron && typeof electron.shell?.openExternal === 'function') {
       return (url) => electron.shell.openExternal(url)
     }
-  } catch { /* 非 Electron 环境 */ }
+  } catch (e) {
+    log?.({ level: 'info', event: 'open_external_opener', detail: `electron 不可用（${String(e?.code ?? e?.message ?? e).slice(0, 40)}），退回系统 rundll32` })
+  }
+  if (process.platform === 'win32') {
+    return (url) => new Promise((resolve, reject) => {
+      const child = spawn('rundll32', ['url.dll,FileProtocolHandler', url], { stdio: 'ignore' })
+      child.on('error', reject)
+      child.on('spawn', () => resolve())
+    })
+  }
   return null
 }
 
@@ -307,11 +319,12 @@ export function apply(ctx, config = {}) {
   const probeYtDlp = makeYtDlpProbe({ spawnImpl: config.spawnImpl ?? spawn, getPref, now })
 
   // 「浏览器打开」的出口（终审真修）：面板只报条目 id，这里查库取 URL 再交系统浏览器。
-  // opener 可注入（测试）；默认走 Electron，惰性解析一次并缓存。
+  // opener 可注入；config 里显式给 null = 明确没有出口（测试里钉"缺席"行为用），
+  // 键缺席才走 Electron → rundll32 的解析链，解析一次并缓存。
   let openerPromise = null
   const getOpener = () => {
-    if (typeof config.openExternal === 'function') return Promise.resolve(config.openExternal)
-    if (!openerPromise) openerPromise = resolveOpenExternal()
+    if (Object.hasOwn(config, 'openExternal')) return Promise.resolve(config.openExternal)
+    if (!openerPromise) openerPromise = resolveOpenExternal(log)
     return openerPromise
   }
 

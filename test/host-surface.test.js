@@ -1263,9 +1263,14 @@ test('POST /open 的拒绝路径：载荷坏、条目没了、scheme 出白名�
     assert.equal(res.code, code, JSON.stringify(req.rawBody || req.url))
     assert.equal(JSON.parse(res.body).error, err)
   }
-  // opener 缺席（本 harness 未注入，纯 Node 也拿不到 Electron）：库里条目再正经也如实 500
+  // opener 显式缺席（config 里 openExternal: null）：库里条目再正经也如实 500。
+  // （不给键会走 electron → rundll32 解析链，win32 测试机上真会去拉系统浏览器。）
+  const { h: hNoOpener, baleen: b2 } = await apiOf(freshHome(), { openExternal: null })
+  b2.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status)
+    VALUES ('s1', 'e1', 'article', 't', 'https://e.com/ok', 'full', 1000, 'new')`).run()
+  const idOk = b2.db.prepare('SELECT id FROM items ORDER BY id DESC LIMIT 1').get().id
   const res = fakeRes()
-  await h({ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: insert('https://e.com/ok') }) }, res)
+  await hNoOpener({ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: idOk }) }, res)
   assert.equal(res.code, 500)
   assert.equal(JSON.parse(res.body).error, 'open_unavailable')
 })
