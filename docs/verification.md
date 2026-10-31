@@ -363,3 +363,13 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 
 **未验（如实）**：兜底在**宿主进程里**的实际表现待二次重启后验收——预计 electron 仍不可达（诊断会记一条 `open_external_opener` 的退回理由），随后 rundll32 接管，点「浏览器打开」应看到默认浏览器弹出条目页。
 
+### 第二轮真机验收（同日二次重启后）：通过 ✅
+
+二次重启（15:40）后从库视图点「十月未央」抽屉的「浏览器打开」，三重证据：
+
+1. 诊断日志按预期先记 `open_external_opener | electron 不可用（MODULE_NOT_FOUND），退回系统 rundll32`，再记 `open_external | item#1 → innei.in`——解析链降级与成功分支各就各位；
+2. 无任何失败回显（成功按设计静默）；
+3. **Edge 弹出窗口，标题 `十月未央 - Innei - 个人 - Microsoft Edge`**——条目页真实打开。
+
+全链路：按钮 → POST `/open`（面板只报 id）→ 宿主查库 → opener 链（electron MODULE_NOT_FOUND → rundll32）→ ShellExecute → 默认浏览器。「浏览器打开」自此是活的；侧栏那条按"撤除 + 说明"处置完毕。验收过程不影响同时段在跑的宿主会话任务。
+
