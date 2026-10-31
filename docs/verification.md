@@ -340,3 +340,11 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 - UIA 元素动作通道（AXPress / `performSecondaryAction`）在本宿主上大面积 `surface_replaced`，坐标 event click 始终可靠——只影响自动化，不影响人手。
 
 **清理（如实）**：DevTools 已关（停靠后关闭）；实验开的两个侧栏浏览器页签已关；主区停在 Amarre 会话（验收前停在「查看仓库议题533…」，需要自己切回）；Amarre / Mentor 会话只是被切到过，没发过一个字。
+
+### 补：原文 <a> 链接同验（同日稍晚）
+
+上一节留的未验当场补掉。抽屉里那条 `<a class="bl-url" target="_blank" rel="noopener noreferrer">` 用 DevTools console 程序化点击（等价用户真点）：**同样无声无息**——页面不导航、Chrome 零进程、console 无报错。`target="_blank"` 走的正是 window-open 同一条路（客人 webview 的弹窗处理），与「浏览器打开」按钮殊途同归。`_footer.txt` 里"弹窗被拦：链接本身还点得开"的假设在本宿主上不成立。
+
+至此抽屉的三条外部出路——侧栏打开、浏览器打开、原文链接——在当前宿主上**全部静默失效**。"只留链接"的处置选项随之作废，剩下的路：撤掉假动作换诚实的纯文本地址、或给宿主侧加一条只放行库内 URL 的 open-external 路由（真修，需拍板）。
+
+**未验（如实）**：同页导航（`location.href`）那条路没敢在真机上试——两种宿主窗口变体的 will-navigate 都会拦，但拦不住时整个客户端页面会被 YouTube 顶掉，代价不对等。
