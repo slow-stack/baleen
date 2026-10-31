@@ -433,20 +433,22 @@ test('抽屉的过期归属覆盖真的消费读回数据：点一个勾再渲�
   } finally { rt.restore() }
 })
 
-// 档 A 的接线半边：抽屉那两颗按钮的回调是装配层给的，视图只负责摆。
-// 少接一根，抽屉里那颗按钮就是"点了没反应"——纯视图测试抓不到，因为视图的默认值是 undefined。
-test('抽屉的两条打开路都接在装配层上，且侧栏那条要探到页签才传（源码级）', () => {
+// 终审真修后的接线：抽屉的「浏览器打开」走宿主侧 /open 路由（面板只报条目 id），
+// 侧栏那颗已撤（宿主开侧栏页签要求"有会话在前台"，面板在前台时永远不满足——
+// 真机验收实证按钮活着也点不开，摆出来必是死按钮）。
+test('抽屉的打开路接线：按钮只报条目 id，侧栏接线撤干净（源码级）', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'src', 'client', '_footer.txt'), 'utf8')
-  assert.match(src, /onOpenUrl: openInBrowser/, '系统浏览器那条没接：抽屉里的按钮点了不会有任何反应')
-  // 括号要转义：不然 () 会被当成空分组，正则永远匹配不上（这条一开始就红在这儿）
-  assert.match(src, /onOpenSidebar: hasSidebarBrowser\(\) \? openInSidebar : null/,
-    '侧栏那条必须探到浏览器页签才传：探不到还传，等于摆一颗点了没用的按钮')
-  assert.match(src, /right.openTab\('browser', \{ params: \{ url \} \}\)/, '宿主的页签 API 是 openTab(\'browser\', { params: { url } })')
-  assert.match(src, /catch \{ openInBrowser\(url\) \}/, '侧栏开不起来要退回系统浏览器，不许静默失败')
+  assert.match(src, /onOpenUrl: \(url, itemId\) => runOpenExternal\(itemId\)/,
+    '「浏览器打开」没接到 /open 路由的封装上：按钮点了不会有任何反应')
+  assert.match(src, /api\.openItem\(itemId\)/, '取数面缺 openItem：runOpenExternal 空转')
+  assert.match(src, /宿主没能拉起系统浏览器/, '打开失败要给一句说出路的回显，不许静默')
+  assert.doesNotMatch(src, /onOpenSidebar|openInSidebar|hasSidebarBrowser|window\.open\(/,
+    '侧栏接线与 window.open( 调用撤干净：本宿主上它们都是点了没反应的死路（注释里提名词不算）')
   assert.doesNotMatch(src, /const inject = \[[^\]]*sidebarRight/, 'inject 里不许加 sidebarRight：宿主没提供时整个面板都不注册')
   const built = fs.readFileSync(path.join(process.cwd(), 'client.js'), 'utf8')
-  assert.equal(built.includes('onOpenSidebar: hasSidebarBrowser() ? openInSidebar : null'), true,
+  assert.equal(built.includes('onOpenUrl: (url, itemId) => runOpenExternal(itemId)'), true,
     'client.js 是生成的：改了源没跑 node tools/build-client.mjs')
+  assert.equal(built.includes("['侧栏打开']"), false, '侧栏按钮不许再出现在产物里（说明文案里提它不算）')
 })
 
 test('抽屉里真的画出了可点的原文链接（渲染级，不只看源码有没有写）', async () => {

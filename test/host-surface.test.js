@@ -1228,3 +1228,58 @@ test('state().last_run.status 把陈旧 running 报成 interrupted，面板不�
   assert.equal(r.code, 200)
   assert.equal(JSON.parse(r.body).last_run.status, 'interrupted', '被打断不是失败，更不是"还在跑"')
 })
+
+test('POST /open：面板只报条目 id，URL 由宿主查库取并交给注入的 opener', async () => {
+  const opened = []
+  const { h, baleen } = await apiOf(freshHome(), { openExternal: async (u) => { opened.push(u) } })
+  baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status)
+    VALUES ('s1', 'e1', 'video', 't', 'https://www.bilibili.com/video/BV1xx', 'subtitle', 1000, 'new')`).run()
+  const id = baleen.db.prepare('SELECT id FROM items ORDER BY id DESC LIMIT 1').get().id
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: id }) }, res)
+  assert.equal(res.code, 200)
+  assert.equal(JSON.parse(res.body).ok, true)
+  assert.deepEqual(opened, ['https://www.bilibili.com/video/BV1xx'])
+})
+
+test('POST /open 的拒绝路径：载荷坏、条目没了、scheme 出白名单、带凭据的 URL、opener 缺席各说各话', async () => {
+  const { h, baleen } = await apiOf(freshHome())
+  const insert = (url) => {
+    baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status)
+      VALUES ('s1', @eid, 'article', 't', @url, 'full', 1000, 'new')`).run({ eid: 'e' + Math.random(), url })
+    return baleen.db.prepare('SELECT id FROM items ORDER BY id DESC LIMIT 1').get().id
+  }
+  const cases = [
+    [{ url: '/api/dsh-baleen/open', method: 'POST', rawBody: '{坏' }, 400, 'bad_payload'],
+    [{ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: '7' }) }, 400, 'bad_payload'],
+    [{ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: 99999 }) }, 404, 'no_item'],
+    [{ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: insert('ftp://e.com/x') }) }, 400, 'unsupported_scheme'],
+    [{ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: insert('javascript:alert(1)') }) }, 400, 'unsupported_scheme'],
+    [{ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: insert('https://user:pw@e.com/x') }) }, 400, 'unsupported_scheme']
+  ]
+  for (const [req, code, err] of cases) {
+    const res = fakeRes()
+    await h(req, res)
+    assert.equal(res.code, code, JSON.stringify(req.rawBody || req.url))
+    assert.equal(JSON.parse(res.body).error, err)
+  }
+  // opener 缺席（本 harness 未注入，纯 Node 也拿不到 Electron）：库里条目再正经也如实 500
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: insert('https://e.com/ok') }) }, res)
+  assert.equal(res.code, 500)
+  assert.equal(JSON.parse(res.body).error, 'open_unavailable')
+})
+
+test('POST /open 的 opener 抛错：如实 500 open_failed 并进诊断日志，URL 主机名可进日志（公开信息）', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, { openExternal: async () => { throw new Error('boom') } })
+  baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, fetched_at, status)
+    VALUES ('s1', 'e1', 'article', 't', 'https://e.com/x', 'full', 1000, 'new')`).run()
+  const id = baleen.db.prepare('SELECT id FROM items ORDER BY id DESC LIMIT 1').get().id
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/open', method: 'POST', ...bodyOf({ item_id: id }) }, res)
+  assert.equal(res.code, 500)
+  assert.equal(JSON.parse(res.body).error, 'open_failed')
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.match(blob, /"event":"open_external_failed"/, '失败要进诊断日志')
+})

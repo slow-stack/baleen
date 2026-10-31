@@ -32,6 +32,20 @@ const FOLDER_ACTIONS = new Set(['create', 'rename', 'delete'])
 /** store 抛的是短码（name_taken / bad_name / …），这里只负责翻成 HTTP 语义 */
 const FOLDER_ERRORS = { name_taken: 409, name_too_long: 400, bad_name: 400, no_folder: 404, default_folder: 403 }
 
+/** Electron 的 shell.openExternal：apply 跑在宿主主进程里，createRequire('electron')
+ *  是标准互操作路；纯 Node（测试、live-ingest）拿不到，返回 null——/open 路由据此
+ *  如实回 500 open_unavailable，而不是静默 ok。 */
+async function resolveOpenExternal() {
+  try {
+    const { createRequire } = await import('node:module')
+    const electron = createRequire(import.meta.url)('electron')
+    if (electron && typeof electron.shell?.openExternal === 'function') {
+      return (url) => electron.shell.openExternal(url)
+    }
+  } catch { /* 非 Electron 环境 */ }
+  return null
+}
+
 /**
  * /collect 自己的夹错误契约：no_folder 对齐 missing 扫描的 410（folder_gone 同源），
  * 不沿用 /folder 路由的 404。当前实际不可达——missing 扫描在前拦截，能把
@@ -292,6 +306,15 @@ export function apply(ctx, config = {}) {
   const credFile = path.join(dir, 'credentials', 'bili-cookie.txt')
   const probeYtDlp = makeYtDlpProbe({ spawnImpl: config.spawnImpl ?? spawn, getPref, now })
 
+  // 「浏览器打开」的出口（终审真修）：面板只报条目 id，这里查库取 URL 再交系统浏览器。
+  // opener 可注入（测试）；默认走 Electron，惰性解析一次并缓存。
+  let openerPromise = null
+  const getOpener = () => {
+    if (typeof config.openExternal === 'function') return Promise.resolve(config.openExternal)
+    if (!openerPromise) openerPromise = resolveOpenExternal()
+    return openerPromise
+  }
+
   function state() {
     const { pref, errors } = getPref()
     const prev = lastRun(db)
@@ -404,6 +427,36 @@ export function apply(ctx, config = {}) {
           if (code === 500) log({ level: 'error', event: 'collect_failed', detail: msg.slice(0, 60) })
           return json(res, code, { ok: false, error: code === 500 ? 'internal' : msg })
         }
+      }
+      if (sub === '/open' && req.method === 'POST') {
+        // 外链出口（终审真修）：URL 只从库里来，不接受调用方传入——面板报 item_id，
+        // 宿主查库取 url。scheme 白名单 http/https 且拒带凭据的 URL（对齐宿主自己
+        // openExternal 的守卫）；opener 缺席（非 Electron 环境）如实 500 而非静默 ok。
+        let body
+        try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || !Number.isInteger(body.item_id)) {
+          return json(res, 400, { ok: false, error: 'bad_payload' })
+        }
+        const row = db.prepare('SELECT url FROM items WHERE id = ? LIMIT 1').get(body.item_id)
+        if (!row) return json(res, 404, { ok: false, error: 'no_item' })
+        let parsed = null
+        try { parsed = new URL(row.url) } catch { return json(res, 400, { ok: false, error: 'unsupported_scheme' }) }
+        if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) {
+          return json(res, 400, { ok: false, error: 'unsupported_scheme' })
+        }
+        const opener = await getOpener()
+        if (typeof opener !== 'function') {
+          log({ level: 'error', event: 'open_external_failed', detail: `item#${body.item_id}: opener 缺席` })
+          return json(res, 500, { ok: false, error: 'open_unavailable' })
+        }
+        try {
+          await opener(parsed.href)
+        } catch (e) {
+          log({ level: 'error', event: 'open_external_failed', detail: `item#${body.item_id}: ${String(e?.message ?? e).slice(0, 60)}` })
+          return json(res, 500, { ok: false, error: 'open_failed' })
+        }
+        log({ level: 'info', event: 'open_external', detail: `item#${body.item_id} → ${parsed.host}` })
+        return json(res, 200, { ok: true })
       }
       if (sub === '/folders' && req.method === 'GET') {
         return json(res, 200, { ok: true, folders: listFolders(db) })

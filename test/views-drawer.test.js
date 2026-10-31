@@ -109,32 +109,24 @@ test('地址不是 http/https 时整段不画：没有链接也没有打开按�
   }
 })
 
-test('宿主有侧栏浏览器时给两条路，没有时只给系统浏览器并说明为什么', () => {
-  const both = findAll(Drawer({ item: item(), api: {}, onOpenUrl: () => {}, onOpenSidebar: () => {} }), 'bl-openbtns')[0]
-  const labels = both.children.map((b) => text(b))
-  assert.deepEqual(labels, ['侧栏打开', '浏览器打开'])
-
-  const only = Drawer({ item: item(), api: {}, onOpenUrl: () => {} })
-  const btns = findAll(only, 'bl-openbtns')[0].children.map((b) => text(b))
+test('打开路只有系统浏览器一颗按钮，且明说侧栏为什么不在（2026-10-31 真机验收后撤）', () => {
+  const tree = Drawer({ item: item(), api: {}, onOpenUrl: () => {} })
+  const btns = findAll(tree, 'bl-openbtns')[0].children.map((b) => text(b))
   assert.deepEqual(btns, ['浏览器打开'])
-  assert.match(text(only), /侧栏浏览器这次没开起来/, '少一条路要说清是宿主的页签不在，不是我们忘了做')
+  assert.match(text(tree), /侧栏打开在面板里开不出来/, '撤掉侧栏按钮要说清原因，不是悄悄少了一颗')
+  assert.doesNotMatch(text(tree), /侧栏浏览器这次没开起来/, '旧文案（页签不在）已不成立：页签在也开不出来')
 })
 
-test('两颗按钮各自把真地址交给回调', () => {
+test('浏览器打开把真地址与条目 id 一起交给回调（id 是宿主查库取 URL 的钥匙）', () => {
   const got = []
   const tree = Drawer({
-    item: item({ url: 'https://www.bilibili.com/video/BV1xx' }),
+    item: item({ id: 42, url: 'https://www.bilibili.com/video/BV1xx' }),
     api: {},
-    onOpenUrl: (u) => got.push(['browser', u]),
-    onOpenSidebar: (u) => got.push(['sidebar', u])
+    onOpenUrl: (u, id) => got.push([u, id])
   })
-  const btns = findAll(tree, 'bl-openbtns')[0].children
-  btns[0].props.onClick()
-  btns[1].props.onClick()
-  assert.deepEqual(got, [
-    ['sidebar', 'https://www.bilibili.com/video/BV1xx'],
-    ['browser', 'https://www.bilibili.com/video/BV1xx']
-  ])
+  const btn = findAll(tree, 'bl-openbtns')[0].children[0]
+  btn.props.onClick()
+  assert.deepEqual(got, [['https://www.bilibili.com/video/BV1xx', 42]])
 })
 
 test('关闭按钮只负责关，不做别的', () => {

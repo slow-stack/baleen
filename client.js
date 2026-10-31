@@ -234,6 +234,9 @@ window.__ModuleLoader__.load({
           ...(typeof newFolder === 'string' && newFolder.trim() ? { new_folder: newFolder.trim() } : {})
         }),
         folderOp: (action, { id, name } = {}) => post('/folder', { action, ...(id != null ? { id } : {}), ...(name != null ? { name } : {}) }),
+        // 「浏览器打开」走宿主侧 /open：面板只报条目 id，URL 由宿主从库里取（终审真修——
+        // 本宿主把客户端页面的弹窗与外链全部静默拦下，window.open 与 <a target=_blank> 都到不了系统浏览器）。
+        openItem: (itemId) => post('/open', { item_id: itemId }),
         /* 设置页（settings.section）的取数与动作：GET 走 plainGet（不碰共享快照），写走 post/put */
         preferenceGet: () => plainGet('/preference'),
         preferencePut: (section, value) => put('/preference', { section, value }),
@@ -1000,7 +1003,7 @@ window.__ModuleLoader__.load({
     const namesOf = (item, folders, ids) => (ids ?? []).map((id) =>
       (folders ?? []).find((f) => f.id === id)?.name ?? `#${id}（这个夹已经没了）`).join(' / ') || '（现在不在任何夹里）'
 
-    function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {}, onOpenUrl, onOpenSidebar }) {
+    function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {}, onOpenUrl }) {
       async function fire(action) {
         let res = null
         try {
@@ -1063,8 +1066,6 @@ window.__ModuleLoader__.load({
       const body = typeof item.body_text === 'string' ? item.body_text.trim() : ''
       const hasFolders = (folders ?? []).length > 0
       const link = httpUrl(item.url)
-      // 宿主有没有侧栏浏览器页签，由装配层探好后传进来（探不到就是 false，只给一条路）
-      const canSidebar = Boolean(onOpenSidebar)
 
       return vnode('aside', { className: 'bl-drawer', role: 'dialog', 'aria-label': '条目详情' }, [
         vnode('header', { className: 'bl-dbar' }, [
@@ -1131,23 +1132,18 @@ window.__ModuleLoader__.load({
           }),
           // 原文地址：真的 <a href>。早先这里是 <p>，那句话"跳到浏览器里看"等于空头支票。
           // 地址不是 http/https 就整段不画——不拿一个点不动的假链接充数。
+          // （2026-10-31 真机验收：本宿主把客户端页面的弹窗与外链全部静默拦下，<a> 与
+          // window.open 都到不了系统浏览器——「浏览器打开」改走宿主侧 /open 路由，面板
+          // 只报条目 id、URL 由宿主从库里取；「侧栏打开」撤了：宿主开侧栏页签要求
+          // "当前有会话在前台"，面板在前台时永远不满足，摆出来必是死按钮。）
           link ? Section({
             title: '原文',
             children: [
               vnode('p', {}, [vnode('a', { className: 'bl-url', href: link, target: '_blank', rel: 'noopener noreferrer' }, [link])]),
-              // 侧栏浏览器每次都从全新分区起（宿主实现：随机 partition，无 persist:），
-              // 没登录态就只能看个开头。所以两条路都摆在明面上，由她自己选。
-              canSidebar
-                ? vnode('div', { className: 'bl-openbtns' }, [
-                  vnode('button', { type: 'button', onClick: () => onOpenSidebar?.(link) }, ['侧栏打开']),
-                  vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link) }, ['浏览器打开'])
-                ])
-                : vnode('div', { className: 'bl-openbtns' }, [
-                  vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link) }, ['浏览器打开'])
-                ]),
-              canSidebar
-                ? null
-                : vnode('p', { className: 'bl-note' }, ['侧栏浏览器这次没开起来（宿主的浏览器页签不在），只能走系统浏览器。'])
+              vnode('div', { className: 'bl-openbtns' }, [
+                vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link, item.id) }, ['浏览器打开'])
+              ]),
+              vnode('p', { className: 'bl-note' }, ['侧栏打开在面板里开不出来（宿主只认前台会话），到系统浏览器只有这一条路。'])
             ]
           }) : null,
           vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])
@@ -1780,30 +1776,10 @@ window.__ModuleLoader__.load({
       try { return (clientCtx && clientCtx.layout) || null } catch { return null }
     }
 
-    /**
-     * 打开原链接的两条路。侧栏那个是宿主原生 Browser 页签（实现里每次启动都是随机
-     * 新分区、没有登录态），系统浏览器是她自己那个——两条都摆出来，不替她选。
-     * 探测照 ds-bot 的写法：运行时 get + try/catch，**不往 inject 里加 sidebarRight**，
-     * 加了而宿主没提供的话整个面板都不注册（比少一颗按钮严重得多）。
-     */
-    function hasSidebarBrowser() {
-      try {
-        const tabs = safeGet('sidebarRightTabs')
-        return Boolean(tabs && tabs.get('browser'))
-      } catch { return false }
-    }
-
-    function openInBrowser(url) {
-      try { window.open(url, '_blank', 'noopener,noreferrer') } catch { /* 弹窗被拦：链接本身还点得开 */ }
-    }
-
-    function openInSidebar(url) {
-      const right = safeGet('sidebarRight')
-      try {
-        if (!right) throw new Error('no sidebarRight')
-        right.openTab('browser', { params: { url } })
-      } catch { openInBrowser(url) }
-    }
+    /** 打开原链接只剩一条路：宿主侧 /open 路由。2026-10-31 真机验收实证，本宿主把
+     *  客户端页面的弹窗与外链全部静默拦下（webview 客体的 window-open 处理），window.open
+     *  与 <a target=_blank> 都到不了系统浏览器，宿主侧页签又要求"有会话在前台"——面板
+     *  在前台时永远轮不上。所以「浏览器打开」只报条目 id，URL 由宿主从库里取。 */
 
     /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。
      *  六个值全是视图本身：收藏页要多带的夹列表、草稿与二次确认态由 Panel 在调用时并进 props
@@ -2023,6 +1999,15 @@ window.__ModuleLoader__.load({
           (e) => { setCollecting(false); throw e }
         )
       }
+      // 「浏览器打开」：成功不需要说什么——浏览器自己会弹到前头；失败要说明白，
+      // 顺手给出路（复制地址）。清掉旧回显免得上一句收藏反馈还挂在上面。
+      function runOpenExternal(itemId) {
+        if (!Number.isInteger(itemId)) return Promise.resolve()
+        return api.openItem(itemId).then(
+          () => setFeedbackMsg(''),
+          () => setFeedbackMsg('宿主没能拉起系统浏览器，直接复制上面的地址吧。')
+        )
+      }
       return h('div', { className: 'bl-root' }, [
         // 外壳三件（Nav / TopBar / NotReady）与视图同构，都产纯对象，所以一律经 toElement，
         // 不能 h(Nav)：函数组件返回普通对象的话，真 React 会直接抛"Objects are not valid as a React child"。
@@ -2038,9 +2023,7 @@ window.__ModuleLoader__.load({
             collecting,
             newFolderName,
             onNewFolderName: setNewFolderName,
-            onOpenUrl: openInBrowser,
-            // 探不到浏览器页签就不传：抽屉按"有没有这个回调"决定摆几颗按钮，不会摆出一颗点了没用的
-            onOpenSidebar: hasSidebarBrowser() ? openInSidebar : null,
+            onOpenUrl: (url, itemId) => runOpenExternal(itemId),
             onClose: () => { setFeedbackMsg(''); setNewFolderName(''); dispatch({ type: 'close-drawer' }) },
             onDone: (r) => {
               setFeedbackMsg(r.message)
@@ -2300,7 +2283,7 @@ window.__ModuleLoader__.load({
     exports.__test = {
       PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER, viewQuery, NAV_ITEMS,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
-      hasSidebarBrowser, openInBrowser, openInSidebar,
+      scrollMemoNext, scrollRestoreTarget,
       scrollMemoNext, scrollRestoreTarget,
       reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView,
       SettingsView, SettingsPage, parseThemes, serializeThemes, splitThemes

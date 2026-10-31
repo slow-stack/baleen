@@ -78,7 +78,7 @@ export function drawerItemWithFolders(found, knownFolders) {
 const namesOf = (item, folders, ids) => (ids ?? []).map((id) =>
   (folders ?? []).find((f) => f.id === id)?.name ?? `#${id}（这个夹已经没了）`).join(' / ') || '（现在不在任何夹里）'
 
-export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {}, onOpenUrl, onOpenSidebar }) {
+export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {}, onOpenUrl }) {
   async function fire(action) {
     let res = null
     try {
@@ -141,8 +141,6 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
   const body = typeof item.body_text === 'string' ? item.body_text.trim() : ''
   const hasFolders = (folders ?? []).length > 0
   const link = httpUrl(item.url)
-  // 宿主有没有侧栏浏览器页签，由装配层探好后传进来（探不到就是 false，只给一条路）
-  const canSidebar = Boolean(onOpenSidebar)
 
   return vnode('aside', { className: 'bl-drawer', role: 'dialog', 'aria-label': '条目详情' }, [
     vnode('header', { className: 'bl-dbar' }, [
@@ -209,23 +207,18 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
       }),
       // 原文地址：真的 <a href>。早先这里是 <p>，那句话"跳到浏览器里看"等于空头支票。
       // 地址不是 http/https 就整段不画——不拿一个点不动的假链接充数。
+      // （2026-10-31 真机验收：本宿主把客户端页面的弹窗与外链全部静默拦下，<a> 与
+      // window.open 都到不了系统浏览器——「浏览器打开」改走宿主侧 /open 路由，面板
+      // 只报条目 id、URL 由宿主从库里取；「侧栏打开」撤了：宿主开侧栏页签要求
+      // "当前有会话在前台"，面板在前台时永远不满足，摆出来必是死按钮。）
       link ? Section({
         title: '原文',
         children: [
           vnode('p', {}, [vnode('a', { className: 'bl-url', href: link, target: '_blank', rel: 'noopener noreferrer' }, [link])]),
-          // 侧栏浏览器每次都从全新分区起（宿主实现：随机 partition，无 persist:），
-          // 没登录态就只能看个开头。所以两条路都摆在明面上，由她自己选。
-          canSidebar
-            ? vnode('div', { className: 'bl-openbtns' }, [
-              vnode('button', { type: 'button', onClick: () => onOpenSidebar?.(link) }, ['侧栏打开']),
-              vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link) }, ['浏览器打开'])
-            ])
-            : vnode('div', { className: 'bl-openbtns' }, [
-              vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link) }, ['浏览器打开'])
-            ]),
-          canSidebar
-            ? null
-            : vnode('p', { className: 'bl-note' }, ['侧栏浏览器这次没开起来（宿主的浏览器页签不在），只能走系统浏览器。'])
+          vnode('div', { className: 'bl-openbtns' }, [
+            vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link, item.id) }, ['浏览器打开'])
+          ]),
+          vnode('p', { className: 'bl-note' }, ['侧栏打开在面板里开不出来（宿主只认前台会话），到系统浏览器只有这一条路。'])
         ]
       }) : null,
       vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])
