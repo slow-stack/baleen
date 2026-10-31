@@ -44,5 +44,24 @@
 ## 待办
 
 - [ ] 拍板：按三前提接入 Go 候选 / 继续找更只读的候选 / v1 砍掉保留接口位
-- [ ] （若接入）重新完整克隆 `7797fd3` 并核对后续变更
-- [ ] （若接入）冒烟：官方 exe + `AUTH_TOKEN` + 回环绑定起服务，`check_login_status` → 真人扫码 → `search_feeds` 一次
+- [x] 重新完整克隆 `7797fd3` 并核对后续变更（2026-11-01：上游 main 无 `7797fd3` 之后的提交；release v2.5.5 与 HEAD 的 7 个安全面文件——main/middleware/routes/mcp_server/cookies/browser_download/service——逐一 raw 比对**完全一致**，审查结论对官方 exe 直接适用）
+- [x] 冒烟：官方 exe + token + 回环绑定起服务，`check_login_status` → 真人扫码 → `search_feeds` 一次（2026-11-01，结果见下）
+
+## 冒烟结果（2026-11-01，官方 exe v2.5.5，本机）
+
+**环境与完整性**：`xiaohongshu-mcp-windows-amd64.exe` v2.5.5，size 15,612,416 = 官方 API size，sha256 与官方 digest `cb55674f…` 一致。运行参数 `-port 127.0.0.1:18060 -token <随机48位>` + `COOKIES_PATH` 指到冒烟目录——回环绑定与凭据收敛两条前提实测可行（审查三前提之 ②③ 的落点）。
+
+**通过的步骤**：
+1. 首启自动下载内置浏览器 148.0.7778.215（带 SHA256SUMS 校验），解压即用；
+2. `Registered 18 MCP tools` 与审查清单一字不差；`initialize` / `tools/list` / `tools/call` 全链路（官方 go-sdk 的 streamable HTTP + Bearer 鉴权）工作正常；
+3. `check_login_status`：如实返回未登录 → 扫码后如实返回已登录（headless 浏览器真实访问小红书探测）；
+4. `get_login_qrcode`：返回 PNG base64，扫码登录闭环可用；
+5. `search_feeds`：返回结构化 feeds（id / xsecToken / 标题 / 作者 / 互动数 / 封面）——正是摄取适配器需要的字段。
+
+**冒烟暴露的两个可用性坑（接入时要吸收）**：
+1. **Windows Defender 拦截 go-rod 的 leakless 助手**（`Trojan:Win32/Kepavll!rfn`，已知误报）：不加排除浏览器起不来。本次以窄排除 `%TEMP%\leakless-amd64-*` 解除（用户拍板，UAC 确认）。**接入时该排除要写进安装文档**；或 fork 时顺手 `Leakless(false)`（接入的 fork 反正要做，见三前提之 ①）。
+2. **`search_feeds` 冷启动超时**：首搜超过工具内部 60s 限时，rod panic 被服务端 panic-recovery 转成错误回显（不崩服务）；暖机重试即成功。摄取适配器的并发池本来就有"重试 1 次"纪律，天然吸收。
+
+**测试产物**（`D:\v3-xhs-smoke\`，与仓库隔离）：`repo/`（克隆，HEAD `7797fd3`）、`bin/`（digest 校验过的 exe）、`scripts/smoke.mjs`（MCP 探测脚本）、`runtime/`（服务日志、**cookies.json 含真实登录态**——不再冒烟时应删除，或保留供后续联调）。
+
+**结论**：三前提之 ②③ 已实测可落地，①（fork 裁剪写工具）仍待接入时做。可用性冒烟**通过**——余下的就是拍板：按三前提接入（fork 一次成型），还是 v1 先砍。
