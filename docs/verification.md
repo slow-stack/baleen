@@ -355,3 +355,11 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 - **面板侧**：「浏览器打开」改走该路由（成功静默——浏览器自己会弹到前头；失败回显"宿主没能拉起系统浏览器，直接复制上面的地址吧"）；「侧栏打开」撤除（宿主开侧栏页签要求"有会话在前台"，面板在前台时永远不满足），按规矩留了一行说明；`<a>` 链接保留（URL 语义、右键复制仍可用，且在带 openExternal handler 的宿主变体上可点）。
 - **未验（如实）**：改动进了 `client.js` 与 `index.js`，link 挂载不等于热加载——**真机验收待重启 DSH 后点一次「浏览器打开」**，预期默认浏览器弹出该条目页；opener 在宿主主进程里能不能经 `createRequire('electron')` 拿到 `shell`，也只有重启后才见分晓（拿不到会是 500 open_unavailable + 回显，不会静默）。
 
+### 第一轮真机验收（同日重启后）：路由链路对，opener 缺席——加兜底
+
+重启（11:26）后点「浏览器打开」：按钮命中、`item#1` 查库成功，但诊断日志记下 `open_external_failed | item#1: opener 缺席`——**插件进程里 `createRequire('electron')` 解析不到**（宿主把插件跑在什么进程形态里未取证，反正 electron 不可达），路由如实 500。同场加测还发现：**本机 Chrome 根本没装**（https 的 UserChoice 指向残留的 ChromeHTML ProgId），但系统级 ShellExecute 是通的——`Start-Process 'https://…'` 直接拉起 msedge，说明关联有兜底。
+
+处置：`resolveOpenExternal` 改成三级解析链——① 注入；② Electron `shell.openExternal`；③ Windows 兜底 `rundll32 url.dll,FileProtocolHandler`（走同一条 ShellExecute 路，`spawn` 精确复刻本机实证可拉起 Edge；exit code 不可靠，只当"发得出去"）。`config.openExternal` 语义收紧为 `hasOwn`：显式 `null` = 明确没有出口（"缺席"单测改走这条，不然 win32 测试真会去拉浏览器）。提交 `7f1d892`。
+
+**未验（如实）**：兜底在**宿主进程里**的实际表现待二次重启后验收——预计 electron 仍不可达（诊断会记一条 `open_external_opener` 的退回理由），随后 rundll32 接管，点「浏览器打开」应看到默认浏览器弹出条目页。
+
