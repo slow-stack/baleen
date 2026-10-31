@@ -67,7 +67,7 @@ export function lastFetchNote(stateSources, id) {
   const s = (stateSources ?? []).find((x) => x.id === id)
   if (!s) return '还没抓过（保存后下一轮才碰它）'
   if (s.ok) return '最近抓取：正常'
-  if (s.error_class === 'needs_login') return '最近抓取：需要重新登录（去「凭据与环境」贴 cookie）'
+  if (s.error_class === 'needs_login') return '最近抓取：需要重新登录（B 站贴 cookie / 小红书扫码，都在「凭据与环境」）'
   return `最近抓取：失败（${s.error_class ?? '未知'}），游标没推进，下轮自动补`
 }
 
@@ -347,7 +347,7 @@ export function PrefsTab({ pref, themesDraft, onThemesDraft, redlinesDraft, onRe
 /* ---------------- 页签三：凭据与环境 ---------------- */
 
 export function CredsTab({ cred, env, cookieDraft = '', onCookieDraft, onCookieSubmit,
-  diagText = null, onCopyDiag, busy = false }) {
+  diagText = null, onCopyDiag, busy = false, xhs = null, xhsQr = null, onXhsQr, onXhsStatus }) {
   const bili = cred?.bili
   const cookieStatus = bili == null
     ? 'B 站 cookie：状态还没读到'
@@ -362,6 +362,13 @@ export function CredsTab({ cred, env, cookieDraft = '', onCookieDraft, onCookieS
       `库大小：${fmtBytes(env.db_bytes)}`,
       `家目录：${env.home_writable === false ? '不可写（检查磁盘权限）' : '可写'}`
     ]
+  const xhsLine = xhs == null
+    ? '小红书：状态还没读到（点「刷新登录状态」，首次会拉起 MCP 子进程）'
+    : !xhs.configured
+      ? '小红书：MCP 未配置（preference.yaml 的 xhs.mcp_path 为空，通道不启用）'
+      : xhs.loggedIn
+        ? `小红书：已登录（${xhs.username || '用户名未知'}）`
+        : `小红书：未登录——${xhs.text || '点「扫码登录」'}`
   return vnode('div', { className: 'bl-setblock' }, [
     vnode('h4', {}, ['B 站凭据']),
     vnode('p', { className: 'bl-kv' }, [cookieStatus]),
@@ -376,9 +383,17 @@ export function CredsTab({ cred, env, cookieDraft = '', onCookieDraft, onCookieS
         SaveBtn({ text: '写入 cookie', disabled: busy || !String(cookieDraft).trim(), onClick: () => onCookieSubmit?.(cookieDraft) })
       ]
     }),
+    vnode('h4', {}, ['小红书（实验接入）']),
+    vnode('p', { className: 'bl-kv' }, [xhsLine]),
+    vnode('div', { className: 'bl-setrow' }, [
+      vnode('button', { type: 'button', className: 'bl-setsave', disabled: busy || undefined, onClick: () => onXhsQr?.() },
+        ['扫码登录（弹二维码，两分钟内有效）']),
+      vnode('button', { type: 'button', disabled: busy || undefined, onClick: () => onXhsStatus?.() },
+        ['刷新登录状态'])
+    ]),
+    xhsQr ? vnode('img', { src: xhsQr, className: 'bl-xhsqr', alt: '小红书登录二维码，用小红书 App 扫码' }) : null,
     vnode('h4', {}, ['环境']),
     vnode('ul', { className: 'bl-kv' }, envLines.map((l, i) => vnode('li', { key: i }, [l]))),
-    vnode('p', { className: 'bl-empty' }, ['小红书：未接入']),
     vnode('p', { className: 'bl-empty' }, ['转写依赖：未实现（随 ASR 一起）']),
     vnode('h4', {}, ['诊断']),
     vnode('div', { className: 'bl-setrow' }, [

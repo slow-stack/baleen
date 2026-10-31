@@ -325,6 +325,10 @@
       // 凭据页签
       const [cookieDraft, setCookieDraft] = React.useState('')
       const [diagText, setDiagText] = React.useState(null)
+      // 小红书（M6）：登录状态与扫码二维码。都是手动触发（探活会按需拉起 MCP 子进程，
+      // 挂载即打会让每次开设置页都 spawn 一个浏览器栈）。
+      const [xhsInfo, setXhsInfo] = React.useState(null)
+      const [xhsQr, setXhsQr] = React.useState(null)
       // 库页签
       const [cleanupDays, setCleanupDays] = React.useState('')
       const [askCleanup, setAskCleanup] = React.useState(false)
@@ -414,6 +418,28 @@
           return undefined
         })
       }
+      /** 小红书（M6）：登录态探活与扫码。成功失败都落在 xhsInfo/回显里，不静默。 */
+      function onXhsStatus() {
+        setBusy(true)
+        api.xhsStatus().then((r) => {
+          setBusy(false)
+          if (r.ok && r.data) setXhsInfo(r.data)
+          else setNote(`小红书状态没读到（${r.error || '宿主接口没应答'}）`)
+        })
+      }
+      function onXhsQr() {
+        setBusy(true)
+        api.xhsLoginQr().then((r) => {
+          setBusy(false)
+          if (r.ok && r.data && r.data.image) {
+            setXhsQr(r.data.image)
+            setXhsInfo({ configured: true, loggedIn: false, text: r.data.text })
+            setNote('二维码两分钟内有效——扫完点「刷新登录状态」')
+            return
+          }
+          setNote(`二维码没拿到（${r.error || '宿主接口没应答'}）`)
+        })
+      }
       /** 复制诊断：tail 已在服务端逐行脱敏；剪贴板拿不到就降级成文本块让人手动复制。 */
       function onCopyDiag() {
         api.diagTail(50).then((r) => {
@@ -479,6 +505,7 @@
         onSave: putSection,
         askResetTuning, onAskResetTuning: () => setAskResetTuning(true), onCancelResetTuning: () => setAskResetTuning(false), onResetTuning,
         cred, env, cookieDraft, onCookieDraft: setCookieDraft, onCookieSubmit, diagText, onCopyDiag,
+        xhs: xhsInfo, xhsQr, onXhsQr, onXhsStatus,
         home: hostState?.home ?? '<HOME>',
         cleanupDays, onCleanupDays: setCleanupDays, askCleanup, onAskCleanup: () => setAskCleanup(true), onCancelCleanup: () => setAskCleanup(false), onCleanup,
         wipeText, onWipeText: setWipeText, onWipe, onExport

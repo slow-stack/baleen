@@ -123,6 +123,8 @@ export const CSS = `
 .bl-setsave{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;align-self:flex-start}
 .bl-setsave:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .bl-setsave:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
+/* 小红书扫码二维码（M6）：PNG 自带白底（QR 可读性在图里），尺寸固定不参与伸缩 */
+.bl-xhsqr{width:180px;height:180px;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}
 .bl-setflag{display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:32px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .bl-setflag:hover{color:var(--dsw-alias-label-primary)}
 .bl-setflag input{width:14px;height:14px;flex:none;cursor:pointer;accent-color:var(--dsw-alias-brand-primary)}

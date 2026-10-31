@@ -82,7 +82,7 @@ test('apply 建好家目录、库与偏好文件，并注册服务与前缀路�
   assert.equal(ctx.provided.get('baleen'), baleen)
   assert.deepEqual(ctx.registered.map(r => r.path), ['/api/dsh-baleen'])
   assert.equal(ctx.registered[0].kind, 'prefix')
-  assert.deepEqual(ctx.effects, ['dsh-baleen: api', 'dsh-baleen: service', 'dsh-baleen: scheduler'])
+  assert.deepEqual(ctx.effects, ['dsh-baleen: api', 'dsh-baleen: service', 'dsh-baleen: scheduler', 'dsh-baleen: xhs-mcp'])
 })
 
 test('GET /state 返回可渲染的状态，家目录写成占位符', async () => {

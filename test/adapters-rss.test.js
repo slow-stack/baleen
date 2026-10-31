@@ -76,6 +76,6 @@ test('adapterFor 只认注册过的类型，大小写不敏感', () => {
   assert.equal(adapterFor('rss'), ADAPTERS.rss)
   assert.equal(adapterFor('RSS'), ADAPTERS.rss)
   assert.equal(adapterFor('bili'), ADAPTERS.bili)
-  assert.equal(adapterFor('xhs'), null)
+  assert.equal(adapterFor('xhs'), ADAPTERS.xhs)
   assert.equal(adapterFor(undefined), null)
 })

@@ -108,7 +108,7 @@ test('开关即交 id 与新值（装配层据此 PUT 全量 sources）', () => 
 
 test('最近抓取一句：正常 / 需要重新登录 / 还没抓过 / 失败游标不推进，四种说法不同', () => {
   assert.equal(lastFetchNote(HOST_STATE.sources, 'demo-longform'), '最近抓取：正常')
-  assert.equal(lastFetchNote(HOST_STATE.sources, 'bili'), '最近抓取：需要重新登录（去「凭据与环境」贴 cookie）')
+  assert.equal(lastFetchNote(HOST_STATE.sources, 'bili'), '最近抓取：需要重新登录（B 站贴 cookie / 小红书扫码，都在「凭据与环境」）')
   assert.equal(lastFetchNote(HOST_STATE.sources, 'rss-new'), '还没抓过（保存后下一轮才碰它）')
   assert.equal(lastFetchNote([{ id: 'x', ok: false, error_class: 'timeout' }], 'x'), '最近抓取：失败（timeout），游标没推进，下轮自动补')
   const tree = SettingsPage(pageProps({ tab: 'sources' }))
@@ -327,11 +327,26 @@ test('env-check 四行：node/yt-dlp/库大小/家目录，缺的说不缺的谎
   assert.match(unread, /环境探测还没读到/)
 })
 
-test('xhs 与 ASR 的诚实占位逐字：未接入不做假按钮', () => {
+test('xhs 已实验接入：状态行 + 扫码按钮；ASR 仍是诚实占位', () => {
   const t = text(SettingsPage(pageProps({ tab: 'creds' })))
-  assert.match(t, /小红书：未接入/)
-  assert.match(t, /转写依赖：未实现（随 ASR 一起）/)
-  assert.doesNotMatch(t, /扫码/)
+  assert.match(t, /小红书：状态还没读到/, '默认不探活（探活会拉起 MCP 子进程，手动触发）')
+  assert.match(t, /扫码登录（弹二维码，两分钟内有效）/, '扫码入口要有')
+  assert.match(t, /刷新登录状态/, '状态刷新入口要有')
+  assert.match(t, /转写依赖：未实现（随 ASR 一起）/, 'ASR 仍是诚实占位')
+  assert.doesNotMatch(t, /小红书：未接入/, '旧的未接入占位已替换')
+})
+
+test('xhs 状态行的三种形态：未配置 / 未登录 / 已登录', () => {
+  const unconfigured = text(SettingsPage(pageProps({ tab: 'creds', xhs: { configured: false, loggedIn: false, text: 'xhs.mcp_path 未配置（通道不启用）' } })))
+  assert.match(unconfigured, /MCP 未配置.*通道不启用/)
+  const out = text(SettingsPage(pageProps({ tab: 'creds', xhs: { configured: true, loggedIn: false, text: '请扫码' } })))
+  assert.match(out, /未登录——请扫码/)
+  const inok = text(SettingsPage(pageProps({ tab: 'creds', xhs: { configured: true, loggedIn: true, username: '冒烟机' } })))
+  assert.match(inok, /已登录（冒烟机）/)
+  // 二维码渲染
+  const qr = SettingsPage(pageProps({ tab: 'creds', xhsQr: 'data:image/png;base64,AAA' }))
+  const img = findAll(qr, 'bl-xhsqr')
+  assert.equal(img.length, 1, '二维码图要有且只有一个')
 })
 
 test('复制诊断：按钮在；clipboard 不行时降级成文本块（可手动复制）', () => {

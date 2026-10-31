@@ -237,6 +237,10 @@ window.__ModuleLoader__.load({
         // 「浏览器打开」走宿主侧 /open：面板只报条目 id，URL 由宿主从库里取（终审真修——
         // 本宿主把客户端页面的弹窗与外链全部静默拦下，window.open 与 <a target=_blank> 都到不了系统浏览器）。
         openItem: (itemId) => post('/open', { item_id: itemId }),
+        // 小红书（M6）：登录态探活与扫码登录。都是面板→宿主路由，不进 agent 工具面。
+        // 状态探活会按需拉起 MCP 子进程，所以是手动按钮触发而非挂载即打。
+        xhsStatus: () => plainGet('/xhs-status'),
+        xhsLoginQr: () => plainGet('/xhs-login-qr'),
         /* 设置页（settings.section）的取数与动作：GET 走 plainGet（不碰共享快照），写走 post/put */
         preferenceGet: () => plainGet('/preference'),
         preferencePut: (section, value) => put('/preference', { section, value }),
@@ -464,6 +468,8 @@ window.__ModuleLoader__.load({
     .bl-setsave{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;align-self:flex-start}
     .bl-setsave:hover{background:var(--dsw-alias-interactive-bg-hover)}
     .bl-setsave:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
+    /* 小红书扫码二维码（M6）：PNG 自带白底（QR 可读性在图里），尺寸固定不参与伸缩 */
+    .bl-xhsqr{width:180px;height:180px;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}
     .bl-setflag{display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:32px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}
     .bl-setflag:hover{color:var(--dsw-alias-label-primary)}
     .bl-setflag input{width:14px;height:14px;flex:none;cursor:pointer;accent-color:var(--dsw-alias-brand-primary)}
@@ -1352,7 +1358,7 @@ window.__ModuleLoader__.load({
       const s = (stateSources ?? []).find((x) => x.id === id)
       if (!s) return '还没抓过（保存后下一轮才碰它）'
       if (s.ok) return '最近抓取：正常'
-      if (s.error_class === 'needs_login') return '最近抓取：需要重新登录（去「凭据与环境」贴 cookie）'
+      if (s.error_class === 'needs_login') return '最近抓取：需要重新登录（B 站贴 cookie / 小红书扫码，都在「凭据与环境」）'
       return `最近抓取：失败（${s.error_class ?? '未知'}），游标没推进，下轮自动补`
     }
 
@@ -1632,7 +1638,7 @@ window.__ModuleLoader__.load({
     /* ---------------- 页签三：凭据与环境 ---------------- */
 
     function CredsTab({ cred, env, cookieDraft = '', onCookieDraft, onCookieSubmit,
-      diagText = null, onCopyDiag, busy = false }) {
+      diagText = null, onCopyDiag, busy = false, xhs = null, xhsQr = null, onXhsQr, onXhsStatus }) {
       const bili = cred?.bili
       const cookieStatus = bili == null
         ? 'B 站 cookie：状态还没读到'
@@ -1647,6 +1653,13 @@ window.__ModuleLoader__.load({
           `库大小：${fmtBytes(env.db_bytes)}`,
           `家目录：${env.home_writable === false ? '不可写（检查磁盘权限）' : '可写'}`
         ]
+      const xhsLine = xhs == null
+        ? '小红书：状态还没读到（点「刷新登录状态」，首次会拉起 MCP 子进程）'
+        : !xhs.configured
+          ? '小红书：MCP 未配置（preference.yaml 的 xhs.mcp_path 为空，通道不启用）'
+          : xhs.loggedIn
+            ? `小红书：已登录（${xhs.username || '用户名未知'}）`
+            : `小红书：未登录——${xhs.text || '点「扫码登录」'}`
       return vnode('div', { className: 'bl-setblock' }, [
         vnode('h4', {}, ['B 站凭据']),
         vnode('p', { className: 'bl-kv' }, [cookieStatus]),
@@ -1661,9 +1674,17 @@ window.__ModuleLoader__.load({
             SaveBtn({ text: '写入 cookie', disabled: busy || !String(cookieDraft).trim(), onClick: () => onCookieSubmit?.(cookieDraft) })
           ]
         }),
+        vnode('h4', {}, ['小红书（实验接入）']),
+        vnode('p', { className: 'bl-kv' }, [xhsLine]),
+        vnode('div', { className: 'bl-setrow' }, [
+          vnode('button', { type: 'button', className: 'bl-setsave', disabled: busy || undefined, onClick: () => onXhsQr?.() },
+            ['扫码登录（弹二维码，两分钟内有效）']),
+          vnode('button', { type: 'button', disabled: busy || undefined, onClick: () => onXhsStatus?.() },
+            ['刷新登录状态'])
+        ]),
+        xhsQr ? vnode('img', { src: xhsQr, className: 'bl-xhsqr', alt: '小红书登录二维码，用小红书 App 扫码' }) : null,
         vnode('h4', {}, ['环境']),
         vnode('ul', { className: 'bl-kv' }, envLines.map((l, i) => vnode('li', { key: i }, [l]))),
-        vnode('p', { className: 'bl-empty' }, ['小红书：未接入']),
         vnode('p', { className: 'bl-empty' }, ['转写依赖：未实现（随 ASR 一起）']),
         vnode('h4', {}, ['诊断']),
         vnode('div', { className: 'bl-setrow' }, [
@@ -2070,6 +2091,10 @@ window.__ModuleLoader__.load({
       // 凭据页签
       const [cookieDraft, setCookieDraft] = React.useState('')
       const [diagText, setDiagText] = React.useState(null)
+      // 小红书（M6）：登录状态与扫码二维码。都是手动触发（探活会按需拉起 MCP 子进程，
+      // 挂载即打会让每次开设置页都 spawn 一个浏览器栈）。
+      const [xhsInfo, setXhsInfo] = React.useState(null)
+      const [xhsQr, setXhsQr] = React.useState(null)
       // 库页签
       const [cleanupDays, setCleanupDays] = React.useState('')
       const [askCleanup, setAskCleanup] = React.useState(false)
@@ -2159,6 +2184,28 @@ window.__ModuleLoader__.load({
           return undefined
         })
       }
+      /** 小红书（M6）：登录态探活与扫码。成功失败都落在 xhsInfo/回显里，不静默。 */
+      function onXhsStatus() {
+        setBusy(true)
+        api.xhsStatus().then((r) => {
+          setBusy(false)
+          if (r.ok && r.data) setXhsInfo(r.data)
+          else setNote(`小红书状态没读到（${r.error || '宿主接口没应答'}）`)
+        })
+      }
+      function onXhsQr() {
+        setBusy(true)
+        api.xhsLoginQr().then((r) => {
+          setBusy(false)
+          if (r.ok && r.data && r.data.image) {
+            setXhsQr(r.data.image)
+            setXhsInfo({ configured: true, loggedIn: false, text: r.data.text })
+            setNote('二维码两分钟内有效——扫完点「刷新登录状态」')
+            return
+          }
+          setNote(`二维码没拿到（${r.error || '宿主接口没应答'}）`)
+        })
+      }
       /** 复制诊断：tail 已在服务端逐行脱敏；剪贴板拿不到就降级成文本块让人手动复制。 */
       function onCopyDiag() {
         api.diagTail(50).then((r) => {
@@ -2224,6 +2271,7 @@ window.__ModuleLoader__.load({
         onSave: putSection,
         askResetTuning, onAskResetTuning: () => setAskResetTuning(true), onCancelResetTuning: () => setAskResetTuning(false), onResetTuning,
         cred, env, cookieDraft, onCookieDraft: setCookieDraft, onCookieSubmit, diagText, onCopyDiag,
+        xhs: xhsInfo, xhsQr, onXhsQr, onXhsStatus,
         home: hostState?.home ?? '<HOME>',
         cleanupDays, onCleanupDays: setCleanupDays, askCleanup, onAskCleanup: () => setAskCleanup(true), onCancelCleanup: () => setAskCleanup(false), onCleanup,
         wipeText, onWipeText: setWipeText, onWipe, onExport

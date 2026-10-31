@@ -629,7 +629,7 @@ test('fetchBiliSubtitle：412 原样上浮；bvid 空 bad_source 零请求', asy
 test('adapterFor 注册 bili；parseSpaceUid/parseLength 按契约解析', () => {
   assert.equal(adapterFor('bili'), ADAPTERS.bili)
   assert.equal(adapterFor('Bili'), ADAPTERS.bili)
-  assert.equal(adapterFor('xhs'), null)
+  assert.equal(adapterFor('xhs'), ADAPTERS.xhs)
 
   assert.equal(parseSpaceUid('https://space.bilibili.com/946974'), '946974')
   assert.equal(parseSpaceUid('https://space.bilibili.com/946974?spm_id_from=x'), '946974')

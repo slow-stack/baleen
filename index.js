@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates, latestDigests, exportItems, wipeLibrary } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile, writePreference, readPreferenceRaw, clearTuningFile, validate } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
+import { stopXhsMcp, getXhsMcp } from './lib/mcp/xhs-client.js'
 import { createScheduler } from './lib/scheduler.js'
 import { makeLogger, redact } from './lib/diag.js'
 import { ensureHome } from './lib/paths.js'
@@ -471,6 +472,37 @@ export function apply(ctx, config = {}) {
         log({ level: 'info', event: 'open_external', detail: `item#${body.item_id} → ${parsed.host}` })
         return json(res, 200, { ok: true })
       }
+      if (sub === '/xhs-status' && req.method === 'GET') {
+        // 小红书登录态探活（面板→宿主，非 agent 工具）。MCP 未配置/起不来都走 200 + 说明
+        // 文本——面板据此显示状态行，不该让一次探活把设置页打成红错。
+        const pref = getPref()
+        if (pref.errors.length || !pref.pref?.xhs?.mcp_path) {
+          return json(res, 200, { ok: true, configured: false, loggedIn: false, text: 'xhs.mcp_path 未配置（通道不启用）' })
+        }
+        try {
+          const client = await getXhsMcp(pref.pref, log)
+          const login = await client.checkLoginStatus()
+          return json(res, 200, { ok: true, configured: true, loggedIn: login.loggedIn, username: login.username, text: login.raw })
+        } catch (e) {
+          return json(res, 200, { ok: true, configured: true, loggedIn: false, text: String(e?.message ?? e).slice(0, 200) })
+        }
+      }
+      if (sub === '/xhs-login-qr' && req.method === 'GET') {
+        // 扫码登录（面板→宿主）：宿主侧调 MCP 的 get_login_qrcode，PNG 以 dataURL 回面板。
+        const pref = getPref()
+        if (pref.errors.length || !pref.pref?.xhs?.mcp_path) {
+          return json(res, 503, { ok: false, error: 'xhs.mcp_path 未配置（通道不启用）' })
+        }
+        try {
+          const client = await getXhsMcp(pref.pref, log)
+          const r = await client.callTool('get_login_qrcode')
+          const img = r.images[0]
+          if (!img?.data) return json(res, 503, { ok: false, error: (r.texts.join(' ') || '二维码为空').slice(0, 160) })
+          return json(res, 200, { ok: true, image: `data:${img.mimeType ?? 'image/png'};base64,${img.data}`, text: r.texts.join(' ').slice(0, 160) })
+        } catch (e) {
+          return json(res, 503, { ok: false, error: String(e?.message ?? e).slice(0, 200) })
+        }
+      }
       if (sub === '/folders' && req.method === 'GET') {
         return json(res, 200, { ok: true, folders: listFolders(db) })
       }
@@ -745,6 +777,10 @@ export function apply(ctx, config = {}) {
     const handle = scheduler.start()
     return () => scheduler.stop(handle)
   }, 'dsh-baleen: scheduler')
+
+  // xhs 的 MCP 子进程（M6）：惰性拉起（配了 xhs 源且首次抓取才 spawn），禁用插件时
+  // 跟着停——没拉起过就是空操作。
+  ctx.effect(() => () => stopXhsMcp(), 'dsh-baleen: xhs-mcp')
 
   log({ level: 'info', event: 'plugin_loaded', detail: `M1 摄取侧就绪（只读路由 ${API_ROUTE}）` })
   return baleen

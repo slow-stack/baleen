@@ -124,6 +124,10 @@ export function createApi({ fetch: fetchImpl = globalThis.fetch, storage = globa
     // 「浏览器打开」走宿主侧 /open：面板只报条目 id，URL 由宿主从库里取（终审真修——
     // 本宿主把客户端页面的弹窗与外链全部静默拦下，window.open 与 <a target=_blank> 都到不了系统浏览器）。
     openItem: (itemId) => post('/open', { item_id: itemId }),
+    // 小红书（M6）：登录态探活与扫码登录。都是面板→宿主路由，不进 agent 工具面。
+    // 状态探活会按需拉起 MCP 子进程，所以是手动按钮触发而非挂载即打。
+    xhsStatus: () => plainGet('/xhs-status'),
+    xhsLoginQr: () => plainGet('/xhs-login-qr'),
     /* 设置页（settings.section）的取数与动作：GET 走 plainGet（不碰共享快照），写走 post/put */
     preferenceGet: () => plainGet('/preference'),
     preferencePut: (section, value) => put('/preference', { section, value }),
