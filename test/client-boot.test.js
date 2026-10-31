@@ -240,11 +240,10 @@ test('装配层真的把过期归属覆盖接在抽屉上（改回裸 found 这�
 function hookRuntime(React, Panel) {
   const orig = { useState: React.useState, useEffect: React.useEffect }
   const states = []
-  const pending = []
+  // 每个槽位一个 effect（真 React 的账按 hook 位次记，不假设只有一个）
+  const slots = []
   let cursor = 0
   let mounted = false
-  let lastDeps = null
-  let refire = null
   const sameDeps = (a, b) => Array.isArray(a) && Array.isArray(b)
     && a.length === b.length && a.every((x, i) => x === b[i])
   React.useState = (init) => {
@@ -253,19 +252,20 @@ function hookRuntime(React, Panel) {
     return [states[i], (v) => { states[i] = typeof v === 'function' ? v(states[i]) : v }]
   }
   React.useEffect = (fn, deps) => {
-    if (!mounted) { pending.push(fn); lastDeps = deps; return }
-    if (!sameDeps(deps, lastDeps)) { lastDeps = deps; refire = fn }
+    const i = cursor++
+    const slot = slots[i] || (slots[i] = { fn: null, deps: undefined, fire: false })
+    if (!mounted) { slot.fn = fn; slot.deps = deps; return }
+    if (!sameDeps(deps, slot.deps)) { slot.deps = deps; slot.fn = fn; slot.fire = true }
   }
   return {
     render() {
       cursor = 0
-      refire = null
       const tree = Panel()
       if (!mounted) {
         mounted = true
-        for (const fn of pending.splice(0)) fn()
-      } else if (refire) {
-        refire()
+        for (const slot of slots) if (slot && slot.fn) slot.fn()
+      } else {
+        for (const slot of slots) if (slot && slot.fire) { slot.fire = false; slot.fn() }
       }
       return tree
     },
@@ -562,4 +562,31 @@ test('settings.section 注册：meta 形状照 study-desk 实测（id/order/labe
 test('设置页取数装配真的挂在 SettingsView 上（__test 暴露，改回纯视图这条就红）', () => {
   const t = exportsOf(loadClient()).__test
   assert.equal(typeof t.SettingsView, 'function', 'SettingsView 得能从装配层里拿到，接线测试靠它')
+})
+
+test('抽屉滚动记忆：换条目从零起记，塌陷钳位读数不覆盖旧值', () => {
+  const { scrollMemoNext } = exportsOf(loadClient()).__test
+  // 正常滚动被记录
+  assert.deepEqual(scrollMemoNext({ id: 7, top: 0, max: 0 }, 7, 300, 534), { id: 7, top: 300, max: 534 })
+  // 内容塌陷瞬间的读数（top=0 而 max 为负）不覆盖——否则记忆会被弄丢它的那一下自己抹掉
+  assert.deepEqual(scrollMemoNext({ id: 7, top: 300, max: 534 }, 7, 0, -243), { id: 7, top: 300, max: 534 })
+  // 越过上限的野值也不记
+  assert.deepEqual(scrollMemoNext({ id: 7, top: 300, max: 534 }, 7, 900, 534), { id: 7, top: 300, max: 534 })
+  // 换了条目：从零起记，旧位置不带过去
+  assert.deepEqual(scrollMemoNext({ id: 7, top: 300, max: 534 }, 9, 120, 400), { id: 9, top: 0, max: 0 })
+})
+
+test('抽屉滚动回填：同条目且记忆更深、位置仍可达才回填', () => {
+  const { scrollRestoreTarget } = exportsOf(loadClient()).__test
+  const memo = { id: 7, top: 300, max: 534 }
+  // 被钳回 0 → 回到 300
+  assert.equal(scrollRestoreTarget(memo, 7, 0, 534), 300)
+  // 与记忆齐平（管线里捕捉每帧同步 memo，齐平即无需回填；"用户上滚"由捕捉端消化）
+  assert.equal(scrollRestoreTarget(memo, 7, 300, 534), null)
+  // 布局变了够不到 300 → 不回填
+  assert.equal(scrollRestoreTarget(memo, 7, 0, 200), null)
+  // 换了条目 → 不回填
+  assert.equal(scrollRestoreTarget(memo, 9, 0, 534), null)
+  // 记忆本来就是顶部 → 没什么可回
+  assert.equal(scrollRestoreTarget({ id: 7, top: 0, max: 534 }, 7, 0, 534), null)
 })

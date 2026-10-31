@@ -81,6 +81,28 @@
     /** 取数的请求序号（终审 C14）：只在工厂作用域，Panel 每帧重跑不能把它清零。 */
     let refreshSeq = 0
 
+    /** 抽屉滚动位置的记忆：宿主侧的重渲染会波及面板 DOM，把 .bl-dmain 的 scrollTop
+     *  钳回 0（2026-10-31 真机实证：同节点、scrollHeight 不变、scrollTop 归零，且面板
+     *  自己没有定时器——唯一执行源就是重渲染）。对策是渲染期捕捉提交前的位置、提交后
+     *  回填，重渲染从哪来都免疫。两个纯函数只算"记不记、回不回"，DOM 读写挂线在
+     *  Panel 里，Node 测试不碰 document。 */
+    let drawerScrollMemo = { id: null, top: 0, max: 0 }
+
+    /** 记忆更新：换条目从零记；同条目只记"自洽"的滚动（top 在 [0, 可滚上限] 内）——
+     *  内容塌陷瞬间的钳位读数（top=0 而 max 为负）不许覆盖旧值，否则记忆会被弄丢
+     *  它的那一下自己抹掉。 */
+    function scrollMemoNext(memo, id, top, max) {
+      if (id !== memo.id) return { id, top: 0, max: 0 }
+      if (top < 0 || top > max) return memo
+      return { id, top, max }
+    }
+
+    /** 回填判定：同一条目、记忆停得比现在深、且那个位置在当前布局下仍达得到，才回填。 */
+    function scrollRestoreTarget(memo, id, top, max) {
+      if (memo.id !== id || memo.top <= top || memo.top > max) return null
+      return memo.top
+    }
+
     function Panel() {
       // api 与首屏状态都得只建一次：useState 的惰性初始化是唯一入口（useMemo 在桩里等价于直接调）
       const [api] = React.useState(() => createApi({ fetch: globalThis.fetch, storage: globalThis.localStorage }))
@@ -138,6 +160,16 @@
         })
       }
       React.useEffect(() => { refresh() }, [snap.view, snap.filters.collections?.folder])
+      // 抽屉滚动回填（无依赖：每帧提交后都跑）。回调引用了下方才声明的 drawerOpen /
+      // snap——执行时它们已初始化。测试桩会执行 effect 且 document 是没有 querySelector
+      // 的假货，守卫要查到函数级。
+      React.useEffect(() => {
+        if (!drawerOpen || typeof document === 'undefined' || typeof document.querySelector !== 'function') return
+        const dmEl = document.querySelector('.bl-dmain')
+        if (!dmEl) return
+        const target = scrollRestoreTarget(drawerScrollMemo, snap.drawerItemId, dmEl.scrollTop, dmEl.scrollHeight - dmEl.clientHeight)
+        if (target != null) dmEl.scrollTop = target
+      })
 
       function onRun() {
         setBusy(true)
@@ -225,6 +257,15 @@
       // 所以收藏成功后要把服务端读回的归属覆盖上去——只覆盖抽屉这一条的展示，不改 data.items。
       // 覆盖规则抽成纯函数 drawerItemWithFolders（views/drawer.js），连点不互抹的不变量由测试钉住。
       const drawerItem = drawerItemWithFolders(found, knownFolders)
+      // 渲染期捕捉（提交前）：此刻的 scrollTop 还是上一帧的，正是上游重渲染可能弄丢的
+      // 那个值。抽屉刚开时 memo.id 不匹配，从零起记。测试桩的 document 是没有
+      // querySelector 的假货，守卫要查到函数级。
+      if (drawerOpen && typeof document !== 'undefined' && typeof document.querySelector === 'function') {
+        const dmEl = document.querySelector('.bl-dmain')
+        if (dmEl) {
+          drawerScrollMemo = scrollMemoNext(drawerScrollMemo, snap.drawerItemId, dmEl.scrollTop, dmEl.scrollHeight - dmEl.clientHeight)
+        }
+      }
       // 包一层 collecting：点一下即生效意味着连点会叠请求，全量替换下后到的旧集合会盖掉新决定。
       function runCollect(...args) {
         setCollecting(true)
@@ -511,6 +552,7 @@
       PANEL_ID, VIEW_KEY, API_BASE, SNAPSHOT_KEY, VIEWS, VIEW_RENDER, viewQuery, NAV_ITEMS,
       Nav, NotReady, TopBar, Panel, toElement, createApi, getLayout, safeGet,
       hasSidebarBrowser, openInBrowser, openInSidebar,
+      scrollMemoNext, scrollRestoreTarget,
       reduce, encodeState, decodeState, TodayView, Drawer, CollectionsView,
       SettingsView, SettingsPage, parseThemes, serializeThemes, splitThemes
     }
