@@ -49,7 +49,8 @@ const detailOf = (id, over = {}) => ({
   interactInfo: { likedCount: '12', collectedCount: '3', commentCount: '4' },
   time: 1793500000000, ...over
 })
-const SOURCE = { id: 'xhs-test', type: 'xhs', query: '测试' }
+const SOURCE = { id: 'xhs-test', type: 'xhs', url: 'https://www.xiaohongshu.com/search?query=' + encodeURIComponent('测试') }
+const SOURCE_QUERY_FIELD = { id: 'xhs-test', type: 'xhs', query: '测试' }
 const PREF = { xhs: { mcp_path: '', port: 18060 }, tuning: { source_delta: {} } }
 
 test('只读白名单：写平台工具在客户端就地拒绝，零 HTTP 往返', async () => {
@@ -90,6 +91,16 @@ test('mcp_missing：mcp_path 未配置时零副作用失败', async () => {
     fetchXhs(SOURCE, { pref: { xhs: { mcp_path: '', port: 18060 } }, mcp: null }),
     (e) => e.error_class === 'mcp_missing'
   )
+})
+
+test('关键词两种写法：url query 参数（表回传形态）与 query 字段（直调形态）', async () => {
+    const { client, restore } = withMockFetch({ searchFeeds: { feeds: [feedOf('k1')] }, detailFor: (args) => detailOf(args.feed_id) })
+    try {
+      const items = await fetchXhs(SOURCE_QUERY_FIELD, { pref: PREF, mcp: client })
+      assert.equal(items[0].external_id, 'k1')
+      const items2 = await fetchXhs({ id: 'x2', type: 'xhs', url: 'https://www.xiaohongshu.com/search?query=' + encodeURIComponent('咖啡') }, { pref: PREF, mcp: client })
+      assert.equal(items2[0].external_id, 'k1')
+    } finally { restore() }
 })
 
 test('摄取链路：搜索 → 逐条详情 → RawItem 映射（含 normalize 的 note 归类）', async () => {
