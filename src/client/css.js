@@ -99,6 +99,9 @@ export const CSS = `
 .bl-newfolder button:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
 .bl-kw{font-size:11px;color:var(--dsw-alias-label-secondary)}
 .bl-url{font-size:12px;color:var(--dsw-alias-brand-primary);word-break:break-all;text-decoration:underline}
+/* 内嵌播放器（V5）：16:9 自适应抽屉宽度；宿主不拦 iframe（真机实证），bilibili
+   试图跳出顶层会被 Chromium 自己拦下，无需 sandbox（加了反而杀播放器脚本） */
+.bl-player{width:100%;aspect-ratio:16/9;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
 .bl-openbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
 .bl-openbtns button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
 .bl-openbtns button:hover{background:var(--dsw-alias-interactive-bg-hover)}

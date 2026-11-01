@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Drawer, boundaryNote, feedbackHint, collectSetOf, drawerItemWithFolders } from '../src/client/views/drawer.js'
+import { Drawer, boundaryNote, playerEmbed, feedbackHint, collectSetOf, drawerItemWithFolders } from '../src/client/views/drawer.js'
 import { text, findAll } from './helpers/tree.mjs'
 
 const item = (over = {}) => ({
@@ -25,14 +25,48 @@ test('坏 match_json 不炸抽屉，按没写理由处理', () => {
   assert.match(text(Drawer({ item: item({ match_json: '{坏' }), api: {} })), /（这条没写理由）/)
 })
 
-test('能力边界按 kind 与源给不同说法，不许假装现在就能播，也不许预告一个没定下来的播放器', () => {
+test('能力边界按嵌入形态给说法：可嵌入=内嵌播放，解析不出=跳浏览器，其余说明内容边界', () => {
+  // b23.tv 短链解析不出 BV 号 → 跳浏览器
   const bili = boundaryNote(item({ kind: 'video', source_id: 'bili' }))
   assert.match(bili, /跳到浏览器里看/)
-  assert.doesNotMatch(bili, /M4 接入|可在抽屉内播/, '播放器 V5 才评估，抽屉不许许诺')
+  assert.doesNotMatch(bili, /M4 接入/, '旧文案（播放器没定下来）已过时：V5 实证后内嵌已落地')
   assert.match(boundaryNote(item({ kind: 'video', source_id: 'xhs' })), /只能跳/)
   assert.match(boundaryNote(item({ kind: 'article', source_id: 'substack', body_state: 'summary_only' })), /只给摘要/)
   assert.match(boundaryNote(item({ kind: 'video', body_state: 'burned_in' })), /硬字幕/)
   assert.match(boundaryNote(item({ kind: 'video', body_state: 'missing' })), /读不到/)
+  // 能解析出 BV 号 → 内嵌播放的说法（V5 实证后面板页 iframe 不被拦）
+  const embeddable = boundaryNote(item({ kind: 'video', source_id: 'bili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }))
+  assert.match(embeddable, /内嵌播放器在上方/)
+})
+
+test('playerEmbed：B 站 BV 号与 YouTube 两种嵌入形态，其余平台 null', () => {
+  assert.deepEqual(
+    playerEmbed('https://www.bilibili.com/video/BV1GJ411x7h7?p=3'),
+    { kind: 'bili', src: 'https://www.bilibili.com/video/BV1GJ411x7h7' }
+  )
+  assert.deepEqual(
+    playerEmbed('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42'),
+    { kind: 'youtube', src: 'https://www.youtube.com/embed/dQw4w9WgXcQ' }
+  )
+  assert.deepEqual(
+    playerEmbed('https://youtu.be/dQw4w9WgXcQ'),
+    { kind: 'youtube', src: 'https://www.youtube.com/embed/dQw4w9WgXcQ' }
+  )
+  assert.equal(playerEmbed('https://innei.in/notes/221'), null)
+  assert.equal(playerEmbed('https://b23.tv/x'), null, '短链解析不出 BV 号，不硬猜')
+  assert.equal(playerEmbed(''), null)
+})
+
+test('视频抽屉带内嵌播放 iframe（可嵌入时），文章抽屉不带', () => {
+  const video = Drawer({ item: item({ kind: 'video', source_id: 'bili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {} })
+  const player = findAll(video, 'bl-player')
+  assert.equal(player.length, 1)
+  assert.match(player[0].props.src, /bilibili\.com\/video\/BV1GJ411x7h7/)
+  const article = Drawer({ item: item({ kind: 'article' }), api: {} })
+  assert.equal(findAll(article, 'bl-player').length, 0, '文章没有播放器')
+  // 短链解析不出 → 不摆空壳 iframe
+  const short = Drawer({ item: item({ kind: 'video', source_id: 'bili' }), api: {} })
+  assert.equal(findAll(short, 'bl-player').length, 0)
 })
 
 test('视频条目的抽屉带时长（fmtDuration 同一写法，缺时长就整段不显示）', () => {

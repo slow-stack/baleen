@@ -32,12 +32,29 @@ export function feedbackHint(action) {
  * 早先只回一句的话，B 站硬字幕条目会被播放器的说法盖掉，看不出内容其实读不到。
  * 播放器 M4a 没做（V5 先探后定），所以这里不许预告任何接入时间——跳转就是现状。
  */
+/**
+ * 内嵌播放器（V5 真机实证 2026-11-01：面板页 iframe 不被宿主 CSP 拦）。
+ * B 站=完整页 iframe（bilibili 试图跳出顶层会被 Chromium 自动拦，实测无害；
+ * 官方 player.html 反而是空壳）；YouTube=官方 embed（作者关了嵌入的视频会显示
+ * YouTube 自己的提示，此时走「浏览器打开」）。其余平台返回 null。
+ */
+export function playerEmbed(url) {
+  const s = String(url ?? '')
+  const bili = /bilibili\.com\/video\/(BV[0-9A-Za-z]+)/.exec(s)
+  if (bili) return { kind: 'bili', src: 'https://www.bilibili.com/video/' + bili[1] }
+  const yt = /[?&]v=([0-9A-Za-z_-]{11})/.exec(s) || /youtu\.be\/([0-9A-Za-z_-]{11})/.exec(s)
+  if (yt && /youtube\.com|youtu\.be/.test(s)) return { kind: 'youtube', src: 'https://www.youtube.com/embed/' + yt[1] }
+  return null
+}
+
 export function boundaryNote(item) {
   const bits = []
   if (item?.kind === 'video') {
-    bits.push(item.source_id === 'bili'
-      ? 'B 站：抽屉内嵌播放器还没定下来，现在跳到浏览器里看。'
-      : '这个平台没有可靠的嵌入方案，只能跳到浏览器里看。')
+    bits.push(playerEmbed(item?.url)
+      ? '内嵌播放器在上方，直接看；弹幕和评论区要去原站。'
+      : item.source_id === 'bili'
+        ? '这个视频的地址解析不出嵌入形态，只能跳到浏览器里看。'
+        : '这个平台没有可靠的嵌入方案，只能跳到浏览器里看。')
   }
   if (LIMITS.has(item?.body_state)) bits.push(STATE_NOTE[item.body_state])
   return bits.join(' ')
@@ -141,6 +158,7 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
   const body = typeof item.body_text === 'string' ? item.body_text.trim() : ''
   const hasFolders = (folders ?? []).length > 0
   const link = httpUrl(item.url)
+  const embed = playerEmbed(item.url)
 
   return vnode('aside', { className: 'bl-drawer', role: 'dialog', 'aria-label': '条目详情' }, [
     vnode('header', { className: 'bl-dbar' }, [
@@ -173,6 +191,17 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
         ]
       }),
       item.verdict_why ? Section({ title: '会话的判断', children: [vnode('p', {}, [`为什么判成「${item.verdict_tier}」：${item.verdict_why}`])] }) : null,
+      // 内嵌播放（V5 实证可行）：视频且能解析出嵌入形态就直接在抽屉里放，
+      // 不把人跳去平台——须鲸的初衷是"在你待着的地方看"。
+      embed ? Section({
+        title: '内嵌播放',
+        children: [vnode('iframe', {
+          className: 'bl-player',
+          src: embed.src,
+          allow: 'autoplay; fullscreen',
+          allowfullscreen: true
+        })]
+      }) : null,
       boundaryNote(item) ? Section({ title: '能力边界', children: [vnode('p', {}, [boundaryNote(item)])] }) : null,
       Section({
         title: '收藏到…',
