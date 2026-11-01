@@ -152,10 +152,10 @@ test('knownIds 跳过发生在详情之前；每轮上限 12 条（预算分批�
   })
   try {
     const items = await fetchXhs(SOURCE, { pref: PREF, mcp: client, knownIds: new Set(['n1']) })
-    assert.equal(items.length, 12, '15 条新 - 1 已知 - 超量留给下轮 = 12')
-    assert.equal(detailIds.length, 12)
+    assert.equal(items.length, 6, '15 条新 - 1 已知 - 上限 6（余量分批留给下轮）')
+    assert.equal(detailIds.length, 6)
     assert.equal(detailIds.includes('n1'), false, '已知的不发详情')
-    assert.deepEqual(items.map((i) => i.external_id), Array.from({ length: 12 }, (_, i) => 'n' + (i + 2)), '从最旧的已知之后接着排')
+    assert.deepEqual(items.map((i) => i.external_id), ['n2', 'n3', 'n4', 'n5', 'n6', 'n7'], '从最旧的已知之后接着排')
   } finally { restore() }
 })
 
