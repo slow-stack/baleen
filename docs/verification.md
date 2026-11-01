@@ -373,3 +373,22 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 
 全链路：按钮 → POST `/open`（面板只报 id）→ 宿主查库 → opener 链（electron MODULE_NOT_FOUND → rundll32）→ ShellExecute → 默认浏览器。「浏览器打开」自此是活的；侧栏那条按"撤除 + 说明"处置完毕。验收过程不影响同时段在跑的宿主会话任务。
 
+
+## M6 小红书接入真机验收（2026-11-01 ～ 11-02）：通过 ✅
+
+按 `docs/superpowers/plans/2026-11-01-baleen-m6-xhs.md` 实施，四轮真机迭代收敛：
+
+| 轮 | 结果 | 修复 |
+|---|---|---|
+| 1 | bad_source：query 字段进不了 sources 表 | 关键词从 url 的 query 参数派生（`780ddc3`） |
+| 2 | 整源 timeout 90s（链路已通：MCP 拉起✓ 登录态继承✓ 搜索 20 条✓ 分批 12✓） | 预算 180s（`972acb7`） |
+| 3 | 180s 仍超时（12 条浏览器详情装不下） | 详情 6 条/轮 + 预算 300s（`937db1b`） |
+| 4 | **通过**：调度器自动跑（新源无游标即到期），6 条全部落库 | — |
+
+**终态证据**（baleen.sqlite）：xhs-aicoding 6 条（5 note + 1 video），body_state 如实（1 full / 5 summary_only），url 带 xsec_token，`last_error_class: null`、`last_ok_at` 已置；预筛过 5 条进候选待判；诊断链 `xhs_mcp_up` → `xhs_login_as`（登录态从冒烟环境 cookies 继承）→ `xhs_deferred`（分批）逐格对上。
+
+**接入形态**（三前提落点）：① 写工具防线取"客户端侧拒绝"——`XHS_READ_TOOLS` 白名单 9 个，白名单外零 HTTP 往返（单测钉住）；② 回环绑定 + 每 boot 随机 token（内存同源，不落盘）；③ 浏览器离线预置不适用本机（官方 exe 首启自下自校验），接入文档需写明 Defender 排除 `%TEMP%\leakless-amd64-*`。
+
+**顺带损伤与修复（如实）**：验收期间的两次无差别 node 进程清理 + 强杀，弄坏了两个 DSH 会话日志（3c7fb5eb、8570091a，同款 stale-seq 损伤），均已修复（备份在 recovery/），全库扫描其余会话无恙。教训入库：重启 DSH 一律优雅关窗。
+
+**未验（如实）**：候选 5 条的判断轮消费（等下一次会话判定自然发生）；「无标题」条目（详情缺 title 的回落显示已工作，是否要更优处理待用户反馈）；设置页加 xhs 源的表单（当前在 preference.yaml 手编）。
