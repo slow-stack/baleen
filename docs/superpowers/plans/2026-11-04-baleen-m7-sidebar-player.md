@@ -44,6 +44,9 @@ PANEL_BUTTON = '____'  # 'yes' | 'no'           ← 原生右栏若仍受"前台
 
 ### Task 1: 真机探针（P1–P4），只改文档不改代码
 
+> **第一轮已跑（2026-11-04，未重启）**：P2 与服务能力已定（`ctx.get('betterSidebar')` 可取、`openTab` 存在、内置 6 个 tab 类型里**没有**可复用的 browser/iframe tab）；P3/P1/P4 **未定**，判据被三个污染项废掉——详见 [docs/verification.md](../../verification.md) 的「M7 侧栏探针：第一轮结果」。
+> **下一轮开头必须先做**：① 确认 `bl-probe` 覆盖层与 `dsh-baleen:probe` 注册已随渲染进程重载消失（应用内 `Ctrl+R`，焦点要在应用而不是 DevTools 上）；② P3 判定一律**先关 DevTools 再看屏**（停靠的 DevTools 恰好压住 `openTab({meta})` 的落点：底部工作台）；③ 结论只看截图，不用 `innerText`/`querySelectorAll`；④ 点元素前用文本重新核对序号。
+
 **Files:**
 - Modify: `docs/verification.md`（V5 一节的未验项 + 新增「M7 探针记录」小节）
 - Modify: `docs/superpowers/specs/2026-11-04-baleen-m7-sidebar-player-design.md`（§2 的 D5、§3 表格的结论列）

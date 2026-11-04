@@ -407,3 +407,24 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 **落地**（`ca059aa`）：抽屉新增「内嵌播放」区——视频条目且 `playerEmbed(url)` 能解析出嵌入形态（B 站 BV 号 / YouTube v 参数 / youtu.be）就渲染 iframe（16:9，`bl-player`），不把人跳去平台；B 站短链（b23.tv）解析不出 BV 号不硬猜，仍走「浏览器打开」；能力边界文案按有无嵌入形态分别如实。iframe 不加 sandbox（会杀播放器脚本），bilibili 的顶层跳出由 Chromium 自拦。
 
 **未验（如实）**：内嵌播放器的真机点击验收（待 DSH 重启后：B 站抽屉里点播放、确认视频在 iframe 内开播）；B 站完整页 iframe 自带的相关推荐是"沉迷风险"的残留通道——bare player（player.html）目前是空壳，压掉它要等上游或 fork。
+
+## M7 侧栏探针：第一轮结果（2026-11-04，**部分，落点未定**）
+
+按计划 Task 1 在本机跑真机探针。**没有重启 DSH**：窗口树里 `dsh-baleen` 工作区有一条"进行中 处理 Issue #557 并合并 PR"，插件页同时显示"正在安装 1/2：安装 dsh-openwiki，更新 dsh-mobile-use 排队中"——宿主正在装插件时重启正是 AGENTS.md 记过的写坏 `cordis.patch.yml` 的场景，所以那一轮重启留着等她自己拍。手法：DevTools 停靠（`Ctrl+Shift+I` 直接落在底部，不需要再点 ⋮ 停靠）+ console 求值，结果用 `position:fixed` 覆盖层回读（`document.title` 会被应用的标题同步覆写，`console.log` 读不回文本）。
+
+| 探针 | 结论 | 证据 |
+|---|---|---|
+| P2 服务可达性 | **已定**：console 上下文里 `ctx.get('betterSidebar')` 返回 object；`ctx.betterSidebar` 属性访问抛 `cannot get property ... without inject` | 覆盖层文本 `P2\|ctx=object get=object prop=E:cannot get propert` |
+| P2 服务能力 | **已定**：`registerTab / registerFileViewer / registerFileIcon / getTabs / getFileViewers / getFileIcons / matchFileIcon / matchFolderIcon / fileIcon / folderIcon / getTab / isTabEnabled` 全是函数，`typeof openTab === 'function'` 另测确认 | 覆盖层 `P3R\|openTab=function` |
+| 生态先例 | **已定**：第三方 `dsh-mneme:memory` 与内置 `editor,git,subagent,sidechat,terminal-bottom,diff` 同表注册——baleen 走的是同一扇门，不是特例 | 覆盖层 `tabs=editor,git,subagent,sidechat,terminal-bottom,diff,dsh-mneme:memory` |
+| 有没有现成 iframe tab 可复用 | **已定：没有**。内置只有上面那 6 个类型，无 browser/媒体预览 tab，所以 §5.1 自研播放器 tab 省不掉 | 同上 |
+| P3-A `openTab({url})` | **未定**。调用不抛错，但画面里没有多出右侧栏 tab | 截图 + 覆盖层 `dispose=function`（页面没重载，说明不是"跑了另一个文档"） |
+| P3-B/C `openTab({meta})` | **未定**（判据被污染，见下） | — |
+| P1 抽屉真机播放 | **未验**（这一轮面板里开着的是 xhs 图文条目，没点到 B 站视频条目） | — |
+| P4 外链接管 | **未验**（本轮没点会话里的链接） | — |
+
+**这一轮为什么不能给 P3 定论（三条实测污染，下轮必须先避开）**：
+1. **停靠的 DevTools 就压在窗口底部**，而 `openTab` 不带 `path`/`url` 时的落点恰恰是 better-sidebar 自己的**底部工作台**——遮住了就看不见。下轮要么先关 DevTools 再开 tab，要么把 DevTools 改成右侧停靠后再判。
+2. console 求值所在的 document 与应用 UI **不是同一个渲染树**：`document.body.innerText.length` 在 414 / 914 / 9144 之间跳，`querySelectorAll('iframe')` 恒为 0（面板里明明渲染着东西）。所以"用 innerText 找 tab 标题"这类 DOM 判据在本机不可信，**只能看截图**。
+3. 我按无障碍树的元素序号点「Console 面板」时，序号在一次渲染后指到了应用左侧导航，把她的界面导到了「插件」页。**这轮留下的残留**：左上角一个白色调试框（`bl-probe` 覆盖层）+ 内存里一个已注册的 `dsh-baleen:probe` tab，两者都只在渲染进程里，`Ctrl+R` 重载即消失（我按的 Ctrl+R 被 DevTools 吃了，没生效）。**下轮开头先确认这两样清掉了**。
+4. 顺带记录（非本轮引入）：console 里长期有 400+ 条红色错误 `GET dsh-app://app/_dsh-notify-no/host-bridge 404` 与 `plugins/events ERR_FAILED`，出处写着 `client.js:4845`——宿主自身的通知/事件通道在报错，baleen 不碰这条，但它会把真机截图里的噪音放大，验收时别把它当插件的错。
