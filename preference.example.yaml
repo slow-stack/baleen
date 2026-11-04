@@ -72,6 +72,14 @@ require_theme_hit: true
 # 只注入计数、截断标题与工具名，不含条目正文；关掉它 = 关掉自动判断的入口（run_status 会如实反映）
 inject_prompt: true
 
+# 侧栏播放（M7，需要装 dsh-better-sidebar；没装则这两键无实际效果，面板照旧）
+# 会话里点 B 站 / YouTube 链接时，落进侧栏播放 tab 而不是系统浏览器。
+# 关掉 = 链接照旧开去系统浏览器，但侧栏 tab 本身还在，抽屉里的「侧栏播放」仍可用。
+sidebar_takeover: true
+# 侧栏播 B 站时裁掉完整页自带的相关推荐（初衷是别让人刷下去）。
+# 平台改版导致裁切错位、把播放控制条也遮住了，就用这个还原完整页。
+sidebar_crop: true
+
 # B 站字幕增强（可选）：credentials/bili-cookie.txt 放纯 Cookie 头文本（SESSDATA 等），
 # 不放也能跑（视频按无字幕抓取，baleen_subtitle 现取走匿名）。
 

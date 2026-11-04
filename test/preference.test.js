@@ -172,3 +172,11 @@ test('yt 源类型登记（M4b）：type 合法、url 要 http(s)；yt_dlp_path 
   assert.ok(validate({ network: 'x' }).some(e => e.startsWith('network')))
   assert.ok(validate({ network: { proxy: 7890 } }).some(e => e.startsWith('network.proxy')))
 })
+
+test('侧栏两个开关（M7）：默认都开，只收布尔', () => {
+  assert.equal(DEFAULTS.sidebar_takeover, true)
+  assert.equal(DEFAULTS.sidebar_crop, true)
+  assert.ok(validate({ sidebar_takeover: 'yes' }).some((e) => e.startsWith('sidebar_takeover')), '字符串必须拒')
+  assert.ok(validate({ sidebar_crop: 0 }).some((e) => e.startsWith('sidebar_crop')), '数字必须拒')
+  assert.deepEqual(validate({ sidebar_takeover: false, sidebar_crop: false }), [], '合法的假值要收')
+})

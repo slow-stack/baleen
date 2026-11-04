@@ -25,7 +25,7 @@ const ALLOWED_ACTIONS = { dismiss: -0.1, save: 0.1 }
  * tuning 只走 /feedback 与 /tuning-reset，version 没有升级路径可写。
  * yt_dlp_path / network 这类进阶键留给手编文件，页签不碰。
  */
-const PREF_SECTIONS = new Set(['sources', 'follow', 'themes', 'redlines', 'schedule', 'limits', 'charter', 'require_theme_hit', 'inject_prompt'])
+const PREF_SECTIONS = new Set(['sources', 'follow', 'themes', 'redlines', 'schedule', 'limits', 'charter', 'require_theme_hit', 'inject_prompt', 'sidebar_takeover', 'sidebar_crop'])
 
 /** 夹操作是白名单而不是 if 链：新加动作时漏了枚举就直接 400，不会悄悄走进某个分支 */
 const FOLDER_ACTIONS = new Set(['create', 'rename', 'delete'])

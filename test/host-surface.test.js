@@ -617,7 +617,9 @@ test('PUT /preference 每个白名单节的合法值都落盘，新 loadPreferen
     limits: { max_age_days: 7, min_duration_sec: 60, skip_kinds: ['note'] },
     charter: '只收长文',
     require_theme_hit: false,
-    inject_prompt: false
+    inject_prompt: false,
+    sidebar_takeover: false,
+    sidebar_crop: false
   }
   for (const [section, value] of Object.entries(sections)) {
     const res = fakeRes()
@@ -656,7 +658,8 @@ test('PUT /preference 校验不过：400 带错误清单，文件一个字节未
     { section: 'themes', value: [{ group: 'AI', weight: 9 }] },
     { section: 'sources', value: [{ id: 'a', type: 'rss', url: 'https://x/f' }, { id: 'a', type: 'rss', url: 'https://y/f' }] },
     { section: 'schedule', value: { windows: ['7am-9am'] } },
-    { section: 'require_theme_hit', value: 'yes' }
+    { section: 'require_theme_hit', value: 'yes' },
+    { section: 'sidebar_crop', value: 'nope' }
   ]
   for (const { section, value } of bad) {
     const res = fakeRes()
