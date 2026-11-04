@@ -316,6 +316,12 @@ export function PrefsTab({ pref, themesDraft, onThemesDraft, redlinesDraft, onRe
     flag('require_theme_hit', '没有命中任何主题组的条目直接丢弃', '关掉后全靠预筛分与源权重，条目会多很多', pref?.require_theme_hit),
     flag('inject_prompt', '每轮把待判清单注入会话（判断轮的触发器）', '关掉能省一点上下文', pref?.inject_prompt),
 
+    // 侧栏播放（M7）：这两个开关只在装了 dsh-better-sidebar 的机器上有实际效果，
+    // 没装就是不注册侧栏 tab、面板照旧——界面上要说清，别让人以为关了它就能装出功能。
+    vnode('h4', {}, ['侧栏播放（需要 dsh-better-sidebar）']),
+    flag('sidebar_takeover', '会话里点 B 站 / YouTube 链接时，落进侧栏播放而不是系统浏览器', '关掉后这些链接照旧开去系统浏览器；侧栏 tab 本身还在，抽屉里的「侧栏播放」仍可用', pref?.sidebar_takeover),
+    flag('sidebar_crop', '侧栏播 B 站时裁掉下面的相关推荐', '平台改版导致裁切错位、把播放控制条也遮住了，就用这个还原完整页', pref?.sidebar_crop),
+
     vnode('h4', {}, ['章程（charter）']),
     Field({
       label: '写给判断那轮的话：给谁筛、什么算值得看',

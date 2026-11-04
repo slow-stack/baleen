@@ -817,7 +817,7 @@ git commit -m "fix: 卡片尾标与抽屉文案对齐（能内嵌的不再写只
 - Consumes: `pref.sidebar_takeover` / `pref.sidebar_crop`（Task 2）、既有的 `flag(key, label, hint, value)`（`src/client/views/settings.js:225`）
 - Produces: 两个 `aria-label` 为 `sidebar_takeover` / `sidebar_crop` 的 checkbox，经现有 `PUT /preference` 提交，无新路由。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `test/views-settings.test.js` 追加。该文件已有 `PREF` 夹具、`controls(node)`（按 `aria-label` 收控件）与 `byLabel(tree, label)`，`PrefsTab` 的真实签名是 `PrefsTab({ pref, themesDraft, …, onSave, readOnly, busy })`（`src/client/views/settings.js:177-179`）——只传必要 prop，草稿类全部走视图内部的 `?? ` 回落：
 
@@ -837,12 +837,12 @@ test('关掉的开关画成未勾选，且 hint 里要说清"关掉会怎样"', 
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `node --test "test/views-settings.test.js"`
 Expected: FAIL，找不到那两个 `aria-label`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `src/client/views/settings.js:317`（`inject_prompt` 那行）之后追加：
 
@@ -851,14 +851,14 @@ Expected: FAIL，找不到那两个 `aria-label`。
       flag('sidebar_crop', '侧栏播 B 站时裁掉下面的相关推荐', '平台改版导致裁切错位、把播放控制条也遮住了，就用这个还原完整页', pref?.sidebar_crop),
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量 + 生成**
+- [x] **Step 4: 跑测试确认通过 + 全量 + 生成**
 
 ```bash
 node --test "test/views-settings.test.js"
 node tools/build-client.mjs && npm run build:check && node --test "test/*.test.js"
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/client/views/settings.js client.js test/views-settings.test.js
@@ -935,6 +935,8 @@ git commit -m "docs: M7 侧栏播放器真机验收——裁切值实测回填�
 ---
 
 ## 执行记录
+
+**Task 7 已完成**：设置页新增「侧栏播放（需要 dsh-better-sidebar）」一节与两个 flag，走既有 `PUT /preference`；611 tests 全绿。偏离一处：多加了 `vnode("h4")` 分组标题并在注释里写明"没装 better-sidebar 时这两个键无实际效果"——把开关挂在「判断开关」下面会让人以为关掉就能装出功能。
 
 **Task 2 已完成**（`e2c1ba5`）：`DEFAULTS` 两键 + `validate` 两条 + `PREF_SECTIONS` 白名单；605 tests 全绿。偏离计划两处：
 - 宿主侧没另开新测试，改为把两键加进既有的 PUT 白名单循环（`test/host-surface.test.js:613-621`）并把 `sidebar_crop:'nope'` 加进既有的 400 用例——该文件的既有结构本来就覆盖"落盘 + 重载一致"，另起一条测试等于把同一件事测两遍。

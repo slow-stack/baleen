@@ -530,3 +530,17 @@ test('cookie 粘贴写入成功后输入框清空，应答与界面都零回显'
     assert.doesNotMatch(text(after), /SESSDATA/, '界面零回显：cookie 内容一个字都不许再出现')
   } finally { rt.restore() }
 })
+
+test('偏好页有侧栏两个开关（M7），默认开（flag 的形状是 checked: value !== false）', () => {
+  const t = PrefsTab({ pref: { ...PREF, sidebar_takeover: true, sidebar_crop: true }, onSave: () => {} })
+  const labels = controls(t).map((c) => c.props['aria-label'])
+  assert.ok(labels.includes('sidebar_takeover'), labels.join('|'))
+  assert.ok(labels.includes('sidebar_crop'), labels.join('|'))
+  assert.equal(byLabel(t, 'sidebar_crop').props.checked, true)
+})
+
+test('关掉的侧栏开关画成未勾选，hint 里要说清"关掉会怎样"', () => {
+  const t = PrefsTab({ pref: { ...PREF, sidebar_takeover: false }, onSave: () => {} })
+  assert.equal(byLabel(t, 'sidebar_takeover').props.checked, false)
+  assert.match(text(t), /系统浏览器/, '关掉=链接照旧去系统浏览器，这句话必须在界面上')
+})
