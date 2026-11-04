@@ -15,9 +15,9 @@ const tmp = (tag) => {
   return d
 }
 const NAMES = ['preview-article.html', 'preview-collections.html', 'preview-digest.html', 'preview-drawer.html',
-  'preview-library.html', 'preview-settings.html', 'preview-today.html', 'preview-trouble.html', 'preview-video.html']
+  'preview-library.html', 'preview-player.html', 'preview-settings.html', 'preview-today.html', 'preview-trouble.html', 'preview-video.html']
 
-test('六个视图 + 抽屉 + 出问题那一屏都出 HTML，每页明暗两块', () => {
+test('六个视图 + 侧栏播放 + 抽屉 + 出问题那一屏都出 HTML，每页明暗两块', () => {
   const files = renderPreview({ outDir: tmp('ok') })
   assert.deepEqual(files.map((f) => path.basename(f)).sort(), NAMES)
   for (const f of files) {

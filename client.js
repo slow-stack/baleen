@@ -447,6 +447,15 @@ window.__ModuleLoader__.load({
     /* 内嵌播放器（V5）：16:9 自适应抽屉宽度；宿主不拦 iframe（真机实证），bilibili
        试图跳出顶层会被 Chromium 自己拦下，无需 sandbox（加了反而杀播放器脚本） */
     .bl-player{width:100%;aspect-ratio:16/9;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+    /* 侧栏播放（M7）：容器比 iframe 矮 + overflow:hidden，iframe 顶对齐，下半截自然被掐掉——
+       不用 position:absolute（那样容器高度会塌成 0），也不往 iframe 里注入 CSS（跨源读不到，也不该读）。
+       --bl-window/--bl-frame 是待真机实测的一对数（见 docs/verification.md 的 M7 验收）。 */
+    .bl-tab{padding:8px;display:flex;flex-direction:column;gap:6px}
+    .bl-tab-title{margin:0;font-size:12px;color:var(--dsw-alias-label-primary)}
+    .bl-stage{--bl-window:360px;--bl-frame:900px;width:100%;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+    .bl-stage>.bl-player{display:block;width:100%;height:var(--bl-frame);aspect-ratio:auto;border:0;border-radius:0}
+    .bl-stage-crop{height:var(--bl-window)}
+    .bl-stage:not(.bl-stage-crop)>.bl-player{height:640px}
     .bl-openbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
     .bl-openbtns button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
     .bl-openbtns button:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -1793,6 +1802,32 @@ window.__ModuleLoader__.load({
           note ? vnode('p', { className: 'bl-feedback', role: 'status' }, [note]) : null,
           body
         ].filter(Boolean))
+      ])
+    }
+
+    // ---- src/client/views/player-tab.js ----
+    /**
+     * 侧栏/工作台里的播放器外壳。与抽屉共用 playerEmbed()——正则抄两遍必然漂移。
+     *
+     * 这里只读：不收藏、不调权重、不提供"去浏览器"。侧栏手里只有一条 URL，而宿主的
+     * /open 只认 item_id（URL 一律从库里取），这条守卫不为了侧栏放宽。
+     */
+
+    function PlayerTab({ url, title = '', crop = true }) {
+      const embed = playerEmbed(url)
+      if (!embed) {
+        return vnode('div', { className: 'bl-tab' }, [
+          vnode('p', { className: 'bl-note' }, ['这个地址解析不出嵌入形态，侧栏播不了——回面板抽屉里用「浏览器打开」。'])
+        ])
+      }
+      return vnode('div', { className: 'bl-tab' }, [
+        title ? vnode('p', { className: 'bl-tab-title' }, [title]) : null,
+        vnode('div', { className: crop ? 'bl-stage bl-stage-crop' : 'bl-stage' }, [
+          vnode('iframe', { className: 'bl-player', src: embed.src, allow: 'autoplay; fullscreen', allowfullscreen: true })
+        ]),
+        vnode('p', { className: 'bl-note' }, [crop
+          ? '侧栏只露播放器，下面的推荐流是故意裁掉的——不想让你刷下去。设置页「裁掉推荐区」关掉就还原。'
+          : '完整页在这里，往下滑会看到平台的推荐流。'])
       ])
     }
 

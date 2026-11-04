@@ -25,6 +25,7 @@ import { LibraryView } from '../src/client/views/library.js'
 import { CollectionsView } from '../src/client/views/collections.js'
 import { SettingsPage } from '../src/client/views/settings.js'
 import { Drawer } from '../src/client/views/drawer.js'
+import { PlayerTab } from '../src/client/views/player-tab.js'
 import { previewState, previewItems, previewFolders, previewPreference, previewCred, previewEnv } from '../test/fixtures/preview-data.js'
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -137,6 +138,17 @@ export function renderPreview({ outDir = path.join(ROOT, 'out'), empty = false }
   const pages = {
     today: both(shell({ view: 'today', state, body: TodayView({ state, items: live, onRun: () => {}, onOpen: () => {}, onPickView: () => {} }) })),
     video: both(shell({ view: 'video', state, body: VideoView({ state, items, filters: empty ? {} : { tier: '' } }) })),
+    // 侧栏播放（M7）：裁切默认、关掉裁切、解析不出嵌入形态三种状态同屏对比。
+    // 这里给的是真 URL——侧栏里露出多少、控制条会不会被遮，只能靠眼睛看，不能靠想。
+    player: both(shell({
+      view: 'video',
+      state,
+      body: vnode('div', {}, [
+        PlayerTab({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7', title: 'B 站完整页 · 默认裁掉推荐区', crop: true }),
+        PlayerTab({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'YouTube embed · 关掉裁切的样子', crop: false }),
+        PlayerTab({ url: 'https://b23.tv/abc', title: '短链 · 解析不出嵌入形态那一支' })
+      ])
+    })),
     article: both(shell({ view: 'article', state, body: ArticleView({ state, items, filters: {}, selectedId: items[4] ? items[4].id : null }) })),
     collections: both(shell({
       view: 'collections',

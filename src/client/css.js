@@ -102,6 +102,15 @@ export const CSS = `
 /* 内嵌播放器（V5）：16:9 自适应抽屉宽度；宿主不拦 iframe（真机实证），bilibili
    试图跳出顶层会被 Chromium 自己拦下，无需 sandbox（加了反而杀播放器脚本） */
 .bl-player{width:100%;aspect-ratio:16/9;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+/* 侧栏播放（M7）：容器比 iframe 矮 + overflow:hidden，iframe 顶对齐，下半截自然被掐掉——
+   不用 position:absolute（那样容器高度会塌成 0），也不往 iframe 里注入 CSS（跨源读不到，也不该读）。
+   --bl-window/--bl-frame 是待真机实测的一对数（见 docs/verification.md 的 M7 验收）。 */
+.bl-tab{padding:8px;display:flex;flex-direction:column;gap:6px}
+.bl-tab-title{margin:0;font-size:12px;color:var(--dsw-alias-label-primary)}
+.bl-stage{--bl-window:360px;--bl-frame:900px;width:100%;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+.bl-stage>.bl-player{display:block;width:100%;height:var(--bl-frame);aspect-ratio:auto;border:0;border-radius:0}
+.bl-stage-crop{height:var(--bl-window)}
+.bl-stage:not(.bl-stage-crop)>.bl-player{height:640px}
 .bl-openbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
 .bl-openbtns button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
 .bl-openbtns button:hover{background:var(--dsw-alias-interactive-bg-hover)}

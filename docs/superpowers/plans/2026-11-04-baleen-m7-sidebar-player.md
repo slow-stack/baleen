@@ -132,7 +132,7 @@ git commit -m "docs: M7 侧栏探针记录——播放容器落点实测定为 <
 - Consumes: 无
 - Produces: `pref.sidebar_takeover: boolean`（默认 `true`）、`pref.sidebar_crop: boolean`（默认 `true`）；`GET /api/dsh-baleen/preference` 回带这两个键；`PUT { section:'sidebar_takeover', value:false }` 生效。Task 5 用 `GET /preference` 的返回值决定 `urlTarget` 是否认领、Task 3 用它决定 `crop`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `test/preference.test.js` 追加：
 
@@ -149,12 +149,12 @@ test('sidebar_takeover / sidebar_crop 只收布尔，字符串一律拒', () => 
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `node --test "test/preference.test.js"`
 Expected: FAIL，`DEFAULTS.sidebar_takeover` 为 `undefined`、`validate` 不报错。
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 `lib/preference.js` 的 `DEFAULTS` 里 `inject_prompt: true,` 下一行加：
 
@@ -180,12 +180,12 @@ Expected: FAIL，`DEFAULTS.sidebar_takeover` 为 `undefined`、`validate` 不报
 const PREF_SECTIONS = new Set(['sources', 'follow', 'themes', 'redlines', 'schedule', 'limits', 'charter', 'require_theme_hit', 'inject_prompt', 'sidebar_takeover', 'sidebar_crop'])
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `node --test "test/preference.test.js"`
 Expected: PASS。
 
-- [ ] **Step 5: 补路由侧的测试并跑全量**
+- [x] **Step 5: 补路由侧的测试并跑全量**
 
 `test/host-surface.test.js` 里用该文件既有的 `apiOf(home)` / `fakeRes()` / `bodyOf(o)` 三件套（定义在 `test/host-surface.test.js:31-37` 与 `:270`），仿 `require_theme_hit` 那组（`:582`、`:659`）加一条：
 
@@ -210,7 +210,7 @@ test('PUT sidebar_crop 走白名单：合法布尔落盘读回，非布尔按校
 Run: `node --test "test/*.test.js"`
 Expected: 全绿。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/preference.js index.js test/preference.test.js test/host-surface.test.js
@@ -231,7 +231,7 @@ git commit -m "feat: 两个侧栏偏好（接管外链 / 裁推荐区），默�
 - Consumes: `playerEmbed(url) -> { kind:'bili'|'youtube', src:string } | null`（`src/client/views/drawer.js:41`）、`vnode(type, props, children)`（`src/client/vnode.js`）
 - Produces: `PlayerTab({ url: string, title?: string, crop?: boolean }) -> vnode`，根节点 className 为 `bl-tab`，播放器容器 `bl-stage`，iframe `bl-player`，裁切时容器额外带 `bl-stage-crop`。Task 5 的 tab 组件调它。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```js
 import test from 'node:test'
@@ -268,12 +268,12 @@ test('侧栏 tab 里没有收藏、没有调权重、没有"去浏览器"', () =
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `node --test "test/views-player-tab.test.js"`
 Expected: FAIL，`Cannot find module '../src/client/views/player-tab.js'`。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```js
 /**
@@ -302,7 +302,7 @@ export function PlayerTab({ url, title = '', crop = true }) {
 }
 ```
 
-- [ ] **Step 4: 登记 PARTS（漏了等于白写）**
+- [x] **Step 4: 登记 PARTS（漏了等于白写）**
 
 `tools/build-client.mjs:23-24` 的 `PARTS` 数组末尾只追加本任务这一个文件（`sidebar-tab.js` 留给 Task 4；提前写进去会让 `test/build.test.js` 的"PARTS 里文件都存在"守卫立刻报红）：
 
@@ -312,7 +312,7 @@ export const PARTS = ['view-state.js', 'view-api.js', 'vnode.js', 'match.js', 'f
   'views/player-tab.js']
 ```
 
-- [ ] **Step 5: 加 CSS（只走宿主 token）**
+- [x] **Step 5: 加 CSS（只走宿主 token）**
 
 `src/client/css.js` 的 `CSS` 里 `.bl-player` 那行之后追加：
 
@@ -330,7 +330,7 @@ export const PARTS = ['view-state.js', 'view-api.js', 'vnode.js', 'match.js', 'f
 
 注意这份文件的四条既有守卫会一起管你：`test/css.test.js:32` 禁一切颜色字面量、`:41` 只许用 `HOST_TOKENS` 里的名字、`:61` 字号只许 13/12/11、`:82` **视图里出现的每个 `bl-` 类名都必须有对应样式**（所以 `.bl-stage-crop` 自己得带一条规则，不能只当标记）。
 
-- [ ] **Step 6: 跑测试 + 生成 + 全量**
+- [x] **Step 6: 跑测试 + 生成 + 全量**
 
 ```bash
 node --test "test/views-player-tab.test.js" "test/css.test.js"
@@ -340,7 +340,7 @@ node --test "test/*.test.js"
 ```
 Expected: 全部 PASS；`build:check` 无"client.js 已过期"。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/client/views/player-tab.js tools/build-client.mjs src/client/css.js client.js test/views-player-tab.test.js
@@ -928,3 +928,15 @@ git commit -m "docs: M7 侧栏播放器真机验收——裁切值实测回填�
   7. 宿主侧 PUT 测试的既有写法是 `h({url, method, ...bodyOf(x)}, fakeRes())`，`test/host-surface.test.js` 里没有 `putPref`。
   8. CSS 里 `position:absolute` 的裁切会让容器高度塌成 0；且 `test/css.test.js:82` 要求每个 `bl-` 类名都有样式——`.bl-stage-crop` 必须自带规则，不能只当标记。
 - **已知脆弱点（不假装解决）**：`--bl-window/--bl-frame` 是待实测的像素对，Task 8 定值；B 站改版会再次错位，退路是 Task 7 的 `sidebar_crop` 开关；`MODE='meta'` 时"侧栏"名不副实，验收里要明说。
+
+---
+
+## 执行记录
+
+**Task 2 已完成**（`e2c1ba5`）：`DEFAULTS` 两键 + `validate` 两条 + `PREF_SECTIONS` 白名单；605 tests 全绿。偏离计划两处：
+- 宿主侧没另开新测试，改为把两键加进既有的 PUT 白名单循环（`test/host-surface.test.js:613-621`）并把 `sidebar_crop:'nope'` 加进既有的 400 用例——该文件的既有结构本来就覆盖"落盘 + 重载一致"，另起一条测试等于把同一件事测两遍。
+- 同轮补了 `preference.example.yaml`（两个键带注释）——计划里漏了这一步，属于"改代码必须同轮扫文档"。
+
+**Task 3 已完成**：`src/client/views/player-tab.js` + `PARTS` 登记 + `.bl-tab*`/`.bl-stage*` 样式；609 tests 全绿，`npm run build:check` 通过。偏离计划两处：
+- 多补了一个预览页 `out/preview-player.html`（`tools/preview.mjs` 的 `player` 格 + `test/preview.test.js` 的 `NAMES`），三种状态（裁切默认 / 关掉裁切 / 短链播不了）同屏、明暗两块——按"新建 UI 元素定稿前给假数据 HTML 预览"的约定，这一步不该等到 Task 8 才补。预览里给的是真 URL：侧栏到底露多少、控制条会不会被遮，只能靠眼睛看。
+- 测试多加一条"侧栏 tab 里没有收藏/调权重/去浏览器"（计划 §6 的红线在视图层钉住，不只写在文档里）。
