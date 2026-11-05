@@ -369,7 +369,7 @@ git commit -m "feat: 侧栏播放器视图 PlayerTab——复用 playerEmbed，�
   - `buildTabDescriptor({ seed, render, flags }) -> TabDescriptor`，`flags = { takeover: () => boolean }`
   - `registerSidebarTab(service, descriptor) -> () => void`（失败返回 `() => {}` 并吐诊断，绝不抛）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```js
 import test from 'node:test'
@@ -427,12 +427,12 @@ test('registerSidebarTab：service 缺席返回空 disposer 且不抛；注册�
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `node --test "test/sidebar-tab.test.js"`
 Expected: FAIL，模块不存在。
 
-- [ ] **Step 3: 写实现（`MODE` 用 Task 1 填的值，只留胜出分支）**
+- [x] **Step 3: 写实现（`MODE` 用 Task 1 填的值，只留胜出分支）**
 
 ```js
 /**
@@ -488,14 +488,14 @@ export function registerSidebarTab(service, descriptor) {
 }
 ```
 
-- [ ] **Step 4: 登记 PARTS 并跑通**
+- [x] **Step 4: 登记 PARTS 并跑通**
 
 `tools/build-client.mjs` 的 `PARTS` 里加 `'sidebar-tab.js'`。
 
 Run: `node --test "test/sidebar-tab.test.js" "test/build.test.js"`
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/client/sidebar-tab.js tools/build-client.mjs test/sidebar-tab.test.js
@@ -937,6 +937,8 @@ git commit -m "docs: M7 侧栏播放器真机验收——裁切值实测回填�
 ---
 
 ## 执行记录
+
+**Task 4 已完成**：`src/client/sidebar-tab.js` 六个断言全绿（618 tests）。三处按计划外的事实收形：① `MODE` 常量与 `meta` 分支**删掉了**——P3-D 证明换落点不换病根，留它就是死代码；② descriptor 不再收 `seed` 参数，组件只从 **`tab.path`** 取地址（实测宿主把 URL 挂在这里）；③ `urlTarget` 返回布尔（`service.d.ts:217`）。
 
 **Task 7 已完成**：设置页新增「侧栏播放（需要 dsh-better-sidebar）」一节与两个 flag，走既有 `PUT /preference`；611 tests 全绿。偏离一处：多加了 `vnode("h4")` 分组标题并在注释里写明"没装 better-sidebar 时这两个键无实际效果"——把开关挂在「判断开关」下面会让人以为关掉就能装出功能。
 
