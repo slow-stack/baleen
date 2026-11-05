@@ -30,15 +30,17 @@
 
 ---
 
-## 决策缝（Task 1 填，Task 4/5 消费）
-
-`MODE` = 侧栏播放 tab 的 seed 形态，取值 `'url'`（落 DSH 原生右栏）或 `'meta'`（落 better-sidebar 底部工作台）。**Task 1 的 P3 探针决定它**；未填之前 Task 4 之后不得开工。
+## 决策缝（Task 1 已填，2026-11-05 第二轮实测）
 
 ```
-MODE = '____'          # 'url' | 'meta'        ← P3 结论
-TITLE_SOURCE = '____'  # 'hostname' | 'drawer'  ← P3 顺带记录：链接接管进来时标题实际是什么
-PANEL_BUTTON = '____'  # 'yes' | 'no'           ← 原生右栏若仍受"前台会话"限制且 MODE='url' 不可用，记 no
+MODE = 'url'            # 会话在前台时 openTab({url}) 当场开进原生右侧栏（实测）
+PANEL_BUTTON = 'no'     # 面板在前台时 openTab 进 pending 队列、什么都不出现（实测）→ 待用户拍板撤掉还是改话术
+TITLE_SOURCE = '未验'    # 本轮是显式传 title；urlTarget 接管路径按 service.d.ts:215 应为 hostname
 ```
+
+证据见 [docs/verification.md](../../verification.md)「M7 侧栏探针：两轮结果」。关键一条：`dsh-better-sidebar/src/client/native/surface.ts:146-162` —— `onScreen = mountedSessionId(ctx) === entry.sessionId` 不成立时 open **排队等会话回到前台**，`openTab` 返回 void，调用方拿不到失败信号。**两个落点都是会话作用域的**，所以 `urlTarget` 外链接管是唯一必然满足前台条件的入口。
+
+副作用：Task 6 的「侧栏播放」按钮受阻（待拍板），Task 4 / 5 按 `MODE='url'` 可以开工。
 
 ---
 

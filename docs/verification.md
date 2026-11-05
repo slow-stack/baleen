@@ -408,7 +408,7 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 
 **未验（如实）**：内嵌播放器的真机点击验收（待 DSH 重启后：B 站抽屉里点播放、确认视频在 iframe 内开播）；B 站完整页 iframe 自带的相关推荐是"沉迷风险"的残留通道——bare player（player.html）目前是空壳，压掉它要等上游或 fork。
 
-## M7 侧栏探针：第一轮结果（2026-11-04，**部分，落点未定**）
+## M7 侧栏探针：两轮结果（2026-11-04 第一轮 / 11-05 第二轮，**落点已定**）
 
 按计划 Task 1 在本机跑真机探针。**没有重启 DSH**：窗口树里 `dsh-baleen` 工作区有一条"进行中 处理 Issue #557 并合并 PR"，插件页同时显示"正在安装 1/2：安装 dsh-openwiki，更新 dsh-mobile-use 排队中"——宿主正在装插件时重启正是 AGENTS.md 记过的写坏 `cordis.patch.yml` 的场景，所以那一轮重启留着等她自己拍。手法：DevTools 停靠（`Ctrl+Shift+I` 直接落在底部，不需要再点 ⋮ 停靠）+ console 求值，结果用 `position:fixed` 覆盖层回读（`document.title` 会被应用的标题同步覆写，`console.log` 读不回文本）。
 
@@ -418,10 +418,12 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 | P2 服务能力 | **已定**：`registerTab / registerFileViewer / registerFileIcon / getTabs / getFileViewers / getFileIcons / matchFileIcon / matchFolderIcon / fileIcon / folderIcon / getTab / isTabEnabled` 全是函数，`typeof openTab === 'function'` 另测确认 | 覆盖层 `P3R\|openTab=function` |
 | 生态先例 | **已定**：第三方 `dsh-mneme:memory` 与内置 `editor,git,subagent,sidechat,terminal-bottom,diff` 同表注册——baleen 走的是同一扇门，不是特例 | 覆盖层 `tabs=editor,git,subagent,sidechat,terminal-bottom,diff,dsh-mneme:memory` |
 | 有没有现成 iframe tab 可复用 | **已定：没有**。内置只有上面那 6 个类型，无 browser/媒体预览 tab，所以 §5.1 自研播放器 tab 省不掉 | 同上 |
-| P3-A `openTab({url})` | **未定**。调用不抛错，但画面里没有多出右侧栏 tab | 截图 + 覆盖层 `dispose=function`（页面没重载，说明不是"跑了另一个文档"） |
-| P3-B/C `openTab({meta})` | **未定**（判据被污染，见下） | — |
-| P1 抽屉真机播放 | **未验**（这一轮面板里开着的是 xhs 图文条目，没点到 B 站视频条目） | — |
-| P4 外链接管 | **未验**（本轮没点会话里的链接） | — |
+| P3-A `openTab({url})` | **已定（第二轮）**：会话在前台时**当场开进原生右侧栏**。页签出现在「文件」同一列，组件被渲染，实测 props 为 `ctx, store, scope, tab, visible, expanded, revealed, onToggleDir, onReferenceFile, onOpenDiff, onSubagentJump`；**URL 落在 `tab.path`，不是 `tab.url`**；tab id 由宿主 mint（实测 `tab18`）。`registerTab` 返回的 disposer 一调，页签立刻消失 | 无障碍树 `PROBEBODY https://www.bilibili.com/video/BV1GJ411x7h7` + `PROPS ... TAB={"id":"tab18","type":"dsh-baleen:probe","title":"P3-A","path":"https://www.bilibili.com/video/BV1G411x7h7"}` + 截图 |
+| P3-D 面板在前台 | **已定（第二轮）**：把视图切到 Baleen 面板后再 `openTab({url})`，**新页签不渲染**（探针计数器 `renders=1` 记的是旧页签补渲染，且它 `visible=false`）——与 `dsh-better-sidebar/src/client/native/surface.ts:146-162` 一致：`onScreen = mountedSessionId(ctx) === entry.sessionId` 不成立时**进 pending 队列，等那个会话回到前台再放**，`openTab` 本身返回 void，调用方拿不到任何失败信号 | 覆盖层 `P3D|called=1|renders=1|... visible=false` |
+| 结论 D5 | `MODE='url'` 成立（右侧栏），底部工作台那条**不再需要测**——因为两个落点都是会话作用域的，面板在前台时都不当场出现 | — |
+| P3-B/C `openTab({meta})` | 作废（未测）：P3-D 已经证明"面板在前台"这条使用路径开不出东西，底部工作台同属会话作用域，换了落点不换病根 | — |
+| P1 抽屉真机播放 | **未验**（第二轮面板里开着的是 xhs 图文条目与一条 xhs 视频，B 站可嵌入条目没点到） | — |
+| P4 外链接管 | **未验**（这一轮没有会话里的真链接可点；按 P3-A/D，接管链路本身要求会话在前台，所以它恰好是唯一一个"必然满足前台条件"的入口） | — |
 
 **这一轮为什么不能给 P3 定论（三条实测污染，下轮必须先避开）**：
 1. **停靠的 DevTools 就压在窗口底部**，而 `openTab` 不带 `path`/`url` 时的落点恰恰是 better-sidebar 自己的**底部工作台**——遮住了就看不见。下轮要么先关 DevTools 再开 tab，要么把 DevTools 改成右侧停靠后再判。
