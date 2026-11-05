@@ -54,12 +54,15 @@ test('时长显示 mm:ss，1 小时以上带小时', () => {
   assert.match(t, /1:02:03/)
 })
 
-// M4a 裁定：内嵌播放器 V5 才评估。卡片不许再许诺"可在抽屉内播"——
-// 抽屉的能力边界同一时刻说的是"只能跳到浏览器里看"，两处各说各话就是谎。
-test('暂无内嵌播放：B 站与其它平台都只给跳转，文案不假装能播', () => {
-  const t = text(VideoView({ items: [mk({ source_id: 'bili' }), mk({ id: 9, source_id: 'xhs', external_id: 'x' })], filters: {} }))
-  assert.match(t, /只能跳转/)
-  assert.doesNotMatch(t, /可在抽屉内播/, '播放器还没定，卡片不许许诺抽屉内播')
+// 卡片尾标必须跟抽屉的能力边界说同一件事：能解析出嵌入形态的就是"抽屉里能播"，
+// 解析不出的（b23.tv 短链、非视频域）才写"只能跳转"。两处相反就是谎。
+test('卡片尾标按嵌入形态说真话', () => {
+  const can = text(VideoView({ items: [mk({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' })], filters: {} }))
+  assert.match(can, /抽屉里能播/)
+  assert.doesNotMatch(can, /只能跳转/)
+  const cant = text(VideoView({ items: [mk({ url: 'https://b23.tv/abc' })], filters: {} }))
+  assert.match(cant, /只能跳转/)
+  assert.doesNotMatch(cant, /抽屉里能播/)
 })
 
 // 档 A：封面是库里已有的 items.thumb，只是视图一直没读。占位灰块要换成真图，

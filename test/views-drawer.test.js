@@ -147,7 +147,7 @@ test('打开路只有系统浏览器一颗按钮，且明说侧栏为什么不�
   const tree = Drawer({ item: item(), api: {}, onOpenUrl: () => {} })
   const btns = findAll(tree, 'bl-openbtns')[0].children.map((b) => text(b))
   assert.deepEqual(btns, ['浏览器打开'])
-  assert.match(text(tree), /侧栏打开在面板里开不出来/, '撤掉侧栏按钮要说清原因，不是悄悄少了一颗')
+  assert.match(text(tree), /侧栏[^。]*排队/, '撤掉侧栏按钮要说清原因，不是悄悄少了一颗（M7：面板在前台时只会排队）')
   assert.doesNotMatch(text(tree), /侧栏浏览器这次没开起来/, '旧文案（页签不在）已不成立：页签在也开不出来')
 })
 
@@ -329,4 +329,15 @@ test('改名后的按钮仍然只写 tuning：提示文案里出现「这源多�
   assert.match(feedbackHint('save'), /\+0\.1/)
   assert.match(feedbackHint('save'), /不改你的主题词/)
   assert.doesNotMatch(feedbackHint('save'), /^收藏/)
+})
+
+test('原文段那句侧栏说明要按嵌入形态分别说真话（M7：面板里点侧栏只会排队）', () => {
+  const can = text(Drawer({ item: item({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {} }))
+  assert.match(can, /会话里点|排队/)
+  assert.match(can, /上面的播放器|内嵌播放/, '能内嵌的要指回播放器，别把人推向系统浏览器')
+  const exits = findAll(Drawer({ item: item({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {} }), 'bl-openbtns')[0].children.map((b) => text(b))
+  assert.deepEqual(exits, ['浏览器打开'], '原文段只留这一个出口：侧栏按钮在面板里点了没反应（M7 实测排队），不许再摆')
+  const cant = text(Drawer({ item: item({ url: 'https://b23.tv/x' }), api: {} }))
+  assert.match(cant, /排队|侧栏播不了/)
+  assert.doesNotMatch(cant, /上面的播放器/, '这条压根播不了，不许指一个不存在的播放器')
 })

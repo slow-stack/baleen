@@ -1,10 +1,11 @@
 /**
- * 侧栏播放 tab 的纯构建层：seed 形状、外链认领、descriptor。
+ * 侧栏播放 tab 的纯构建层：外链认领谓词 + descriptor。
  * 这层不认识宿主也不认识 ctx——装配（真 ctx）留在 _footer，全部可以拿假 service 单测。
  *
- * seed 用 `url` 是实测定的（docs/verification.md 的 M7 探针）：带 `url`/`path` 的 open
- * 走 DSH 原生右侧栏；而面板在前台时两种落点都只会进 pending 队列，所以真正必然可用的
- * 入口是 urlTarget 认领——点链接的时候必然有会话在前台。
+ * 页签由 better-sidebar 自己在认领时打开（它把 URL 挂在 `tab.path` 上，实测），
+ * 所以这里不构造 seed。走 `url` 那条路是实测定的（docs/verification.md 的 M7 探针）：
+ * 带 `url`/`path` 的 open 落 DSH 原生右侧栏；而面板在前台时只会进 pending 队列，
+ * 因此唯一必然可用的入口是 urlTarget 认领——点链接的时候必然有会话在前台。
  */
 import { playerEmbed } from './views/drawer.js'
 
@@ -18,10 +19,6 @@ export function parseVideoUrl(raw) {
   if (u.username || u.password) return null
   const embed = playerEmbed(u.href)
   return embed ? { ...embed, url: u.href } : null
-}
-
-export function videoTabSeed(url, title = '') {
-  return { type: TAB_ID, title: title || 'Baleen 播放', url }
 }
 
 /** 原生侧栏把认领来的 URL 挂在页签记录的 path 上（实测 tab18），不是 tab.url */

@@ -5,6 +5,7 @@
  */
 import { vnode } from '../vnode.js'
 import { reasonOf } from '../match.js'
+import { playerEmbed } from './drawer.js'
 import { fmtDuration, thumbSrc } from '../format.js'
 
 export const TIER_LABELS = { '值得看': 'good', '可以看': 'ok', '不值当': 'bad' }
@@ -46,9 +47,9 @@ function VideoCard({ item, onOpen }) {
     ]),
     vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `${item.verdict_tier}：${item.verdict_why || '（这条没写理由）'}` : '待判']),
     vnode('span', { className: 'bl-why' }, [reasonOf(item)]),
-    // M4a 裁定：内嵌播放器 V5 才评估，哪个平台都还没法在抽屉里播——卡片统一只说跳转，
-    // 不许再对 B 站单独许诺"可在抽屉内播"（抽屉的能力边界同一时刻在说反话）。
-    vnode('span', { className: 'bl-play' }, ['只能跳转'])
+    // 尾标必须与抽屉的能力边界一致：能解析出嵌入形态的（B 站 BV / YouTube）就是"抽屉里能播"，
+    // 解析不出的（b23.tv 短链、别的平台）才写"只能跳转"。
+    vnode('span', { className: 'bl-play' }, [playerEmbed(item.url) ? '抽屉里能播' : '只能跳转'])
   ])
 }
 

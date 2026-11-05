@@ -684,7 +684,7 @@ git commit -m "feat: 侧栏 tab 接线——safeGet 软探测，没装 better-si
 - Consumes: `sidebarTab`（Task 5 的 `{ available, open(url, title) }`）、`playerEmbed(url)`
 - Produces: `Drawer({ …, sidebar = null })`——`sidebar` 是 Task 5 的 `sidebarTab` 对象，`sidebar.available` 为假时**不画按钮**；`VideoCard` 尾标由 `playerEmbed(item.url)` 分支决定。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `test/views-drawer.test.js` 追加（该文件已有 `item()` 夹具，默认 url 是 `https://b23.tv/x`）：
 
@@ -739,12 +739,12 @@ test('卡片尾标按嵌入形态说真话', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `node --test "test/views-drawer.test.js" "test/views-video.test.js"`
 Expected: FAIL（按钮不存在；尾标恒为"只能跳转"）。
 
-- [ ] **Step 3: 实现抽屉侧**
+- [x] **Step 3: 实现抽屉侧**
 
 `src/client/views/drawer.js:98` 的解构参数只加一个 `sidebar = null`（能力对象自带 `open`，不必再多一个回调 prop）：
 
@@ -773,7 +773,7 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
 
 `boundaryNote(item)`（`src/client/views/drawer.js:50-61`）那句"弹幕和评论区要去原站"保持不变——侧栏播的也是完整页，说法仍然成立。
 
-- [ ] **Step 4: 实现卡片侧 + 装配传参**
+- [x] **Step 4: 实现卡片侧 + 装配传参**
 
 `src/client/views/video.js` 文件头补 import：
 
@@ -793,14 +793,14 @@ import { playerEmbed } from './drawer.js'
 ```
 装配层不需要再包一层回调：`sidebarTab.open` 自己负责取服务、拼 seed、调 `betterSidebar.openTab`。
 
-- [ ] **Step 5: 生成 + 全量**
+- [x] **Step 5: 生成 + 全量**
 
 ```bash
 node tools/build-client.mjs && npm run build:check && node --test "test/*.test.js"
 ```
 Expected: 全绿。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/client/views/drawer.js src/client/views/video.js src/client/_footer.txt client.js test/views-drawer.test.js test/views-video.test.js
@@ -939,6 +939,8 @@ git commit -m "docs: M7 侧栏播放器真机验收——裁切值实测回填�
 ## 执行记录
 
 **Task 5 已完成**：`_footer.txt` 的 `inject` 加服务名、factory 作用域挂 `sidebarTab`、注册段包 `ctx.effect`；测试桩加 `services` 注入口。622 tests 全绿。三处计划外修正：① `plainGet` 的形状是 `{ok, stale, data}`，偏好要从 `r.data.pref` 取（照 `r.pref` 读会永远读不到、开关静默失效）；② 既有守卫 `client.js 以 loader 格式注册` 断言 inject 数组逐字相等，加服务名必须同步改它——那条测试的作用就是逼人承认自己动了注入面；③ `sidebarTab` 用 getter 现取服务，不在 apply 里缓存，避免"装配时可用、点击时已禁用"的错位。
+
+**Task 6 已完成（形状与计划不同，按实测与你 11-05 的拍板）**：抽屉**不放**「侧栏播放」按钮——面板在前台时 `openTab` 只进 pending 队列，点了什么都不出现，那就是 2026-10-31 撤掉的那颗死按钮的复现。于是顺带删掉两个没人调的 API：`sidebarTab`（装配层能力对象）与 `videoTabSeed`（页签由 better-sidebar 自己在认领时打开，URL 挂在 `tab.path`，我们从不构造 seed）。留下的是：`video.js` 卡片尾标按 `playerEmbed` 分支说真话、`drawer.js` 原文段的侧栏说明按能否内嵌分两支、`_footer.txt` 只保留注册与认领。两处守卫按原意更新而非放宽：`client.js 以 loader 格式注册` 的 inject 断言补上服务名；"撤掉侧栏按钮要说清原因"那条从旧句子改成 /侧栏[^。]*排队/——我先写了句不够解释的文案，是它把我抓住的。621 tests 全绿，预览页同步重出。
 
 **Task 4 已完成**：`src/client/sidebar-tab.js` 六个断言全绿（618 tests）。三处按计划外的事实收形：① `MODE` 常量与 `meta` 分支**删掉了**——P3-D 证明换落点不换病根，留它就是死代码；② descriptor 不再收 `seed` 参数，组件只从 **`tab.path`** 取地址（实测宿主把 URL 挂在这里）；③ `urlTarget` 返回布尔（`service.d.ts:217`）。
 

@@ -238,8 +238,10 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
       // 地址不是 http/https 就整段不画——不拿一个点不动的假链接充数。
       // （2026-10-31 真机验收：本宿主把客户端页面的弹窗与外链全部静默拦下，<a> 与
       // window.open 都到不了系统浏览器——「浏览器打开」改走宿主侧 /open 路由，面板
-      // 只报条目 id、URL 由宿主从库里取；「侧栏打开」撤了：宿主开侧栏页签要求
-      // "当前有会话在前台"，面板在前台时永远不满足，摆出来必是死按钮。）
+      // 只报条目 id、URL 由宿主从库里取。
+      // 「侧栏播放」按钮 M7 也没加：dsh-better-sidebar 的原生挂载按
+      // mountedSessionId 决定放不放行，面板在前台时 openTab 只进 pending 队列，
+      // 点了什么都不出现（docs/verification.md 的 M7 探针）——还是那个死按钮。）
       link ? Section({
         title: '原文',
         children: [
@@ -247,7 +249,9 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
           vnode('div', { className: 'bl-openbtns' }, [
             vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link, item.id) }, ['浏览器打开'])
           ]),
-          vnode('p', { className: 'bl-note' }, ['侧栏打开在面板里开不出来（宿主只认前台会话），到系统浏览器只有这一条路。'])
+          vnode('p', { className: 'bl-note' }, [embed
+            ? '侧栏播放只在会话里点这条链接时生效——面板在前台时页签只会排队（M7 实测）。现在就看完用上面的播放器。'
+            : '这里没有侧栏按钮：面板在前台时侧栏页签只会排队（M7 实测），而这条又解析不出嵌入形态，侧栏本来也播不了。要去系统浏览器，只有上面那一个按钮。'])
         ]
       }) : null,
       vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])

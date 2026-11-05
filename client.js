@@ -712,9 +712,9 @@ window.__ModuleLoader__.load({
         ]),
         vnode('span', { className: 'bl-tier' }, [item.verdict_tier ? `${item.verdict_tier}：${item.verdict_why || '（这条没写理由）'}` : '待判']),
         vnode('span', { className: 'bl-why' }, [reasonOf(item)]),
-        // M4a 裁定：内嵌播放器 V5 才评估，哪个平台都还没法在抽屉里播——卡片统一只说跳转，
-        // 不许再对 B 站单独许诺"可在抽屉内播"（抽屉的能力边界同一时刻在说反话）。
-        vnode('span', { className: 'bl-play' }, ['只能跳转'])
+        // 尾标必须与抽屉的能力边界一致：能解析出嵌入形态的（B 站 BV / YouTube）就是"抽屉里能播"，
+        // 解析不出的（b23.tv 短链、别的平台）才写"只能跳转"。
+        vnode('span', { className: 'bl-play' }, [playerEmbed(item.url) ? '抽屉里能播' : '只能跳转'])
       ])
     }
 
@@ -1181,8 +1181,10 @@ window.__ModuleLoader__.load({
           // 地址不是 http/https 就整段不画——不拿一个点不动的假链接充数。
           // （2026-10-31 真机验收：本宿主把客户端页面的弹窗与外链全部静默拦下，<a> 与
           // window.open 都到不了系统浏览器——「浏览器打开」改走宿主侧 /open 路由，面板
-          // 只报条目 id、URL 由宿主从库里取；「侧栏打开」撤了：宿主开侧栏页签要求
-          // "当前有会话在前台"，面板在前台时永远不满足，摆出来必是死按钮。）
+          // 只报条目 id、URL 由宿主从库里取。
+          // 「侧栏播放」按钮 M7 也没加：dsh-better-sidebar 的原生挂载按
+          // mountedSessionId 决定放不放行，面板在前台时 openTab 只进 pending 队列，
+          // 点了什么都不出现（docs/verification.md 的 M7 探针）——还是那个死按钮。）
           link ? Section({
             title: '原文',
             children: [
@@ -1190,7 +1192,9 @@ window.__ModuleLoader__.load({
               vnode('div', { className: 'bl-openbtns' }, [
                 vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link, item.id) }, ['浏览器打开'])
               ]),
-              vnode('p', { className: 'bl-note' }, ['侧栏打开在面板里开不出来（宿主只认前台会话），到系统浏览器只有这一条路。'])
+              vnode('p', { className: 'bl-note' }, [embed
+                ? '侧栏播放只在会话里点这条链接时生效——面板在前台时页签只会排队（M7 实测）。现在就看完用上面的播放器。'
+                : '这里没有侧栏按钮：面板在前台时侧栏页签只会排队（M7 实测），而这条又解析不出嵌入形态，侧栏本来也播不了。要去系统浏览器，只有上面那一个按钮。'])
             ]
           }) : null,
           vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])
@@ -1839,12 +1843,13 @@ window.__ModuleLoader__.load({
 
     // ---- src/client/sidebar-tab.js ----
     /**
-     * 侧栏播放 tab 的纯构建层：seed 形状、外链认领、descriptor。
+     * 侧栏播放 tab 的纯构建层：外链认领谓词 + descriptor。
      * 这层不认识宿主也不认识 ctx——装配（真 ctx）留在 _footer，全部可以拿假 service 单测。
      *
-     * seed 用 `url` 是实测定的（docs/verification.md 的 M7 探针）：带 `url`/`path` 的 open
-     * 走 DSH 原生右侧栏；而面板在前台时两种落点都只会进 pending 队列，所以真正必然可用的
-     * 入口是 urlTarget 认领——点链接的时候必然有会话在前台。
+     * 页签由 better-sidebar 自己在认领时打开（它把 URL 挂在 `tab.path` 上，实测），
+     * 所以这里不构造 seed。走 `url` 那条路是实测定的（docs/verification.md 的 M7 探针）：
+     * 带 `url`/`path` 的 open 落 DSH 原生右侧栏；而面板在前台时只会进 pending 队列，
+     * 因此唯一必然可用的入口是 urlTarget 认领——点链接的时候必然有会话在前台。
      */
 
     const TAB_ID = 'dsh-baleen:player'
@@ -1857,10 +1862,6 @@ window.__ModuleLoader__.load({
       if (u.username || u.password) return null
       const embed = playerEmbed(u.href)
       return embed ? { ...embed, url: u.href } : null
-    }
-
-    function videoTabSeed(url, title = '') {
-      return { type: TAB_ID, title: title || 'Baleen 播放', url }
     }
 
     /** 原生侧栏把认领来的 URL 挂在页签记录的 path 上（实测 tab18），不是 tab.url */
@@ -1925,24 +1926,13 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 侧栏播放能力（M7）。放 factory 作用域而不是 apply() 里面：Panel 要直接读它，
-     * 装两份状态迟早漂移。探测放在调用时——better-sidebar 可能被禁用或根本没装，
-     * 面板其余功能不能因此白屏；裸读 ctx.betterSidebar 在 Proxy 上会抛，一律走 safeGet。
+     * 侧栏播放（M7）只由 better-sidebar 的 urlTarget 认领触发：用户点会话里的视频链接时
+     * 必然有会话在前台，那是唯一满足原生挂载条件的路径。面板里不放「侧栏播放」按钮——
+     * 实测面板在前台时 openTab 只进 pending 队列（见上面的机制注释），点了什么都不出现，
+     * 和 2026-10-31 撤掉的那个死按钮是同一个坑。想看就用抽屉里的内嵌播放器。
      */
     let takeoverOn = true      // 偏好读回来之前按默认值，与 DEFAULTS.sidebar_takeover 一致
     let cropOn = true
-    const sidebarTab = {
-      get available() {
-        const bs = safeGet('betterSidebar')
-        return Boolean(bs && typeof bs.registerTab === 'function')
-      },
-      open(url, title) {
-        const bs = safeGet('betterSidebar')
-        if (!bs || typeof bs.openTab !== 'function' || !parseVideoUrl(url)) return false
-        try { bs.openTab(videoTabSeed(url, title)); return true }
-        catch (e) { console.error('[dsh-baleen] 侧栏没接住这条：' + ((e && e.message) || e)); return false }
-      }
-    }
 
     /** 打开原链接只剩一条路：宿主侧 /open 路由。2026-10-31 真机验收实证，本宿主把
      *  客户端页面的弹窗与外链全部静默拦下（webview 客体的 window-open 处理），window.open
@@ -2474,8 +2464,9 @@ window.__ModuleLoader__.load({
         'settings.section')
 
       // 侧栏播放 tab（M7）：只在拿得到服务时注册。取不到就整段跳过，面板其余照旧。
-      if (sidebarTab.available) {
-        ctx.effect(() => registerSidebarTab(safeGet('betterSidebar'), buildTabDescriptor({
+      const betterSidebar = safeGet('betterSidebar')
+      if (betterSidebar && typeof betterSidebar.registerTab === 'function') {
+        ctx.effect(() => registerSidebarTab(betterSidebar, buildTabDescriptor({
           flags: { takeover: () => takeoverOn },
           render: ({ url, title }) => toElement(PlayerTab({ url, title, crop: cropOn }))
         })))
@@ -2488,7 +2479,7 @@ window.__ModuleLoader__.load({
         }).catch(() => {})
       }
 
-      return { registeredSlots: registered, sidebarTab }
+      return { registeredSlots: registered }
     }
 
     exports.apply = apply

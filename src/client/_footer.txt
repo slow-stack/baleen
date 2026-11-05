@@ -32,24 +32,13 @@
     }
 
     /**
-     * 侧栏播放能力（M7）。放 factory 作用域而不是 apply() 里面：Panel 要直接读它，
-     * 装两份状态迟早漂移。探测放在调用时——better-sidebar 可能被禁用或根本没装，
-     * 面板其余功能不能因此白屏；裸读 ctx.betterSidebar 在 Proxy 上会抛，一律走 safeGet。
+     * 侧栏播放（M7）只由 better-sidebar 的 urlTarget 认领触发：用户点会话里的视频链接时
+     * 必然有会话在前台，那是唯一满足原生挂载条件的路径。面板里不放「侧栏播放」按钮——
+     * 实测面板在前台时 openTab 只进 pending 队列（见上面的机制注释），点了什么都不出现，
+     * 和 2026-10-31 撤掉的那个死按钮是同一个坑。想看就用抽屉里的内嵌播放器。
      */
     let takeoverOn = true      // 偏好读回来之前按默认值，与 DEFAULTS.sidebar_takeover 一致
     let cropOn = true
-    const sidebarTab = {
-      get available() {
-        const bs = safeGet('betterSidebar')
-        return Boolean(bs && typeof bs.registerTab === 'function')
-      },
-      open(url, title) {
-        const bs = safeGet('betterSidebar')
-        if (!bs || typeof bs.openTab !== 'function' || !parseVideoUrl(url)) return false
-        try { bs.openTab(videoTabSeed(url, title)); return true }
-        catch (e) { console.error('[dsh-baleen] 侧栏没接住这条：' + ((e && e.message) || e)); return false }
-      }
-    }
 
     /** 打开原链接只剩一条路：宿主侧 /open 路由。2026-10-31 真机验收实证，本宿主把
      *  客户端页面的弹窗与外链全部静默拦下（webview 客体的 window-open 处理），window.open
@@ -581,8 +570,9 @@
         'settings.section')
 
       // 侧栏播放 tab（M7）：只在拿得到服务时注册。取不到就整段跳过，面板其余照旧。
-      if (sidebarTab.available) {
-        ctx.effect(() => registerSidebarTab(safeGet('betterSidebar'), buildTabDescriptor({
+      const betterSidebar = safeGet('betterSidebar')
+      if (betterSidebar && typeof betterSidebar.registerTab === 'function') {
+        ctx.effect(() => registerSidebarTab(betterSidebar, buildTabDescriptor({
           flags: { takeover: () => takeoverOn },
           render: ({ url, title }) => toElement(PlayerTab({ url, title, crop: cropOn }))
         })))
@@ -595,7 +585,7 @@
         }).catch(() => {})
       }
 
-      return { registeredSlots: registered, sidebarTab }
+      return { registeredSlots: registered }
     }
 
     exports.apply = apply

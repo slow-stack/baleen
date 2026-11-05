@@ -593,54 +593,35 @@ test('抽屉滚动回填：同条目且记忆更深、位置仍可达才回填',
   assert.equal(scrollRestoreTarget({ id: 7, top: 0, max: 534 }, 7, 0, 534), null)
 })
 
-test('没声明/拿不到 betterSidebar 时：slots 照注册、侧栏 tab 不注册、不抛', () => {
+test("没声明也拿不到 betterSidebar 时：面板三格照注册、侧栏 tab 不注册、不抛", () => {
   const s = loadClient()
   const ex = exportsOf(s)
-  const res = ex.apply(s.makeCtx(['slots', 'layout']))     // 故意少声明：Proxy 上取 betterSidebar 就抛
-  assert.ok(res.registeredSlots.length >= 3, '侧栏入口/面板/设置页必须照旧')
-  assert.equal(res.sidebarTab.available, false)
-  assert.equal(res.sidebarTab.open('https://www.bilibili.com/video/BV1GJ411x7h7', 'x'), false)
+  const res = ex.apply(s.makeCtx(["slots", "layout"]))   // 故意少声明：Proxy 上取 betterSidebar 就抛
+  assert.equal(res.registeredSlots.length, 3, "侧栏入口/面板/设置页照旧，不多不少")
 })
 
-test('声明并给出 betterSidebar 时：注册发生，open() 的 seed 只带 url（实测落原生右侧栏）', () => {
+test("给出 betterSidebar 时：注册播放 tab 的描述符，认领谓词返回布尔", () => {
   const registered = []
-  const opened = []
-  const s = loadClient({
-    services: {
-      betterSidebar: {
-        registerTab: (d) => { registered.push(d); return () => {} },
-        openTab: (seed) => { opened.push(seed) }
-      }
-    }
-  })
+  const s = loadClient({ services: { betterSidebar: { registerTab: (d) => { registered.push(d); return () => {} } } } })
   const ex = exportsOf(s)
-  const res = ex.apply(s.makeCtx(ex.inject))
-  assert.equal(res.sidebarTab.available, true)
-  assert.equal(registered[0].id, 'dsh-baleen:player')
-  res.sidebarTab.open('https://www.bilibili.com/video/BV1GJ411x7h7', '某条视频')
-  assert.equal(opened[0].type, 'dsh-baleen:player')
-  assert.equal(opened[0].url, 'https://www.bilibili.com/video/BV1GJ411x7h7')
-  assert.equal('meta' in opened[0], false)
+  ex.apply(s.makeCtx(ex.inject))
+  assert.equal(registered.length, 1)
+  const d = registered[0]
+  assert.equal(d.id, "dsh-baleen:player")
+  assert.equal(d.urlTarget(new URL("https://www.bilibili.com/video/BV1GJ411x7h7")), true)
+  assert.equal(d.urlTarget(new URL("https://b23.tv/x")), false, "短链解析不出嵌入形态，不许开一个播不了的门")
+  assert.notEqual(d.dedupeKey({ path: "https://www.bilibili.com/video/BV1A" }), d.dedupeKey({ path: "https://www.bilibili.com/video/BV1B" }))
 })
 
-test('解析不出嵌入形态的地址不许交给侧栏（不开播不了的门）', () => {
-  const opened = []
-  const s = loadClient({ services: { betterSidebar: { registerTab: () => () => {}, openTab: (seed) => opened.push(seed) } } })
-  const ex = exportsOf(s)
-  const res = ex.apply(s.makeCtx(ex.inject))
-  assert.equal(res.sidebarTab.open('https://b23.tv/x', '短链'), false)
-  assert.equal(opened.length, 0)
-})
-
-test('urlTarget 认领走偏好：sidebar_takeover=false 时注册仍成功但不抢链接', async () => {
+test("偏好说 sidebar_takeover=false：注册照旧，但一条链接都不抢", async () => {
   const registered = []
   const s = loadClient({
-    services: { betterSidebar: { registerTab: (d) => { registered.push(d); return () => {} }, openTab: () => {} } },
+    services: { betterSidebar: { registerTab: (d) => { registered.push(d); return () => {} } } },
     fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, pref: { sidebar_takeover: false } }) })
   })
   const ex = exportsOf(s)
   ex.apply(s.makeCtx(ex.inject))
   for (let i = 0; i < 8; i++) await Promise.resolve()      // 等 preferenceGet 的微任务链落定
-  assert.equal(typeof registered[0].urlTarget, 'function')
-  assert.equal(registered[0].urlTarget(new URL('https://www.bilibili.com/video/BV1GJ411x7h7')), false)
+  assert.equal(typeof registered[0].urlTarget, "function")
+  assert.equal(registered[0].urlTarget(new URL("https://www.bilibili.com/video/BV1GJ411x7h7")), false)
 })
