@@ -42,7 +42,7 @@ test('client.js 以 loader 格式注册，侧栏 id 与 main key 同名', () => 
   assert.equal(s.loader.value.id, 'dsh-baleen')
   assert.equal(typeof s.loader.value.factory, 'function')
   const ex = exportsOf(s)
-  assert.deepEqual(ex.inject, ['slots', 'layout'])
+  assert.deepEqual(ex.inject, ['slots', 'layout', 'betterSidebar'], 'M7 加了侧栏服务名；没装 better-sidebar 时 safeGet 拿不到，注册整段跳过')
   const ex2 = { ...ex }
   ex2.apply(s.makeCtx(ex.inject))
   assert.deepEqual(s.registered.map(r => r.def.meta.name), ['sidebar.panellist', 'main', 'settings.section'])
@@ -591,4 +591,56 @@ test('抽屉滚动回填：同条目且记忆更深、位置仍可达才回填',
   assert.equal(scrollRestoreTarget(memo, 9, 0, 534), null)
   // 记忆本来就是顶部 → 没什么可回
   assert.equal(scrollRestoreTarget({ id: 7, top: 0, max: 534 }, 7, 0, 534), null)
+})
+
+test('没声明/拿不到 betterSidebar 时：slots 照注册、侧栏 tab 不注册、不抛', () => {
+  const s = loadClient()
+  const ex = exportsOf(s)
+  const res = ex.apply(s.makeCtx(['slots', 'layout']))     // 故意少声明：Proxy 上取 betterSidebar 就抛
+  assert.ok(res.registeredSlots.length >= 3, '侧栏入口/面板/设置页必须照旧')
+  assert.equal(res.sidebarTab.available, false)
+  assert.equal(res.sidebarTab.open('https://www.bilibili.com/video/BV1GJ411x7h7', 'x'), false)
+})
+
+test('声明并给出 betterSidebar 时：注册发生，open() 的 seed 只带 url（实测落原生右侧栏）', () => {
+  const registered = []
+  const opened = []
+  const s = loadClient({
+    services: {
+      betterSidebar: {
+        registerTab: (d) => { registered.push(d); return () => {} },
+        openTab: (seed) => { opened.push(seed) }
+      }
+    }
+  })
+  const ex = exportsOf(s)
+  const res = ex.apply(s.makeCtx(ex.inject))
+  assert.equal(res.sidebarTab.available, true)
+  assert.equal(registered[0].id, 'dsh-baleen:player')
+  res.sidebarTab.open('https://www.bilibili.com/video/BV1GJ411x7h7', '某条视频')
+  assert.equal(opened[0].type, 'dsh-baleen:player')
+  assert.equal(opened[0].url, 'https://www.bilibili.com/video/BV1GJ411x7h7')
+  assert.equal('meta' in opened[0], false)
+})
+
+test('解析不出嵌入形态的地址不许交给侧栏（不开播不了的门）', () => {
+  const opened = []
+  const s = loadClient({ services: { betterSidebar: { registerTab: () => () => {}, openTab: (seed) => opened.push(seed) } } })
+  const ex = exportsOf(s)
+  const res = ex.apply(s.makeCtx(ex.inject))
+  assert.equal(res.sidebarTab.open('https://b23.tv/x', '短链'), false)
+  assert.equal(opened.length, 0)
+})
+
+test('urlTarget 认领走偏好：sidebar_takeover=false 时注册仍成功但不抢链接', async () => {
+  const registered = []
+  const s = loadClient({
+    services: { betterSidebar: { registerTab: (d) => { registered.push(d); return () => {} }, openTab: () => {} } },
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, pref: { sidebar_takeover: false } }) })
+  })
+  const ex = exportsOf(s)
+  ex.apply(s.makeCtx(ex.inject))
+  for (let i = 0; i < 8; i++) await Promise.resolve()      // 等 preferenceGet 的微任务链落定
+  assert.equal(typeof registered[0].urlTarget, 'function')
+  assert.equal(registered[0].urlTarget(new URL('https://www.bilibili.com/video/BV1GJ411x7h7')), false)
 })

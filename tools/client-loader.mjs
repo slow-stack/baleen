@@ -49,7 +49,7 @@ function requireModule(name) {
   throw new Error(`桩里没有这个模块：${name}`)
 }
 
-export function makeStubs({ storage = {}, fetchImpl } = {}) {
+export function makeStubs({ storage = {}, fetchImpl, services = {} } = {}) {
   const store = { ...storage }
   const registered = []
   const injected = []
@@ -89,12 +89,13 @@ export function makeStubs({ storage = {}, fetchImpl } = {}) {
     const target = {
       get: (name) => {
         if (!set.has(name)) throw new Error(`cannot get service "${name}" without inject`)
-        return name === 'slots' ? slots : undefined
+        return name === 'slots' ? slots : services[name]
       },
       provide: () => {},
       on: () => {},
       effect: (fn) => fn(),
-      slots
+      slots,
+      ...services
     }
     return new Proxy(target, {
       get(t, prop) {

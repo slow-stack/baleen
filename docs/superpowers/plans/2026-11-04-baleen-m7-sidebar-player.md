@@ -516,7 +516,7 @@ git commit -m "feat: 侧栏 tab 的纯构建层——seed/认领谓词/descripto
 - Consumes: `registerSidebarTab / buildTabDescriptor / videoTabSeed / parseVideoUrl`（Task 4）、`PlayerTab`（Task 3）、`GET /preference` 的 `sidebar_takeover` / `sidebar_crop`（Task 2）
 - Produces: 客户端导出 `sidebarTab = { available: boolean, open(url, title): boolean }`——`open()` 给抽屉按钮用，服务不可用时返回 `false`。
 
-- [ ] **Step 1: 先扩测试桩（现在的桩只认 `slots`，别的声明服务一律返回 `undefined`）**
+- [x] **Step 1: 先扩测试桩（现在的桩只认 `slots`，别的声明服务一律返回 `undefined`）**
 
 `tools/client-loader.mjs:52` 的 `makeStubs` 与 `:87` 的 `makeCtx` 改成可注入假服务：
 
@@ -540,7 +540,7 @@ export function makeStubs({ storage = {}, fetchImpl, services = {} } = {}) {
 ```
 （`loadClient(opts)` 本来就把 `opts` 透给 `makeStubs`，所以 `loadClient({ services: { betterSidebar: fake } })` 直接可用；Proxy 的 `get` 陷阱读 `t[prop]`，展开 `services` 后属性访问也拿得到。桩的语义必须与宿主一致：**没声明就抛**。）
 
-- [ ] **Step 2: 写失败的测试**
+- [x] **Step 2: 写失败的测试**
 
 `test/client-boot.test.js` 追加（`exportsOf(s)` 取模块导出、`ex.apply(ctx)` 跑装配——这是该文件既有的写法，不是 `s.apply`）：
 
@@ -591,12 +591,12 @@ test('urlTarget 认领走偏好：sidebar_takeover=false 时注册仍成功但�
 ```
 （`MODE` 从 `src/client/sidebar-tab.js` import 进来断言，别把 `'url'`/`'meta'` 硬写进测试——那样换了分支也测不出真相。桩默认 `fetchImpl` 返回 `{ ok: true }`，所以第一条测试里 `preferenceGet` 读不到布尔，`takeover` 保持默认开，正好证明"读不到不炸"。）
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `node --test "test/client-boot.test.js"`
 Expected: FAIL，`res.sidebarTab` 为 `undefined`。同时确认既有的那条 `doesNotThrow(() => ex.apply(s.makeCtx(['slots'])))` 仍然绿——它是"没装 better-sidebar 不许白屏"的既有守卫。
 
-- [ ] **Step 4: 写装配（`inject` 加服务名 + 注册 + open）**
+- [x] **Step 4: 写装配（`inject` 加服务名 + 注册 + open）**
 
 `src/client/_footer.txt:18`：
 
@@ -654,7 +654,7 @@ factory 作用域里（`function getLayout()` 之后，`:30-45` 那一带）加�
 
 `__test` 那份导出面（`:565-571`）保持原样——测试走 `apply()` 的返回值拿 `sidebarTab`，不必往里塞。注意 `createApi` 的实参形状照抄 `:88` 与 `:306` 的既有写法（`{ fetch, storage }`），别新造调用方式。
 
-- [ ] **Step 5: 生成 + 全量**
+- [x] **Step 5: 生成 + 全量**
 
 ```bash
 node tools/build-client.mjs && npm run build:check
@@ -662,7 +662,7 @@ node --test "test/*.test.js"
 ```
 Expected: 全绿；`client-boot` 三条新测试 PASS（这组单测同时回答 P2b"没装 better-sidebar 会不会白屏"，真机摘插件那步可以不做——它要动 profile 配置，风险由 AGENTS.md 明确警告过）。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/client/_footer.txt client.js tools/client-loader.mjs test/client-boot.test.js
@@ -937,6 +937,8 @@ git commit -m "docs: M7 侧栏播放器真机验收——裁切值实测回填�
 ---
 
 ## 执行记录
+
+**Task 5 已完成**：`_footer.txt` 的 `inject` 加服务名、factory 作用域挂 `sidebarTab`、注册段包 `ctx.effect`；测试桩加 `services` 注入口。622 tests 全绿。三处计划外修正：① `plainGet` 的形状是 `{ok, stale, data}`，偏好要从 `r.data.pref` 取（照 `r.pref` 读会永远读不到、开关静默失效）；② 既有守卫 `client.js 以 loader 格式注册` 断言 inject 数组逐字相等，加服务名必须同步改它——那条测试的作用就是逼人承认自己动了注入面；③ `sidebarTab` 用 getter 现取服务，不在 apply 里缓存，避免"装配时可用、点击时已禁用"的错位。
 
 **Task 4 已完成**：`src/client/sidebar-tab.js` 六个断言全绿（618 tests）。三处按计划外的事实收形：① `MODE` 常量与 `meta` 分支**删掉了**——P3-D 证明换落点不换病根，留它就是死代码；② descriptor 不再收 `seed` 参数，组件只从 **`tab.path`** 取地址（实测宿主把 URL 挂在这里）；③ `urlTarget` 返回布尔（`service.d.ts:217`）。
 

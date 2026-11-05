@@ -1907,7 +1907,7 @@ window.__ModuleLoader__.load({
     }
 
     let clientCtx = null
-    const inject = ['slots', 'layout']
+    const inject = ['slots', 'layout', 'betterSidebar']
 
     /** 只有声明过的服务读得到；这条 helper 存在的意义就是不让人手写裸属性回退 */
     function safeGet(name) {
@@ -1924,10 +1924,33 @@ window.__ModuleLoader__.load({
       try { return (clientCtx && clientCtx.layout) || null } catch { return null }
     }
 
+    /**
+     * 侧栏播放能力（M7）。放 factory 作用域而不是 apply() 里面：Panel 要直接读它，
+     * 装两份状态迟早漂移。探测放在调用时——better-sidebar 可能被禁用或根本没装，
+     * 面板其余功能不能因此白屏；裸读 ctx.betterSidebar 在 Proxy 上会抛，一律走 safeGet。
+     */
+    let takeoverOn = true      // 偏好读回来之前按默认值，与 DEFAULTS.sidebar_takeover 一致
+    let cropOn = true
+    const sidebarTab = {
+      get available() {
+        const bs = safeGet('betterSidebar')
+        return Boolean(bs && typeof bs.registerTab === 'function')
+      },
+      open(url, title) {
+        const bs = safeGet('betterSidebar')
+        if (!bs || typeof bs.openTab !== 'function' || !parseVideoUrl(url)) return false
+        try { bs.openTab(videoTabSeed(url, title)); return true }
+        catch (e) { console.error('[dsh-baleen] 侧栏没接住这条：' + ((e && e.message) || e)); return false }
+      }
+    }
+
     /** 打开原链接只剩一条路：宿主侧 /open 路由。2026-10-31 真机验收实证，本宿主把
      *  客户端页面的弹窗与外链全部静默拦下（webview 客体的 window-open 处理），window.open
-     *  与 <a target=_blank> 都到不了系统浏览器，宿主侧页签又要求"有会话在前台"——面板
-     *  在前台时永远轮不上。所以「浏览器打开」只报条目 id，URL 由宿主从库里取。 */
+     *  与 <a target=_blank> 都到不了系统浏览器。
+     *  M7 补了机制（docs/verification.md 的探针）：dsh-better-sidebar 的原生挂载按
+     *  `mountedSessionId(ctx) === sessionId` 决定放不放行，会话不在前台时 open 是**进队列
+     *  等着**，`openTab` 返回 void、调用方拿不到失败信号——所以"面板在前台开侧栏"这条
+     *  不是被拒绝，是看起来什么都没发生。 */
 
     /** 导航项 ↔ 渲染器。VIEW_RENDER 的键必须与 view-state 的 VIEWS 一字不差（测试守着）。
      *  六个值全是视图本身：收藏页要多带的夹列表、草稿与二次确认态由 Panel 在调用时并进 props
@@ -2450,7 +2473,22 @@ window.__ModuleLoader__.load({
         () => h(SettingsView, { key: 'settings' }),
         'settings.section')
 
-      return { registeredSlots: registered }
+      // 侧栏播放 tab（M7）：只在拿得到服务时注册。取不到就整段跳过，面板其余照旧。
+      if (sidebarTab.available) {
+        ctx.effect(() => registerSidebarTab(safeGet('betterSidebar'), buildTabDescriptor({
+          flags: { takeover: () => takeoverOn },
+          render: ({ url, title }) => toElement(PlayerTab({ url, title, crop: cropOn }))
+        })))
+        // urlTarget 是同步谓词，所以偏好只能读一次缓存进布尔；读不到就保持默认开
+        const prefApi = createApi({ fetch: globalThis.fetch, storage: globalThis.localStorage })
+        prefApi.preferenceGet().then((r) => {
+          const p = r && r.data && r.data.pref    // plainGet 的形状是 {ok, stale, data}，pref 在 data 里
+          if (typeof p?.sidebar_takeover === 'boolean') takeoverOn = p.sidebar_takeover
+          if (typeof p?.sidebar_crop === 'boolean') cropOn = p.sidebar_crop
+        }).catch(() => {})
+      }
+
+      return { registeredSlots: registered, sidebarTab }
     }
 
     exports.apply = apply
