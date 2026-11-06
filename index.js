@@ -1,9 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates, latestDigests, exportItems, wipeLibrary } from './lib/store.js'
+import { openStore, migrate, counts, listItems, listSources, lastRun, getCursor, markFeedback, listFolders, createFolder, renameFolder, deleteFolder, setItemFolders, foldersOfItem, itemsWithFolders, candidates, latestDigests, exportItems, wipeLibrary, refreshItem, setMeta } from './lib/store.js'
 import { loadPreference, ensurePreferenceFile, bumpTuningFile, writePreference, readPreferenceRaw, clearTuningFile, validate } from './lib/preference.js'
 import { runOnce, syncSources } from './lib/runner.js'
+import { fetchFulltext } from './lib/fulltext.js'
+import { classifyError } from './lib/pool.js'
 import { stopXhsMcp, getXhsMcp } from './lib/mcp/xhs-client.js'
 import { createScheduler } from './lib/scheduler.js'
 import { makeLogger, redact } from './lib/diag.js'
@@ -25,7 +27,7 @@ const ALLOWED_ACTIONS = { dismiss: -0.1, save: 0.1 }
  * tuning 只走 /feedback 与 /tuning-reset，version 没有升级路径可写。
  * yt_dlp_path / network 这类进阶键留给手编文件，页签不碰。
  */
-const PREF_SECTIONS = new Set(['sources', 'follow', 'themes', 'redlines', 'schedule', 'limits', 'charter', 'require_theme_hit', 'inject_prompt', 'sidebar_takeover', 'sidebar_crop'])
+const PREF_SECTIONS = new Set(['sources', 'follow', 'themes', 'redlines', 'schedule', 'limits', 'charter', 'require_theme_hit', 'inject_prompt', 'sidebar_takeover', 'sidebar_crop', 'fulltext'])
 
 /** 夹操作是白名单而不是 if 链：新加动作时漏了枚举就直接 400，不会悄悄走进某个分支 */
 const FOLDER_ACTIONS = new Set(['create', 'rename', 'delete'])
@@ -307,8 +309,14 @@ export function apply(ctx, config = {}) {
   const boot = getPref()
   if (!boot.errors.length) syncSources(db, boot.pref)
   // 定时器可注入：测试里必须注入，否则一个 5 分钟的 interval 会把测试进程吊住不退出。
+  // runOnce 的正文补抓实现从这一层注入：调度器只会传 {db, pref, now, log, trigger, force}，
+  // 抓取用的 fetch 是宿主这边的事（config.fetchImpl 是既有的注入口，与工具面同一个）。
+  const runOnceWithFulltext = (opts = {}) => runOnce({
+    ...opts,
+    fetchFulltextImpl: (url, o = {}) => fetchFulltext(url, { ...o, fetchImpl: config.fetchImpl ?? globalThis.fetch })
+  })
   const scheduler = createScheduler({
-    db, getPref, runOnce, log,
+    db, getPref, runOnce: runOnceWithFulltext, log,
     now,
     tickMin: Number.isFinite(config.tickMin) ? config.tickMin : 5,
     setInterval: config.setInterval ?? setInterval,
@@ -533,6 +541,46 @@ export function apply(ctx, config = {}) {
       if (sub === '/run' && req.method === 'POST') {
         const r = await scheduler.triggerNow()
         return json(res, 200, { ok: !r.skipped, ...r, state: state() })
+      }
+      if (sub === '/fulltext' && req.method === 'POST') {
+        // 面板→宿主：按条目 id 现抓一次正文（不是 agent 工具，不进工具面）。
+        // 抓不到一律 502 + error：客户端靠"非 2xx"把按钮状态收回来（view-api.send），
+        // 回 200 配 ok:false 会让面板以为成功而白刷新一次。
+        let body
+        try { body = JSON.parse((await readBody(req)) || '{}') || {} } catch { return json(res, 400, { ok: false, error: 'bad_payload' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || !Number.isInteger(body.item_id)) {
+          return json(res, 400, { ok: false, error: 'bad_payload' })
+        }
+        const row = db.prepare('SELECT id, url, kind, body_state FROM items WHERE id = ? LIMIT 1').get(body.item_id)
+        if (!row) return json(res, 404, { ok: false, error: 'no_item' })
+        // 已经有正文（抓到的全文 / 视频字幕）就什么都不做：这条路由只负责补缺，
+        // 不是"再抓一次覆盖掉"——重复点击不该产生第二个网络请求。
+        if (row.body_state === 'full' || row.body_state === 'subtitle' || row.body_state === 'transcribed') {
+          return json(res, 200, { ok: true, body_state: row.body_state, already: true })
+        }
+        let parsed = null
+        try { parsed = new URL(row.url) } catch { return json(res, 400, { ok: false, error: 'unsupported_scheme' }) }
+        if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) {
+          return json(res, 400, { ok: false, error: 'unsupported_scheme' })
+        }
+        let got = null
+        try {
+          got = await fetchFulltext(parsed.href, { fetchImpl: config.fetchImpl ?? globalThis.fetch })
+        } catch (e) {
+          const cls = classifyError(e)
+          log({ level: 'warn', event: 'fulltext_failed', detail: `item#${row.id}: ${cls}` })
+          return json(res, 502, { ok: false, error: 'fetch_failed', error_class: cls })
+        }
+        if (!got || !got.text) {
+          log({ level: 'warn', event: 'fulltext_failed', detail: `item#${row.id}: empty` })
+          return json(res, 502, { ok: false, error: 'fetch_failed', error_class: 'empty' })
+        }
+        // 只改正文两列 + fetched_at：不动 status（面板刷新后它还是那条候选）。
+        refreshItem(db, row.id, { body_text: got.text, body_state: 'full', fetched_at: now() })
+        // 手动抓成功就把自动补抓的失败计数清零，让下一轮愿意再试
+        setMeta(db, `fulltext:fail:${row.id}`, 0)
+        log({ level: 'info', event: 'fulltext_ok', detail: `item#${row.id}: ${got.chars} 字` })
+        return json(res, 200, { ok: true, body_state: 'full', chars: got.chars })
       }
       if (sub === '/feedback' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req)) || '{}') || {}

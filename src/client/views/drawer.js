@@ -193,14 +193,18 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
       item.verdict_why ? Section({ title: '会话的判断', children: [vnode('p', {}, [`为什么判成「${item.verdict_tier}」：${item.verdict_why}`])] }) : null,
       // 内嵌播放（V5 实证可行）：视频且能解析出嵌入形态就直接在抽屉里放，
       // 不把人跳去平台——须鲸的初衷是"在你待着的地方看"。
+      // 外面那层舞台容器是照抄侧栏播放器（player-tab.js）的同一套样式：完整页 iframe 往下会带出
+      // 平台的推荐流，裁掉窗口高度是产品意图——不让人顺着推荐一路刷下去。
       embed ? Section({
         title: '内嵌播放',
-        children: [vnode('iframe', {
-          className: 'bl-player',
-          src: embed.src,
-          allow: 'autoplay; fullscreen',
-          allowfullscreen: true
-        })]
+        children: [vnode('div', { className: 'bl-stage bl-stage-crop' }, [
+          vnode('iframe', {
+            className: 'bl-player',
+            src: embed.src,
+            allow: 'autoplay; fullscreen',
+            allowfullscreen: true
+          })
+        ])]
       }) : null,
       boundaryNote(item) ? Section({ title: '能力边界', children: [vnode('p', {}, [boundaryNote(item)])] }) : null,
       Section({

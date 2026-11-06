@@ -24,9 +24,11 @@ export const CSS = `
 .bl-issues{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dsw-alias-state-error-primary)}
 .bl-pending{font-size:12px;color:var(--dsw-alias-label-secondary)}
 .bl-actions{display:flex;gap:8px;margin:10px 0 2px}
-.bl-actions button,.bl-detail{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
-.bl-actions button:hover,.bl-detail:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.bl-actions button:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
+.bl-actions button,.bl-detail,.bl-fetch{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
+.bl-actions button:hover,.bl-detail:hover,.bl-fetch:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.bl-actions button:disabled,.bl-fetch:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
+/* 「抓取正文」是这一屏唯一会出去抓东西的按钮，给个品牌色边框让它站得出来（仍走宿主 token） */
+.bl-fetch{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);align-self:flex-start}
 .bl-today,.bl-video,.bl-article,.bl-digest{display:flex;flex-direction:column;gap:8px;min-width:0}
 .bl-rail{margin-top:18px;min-width:0}
 .bl-rail h3{font-size:13px;font-weight:500;margin:0 0 8px;color:var(--dsw-alias-label-primary)}

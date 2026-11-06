@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ArticleView, visibleArticles, readableBody, STATE_HINT } from '../src/client/views/article.js'
+import { ArticleView, currentArticle, visibleArticles, readableBody, STATE_HINT } from '../src/client/views/article.js'
 import { text, findAll } from './helpers/tree.mjs'
 
 const mk = (over = {}) => ({
@@ -96,6 +96,56 @@ test('点左栏一行只换右栏（选中），不弹抽屉；抽屉从右栏�
   assert.ok(detail, '右栏要有进抽屉的入口，不然文章区没法反馈')
   detail.props.onClick()
   assert.deepEqual(opened, [1])
+})
+
+/* ---------------- 右栏「抓取正文」（M8：摘要条目唯一的出路） ---------------- */
+
+test('只有摘要时右栏有「抓取正文」按钮，点了把条目 id 回传出去', () => {
+  const calls = []
+  const tree = ArticleView({
+    items: [mk({ id: 7, body_state: 'summary_only', body_text: '摘要一句话' })],
+    filters: {}, selectedId: 7, onFulltext: (id) => calls.push(id)
+  })
+  const btn = findAll(tree, 'bl-fetch')[0]
+  assert.ok(btn, '仅摘要时右栏必须给出抓取正文的入口')
+  assert.equal(text(btn), '抓取正文')
+  btn.props.onClick()
+  assert.deepEqual(calls, [7], '面板只报条目 id，抓什么由宿主定')
+})
+
+test('抓取中按钮 disabled 且文案换成「正在抓取…」', () => {
+  const tree = ArticleView({ items: [mk({ body_state: 'summary_only' })], filters: {}, selectedId: 1, fetching: true })
+  const btn = findAll(tree, 'bl-fetch')[0]
+  assert.equal(btn.props.disabled, true, '在途还能再点就是叠请求')
+  assert.match(text(btn), /正在抓取/)
+  assert.doesNotMatch(text(btn), /^抓取正文$/)
+})
+
+test('已经有正文（full/subtitle/transcribed）时不画这颗按钮：不给假动作', () => {
+  for (const state of ['full', 'subtitle', 'transcribed']) {
+    const tree = ArticleView({ items: [mk({ body_state: state })], filters: {}, selectedId: 1 })
+    assert.equal(findAll(tree, 'bl-fetch').length, 0, state + ' 已经有正文，不该再给一颗点了也没用的按钮')
+  }
+  // missing / burned_in 是"真读不到"，这条出路要留着
+  for (const state of ['missing', 'burned_in', 'summary_only']) {
+    assert.equal(findAll(ArticleView({ items: [mk({ body_state: state })], filters: {}, selectedId: 1 }), 'bl-fetch').length, 1, state + ' 要给一次抓取的机会')
+  }
+})
+
+test('仅摘要时多一行说明：抓不到就还是看原文，不让人以为插件坏了', () => {
+  const t = text(ArticleView({ items: [mk({ body_state: 'summary_only' })], filters: {}, selectedId: 1 }))
+  assert.match(t, /只拿到摘要/)
+  assert.match(t, /抓不到就还是看原文/)
+  // 这句是按钮的预期管理，别的时候不出现（尤其不能盖掉 full 的正文）
+  const full = text(ArticleView({ items: [mk({ body_state: 'full' })], filters: {}, selectedId: 1 }))
+  assert.doesNotMatch(full, /点上面的按钮去原文抓一次/)
+})
+
+test('currentArticle 与右栏画的同一条：选中项被筛掉时回落第一条', () => {
+  const items = [mk({ id: 1 }), mk({ id: 2, source_id: 'b' })]
+  assert.equal(currentArticle(items, {}, 2).id, 2)
+  assert.equal(currentArticle(items, { source: 'b' }, 1).id, 2, '忙态贴错条目就是这里算岔了')
+  assert.equal(currentArticle([], {}, 1), null)
 })
 
 test('阅读时长按分钟说，缺这个数就不写', () => {

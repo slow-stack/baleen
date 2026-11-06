@@ -430,3 +430,84 @@ DSH 此刻正在运行（5 个进程，19:07 起）。**在应用运行时改 `c
 2. console 求值所在的 document 与应用 UI **不是同一个渲染树**：`document.body.innerText.length` 在 414 / 914 / 9144 之间跳，`querySelectorAll('iframe')` 恒为 0（面板里明明渲染着东西）。所以"用 innerText 找 tab 标题"这类 DOM 判据在本机不可信，**只能看截图**。
 3. 我按无障碍树的元素序号点「Console 面板」时，序号在一次渲染后指到了应用左侧导航，把她的界面导到了「插件」页。**这轮留下的残留**：左上角一个白色调试框（`bl-probe` 覆盖层）+ 内存里一个已注册的 `dsh-baleen:probe` tab，两者都只在渲染进程里，`Ctrl+R` 重载即消失（我按的 Ctrl+R 被 DevTools 吃了，没生效）。**下轮开头先确认这两样清掉了**。
 4. 顺带记录（非本轮引入）：console 里长期有 400+ 条红色错误 `GET dsh-app://app/_dsh-notify-no/host-bridge 404` 与 `plugins/events ERR_FAILED`，出处写着 `client.js:4845`——宿主自身的通知/事件通道在报错，baleen 不碰这条，但它会把真机截图里的噪音放大，验收时别把它当插件的错。
+
+## 侧栏浏览器登录态：分区由宿主铸造，插件侧没有正当入口（2026-11-06，宿主能力缺口，不绕过）
+
+承接 `## 宿主侧栏浏览器：能不能给 Baleen 用（2026-10-28，探通，附一条硬门槛）`：那一节定了现象——每次启动一个随机新分区、登录态重启即清、约 30 秒后 B 站弹登录浮层。本节补它没答的那层：**这个分区是谁造的、插件能不能要求持久化**。结论是不行，而且不是「没找到口子」，是宿主把这条通道按用途锁死了。
+
+### 查了什么
+
+| 文件 | 位置 | 看什么 |
+|---|---|---|
+| 宿主主进程 | `D:\Program Files\DeepSeek Harness\resources\app.asar` 内 `lib/main.js` | `DesktopBrowserGuests` 的 acquire / bind / IPC handler |
+| 宿主 preload | 同一 asar 内 `lib/preload-app.cjs` | 暴露给渲染进程的 browser bridge 签名 |
+| 侧栏浏览器客户端 | 同一 asar 内 `node_modules/@deepseek-ai/dsh-client-ui-sidebar-browser/lib/client.js` | 谁决定 webview 的 `partition` |
+| 插件生态 | `~/.dsh/profiles/desktop/node_modules` 下名字含 sidebar / browser / web 的包 | 有没有第三方插件用过 `persist:` 分区 |
+
+### 结论一：分区在主进程铸造，插件唯一能递进去的是一个 workspace 字符串
+
+- `DesktopBrowserGuests.acquire(owner, workspace)`（宿主 asar `lib/main.js:18615-18633`）先校验入参：`if (typeof workspace !== "string" || workspace.length === 0 || workspace.length > 4096) throw new Error("desktop browser: a workspace storage identity is required")`（:18616）；然后 ``partition = `dsh-sidebar-browser-${randomUUID()}` ``（:18619）、`this.configureSession(session.fromPartition(partition))`（:18620），再按 workspace 记进 `this.partitions`（:18621）。
+- 它自己的 JSDoc 写着「Reserve one guest in a workspace's process-lifetime partition.」（:18610）——**process-lifetime 是设计意图，不是漏写 `persist:`**。
+- 跨进程只有一条 IPC：`ipcMain.handle(DESKTOP_IPC.browserAcquire, (event, workspace) => { assertProductSender(event); return browserGuests.acquire(event.sender, workspace); })`（`lib/main.js:20650-20653`）；preload 侧的桥签名相同：`acquire: (workspace) => electron.ipcRenderer.invoke(DESKTOP_IPC.browserAcquire, workspace)`（`lib/preload-app.cjs:1857`）。**入参就一个 workspace，没有 partition、没有 persist 标志、没有第三参**。
+- 客户端也不自己决定分区：`const reservation = await this.bridge.acquire(this.workspaceKey)`（`.../dsh-client-ui-sidebar-browser/lib/client.js:1161`），拿到宿主回给它的名字后 `element.setAttribute("partition", reservation.partition)`（:1340）；`async function browserWorkspace(source, sessionId, signal)`（:1407）算出的 workspaceKey 是会话的 cwd 一类身份，不是插件能改的东西。
+- 客户端里那个 `persist: "dsh.sidebar-browser.v1"`（:1695）是**页签状态（地址、选中页）的持久化键**，与 cookie 分区无关——别把它当登录态的证据。
+- 就算插件绕过 bridge 自己往 `<webview>` 上写 `partition`，宿主也会拦：`bind` 的 `will-attach-webview` 里 `if (lease === void 0 || lease.owner !== owner || lease.attached || params.partition !== lease.partition) event.preventDefault()`（`lib/main.js:18666-18667`）。
+
+### 结论二：宿主自己的 persist 分区是用途锁死的，不是通用登录态浏览器
+
+- `lib/main.js:13034-13036`：``const partition = account.userId === null ? `dsh-platform-${randomUUID()}` : `persist:dsh-platform-${createHash("sha256").update(JSON.stringify([account.origin, account.userId])).digest("hex")}` `` → `const browserSession = session.fromPartition(partition)` → `const failure = await this.cleanStorage(browserSession)`。**有 `persist:` 也建好就清 cookie**——它要的是「同一账号的干净视图」，不是「留住登录」。
+- 这个视图只认两个页：`if (page !== "usage" && page !== "top-up") throw new Error("Invalid Platform page")`（`lib/main.js:20696`）。也就是说就算能借到它，也只能看用量 / 充值两页，打不开 B 站。
+- 主窗口 `createWindow` 的 `webPreferences` 没有 `session` / `partition` 键，走 `defaultSession`——用户已登录的平台账号态确实在那一层，但**插件进程拿不到 electron 的 `session` 对象**（本文件 2026-10-31 那条 `open_external_failed | item#1: opener 缺席` 已是同一个边界的实证）。宿主内部建登录窗时能写 `session: this.browserSession`，那是宿主自己建 `BrowserWindow` 的权限，插件没有这条通道。
+
+### 结论三：插件生态里没有先例
+
+`~/.dsh/profiles/desktop/node_modules` 下名字含 sidebar / browser / web 的只有 `dsh-better-sidebar`、`dsh-sidebar-more`、`webdriver-bidi-protocol`、`webidl-conversions`。对两个 sidebar 插件定向 grep `fromPartition|partition|dshDesktop|sidebar-browser`，命中的全是无关的语法高亮与法语文案——**没有任何第三方插件用过 `persist:` 分区**。（全量递归 grep 在本机超时，所以这条按定向证据下结论，不外推成「整个生态都没有」。）
+
+### 产品判断：这是宿主侧能力缺口，baleen 不绕过
+
+三条「看起来能绕」的路都不走：
+
+| 绕法 | 为什么不走 |
+|---|---|
+| 改宿主 asar / 打补丁 | 宿主一升级就失效，还把用户的桌面应用变成不可复现的本地改件；AGENTS.md 也不允许 |
+| monkey-patch `DesktopBrowserGuests`，或自己伪造 webview 的 `partition` | `will-attach-webview` 那条 `params.partition !== lease.partition` 会直接 `preventDefault()`，等于跟宿主对撞；而且这是插件去提权，宿主一收紧就炸整个面板 |
+| 自己起一个带 `persist:` 分区的隐藏 `BrowserWindow` | 插件进程根本拿不到 `session`，没有可用的 `fromPartition` |
+
+所以对登录态这件事，**baleen 的立场是如实告知、不做承诺**：宿主哪天把侧栏浏览器分区改成可持久化，或给那条 IPC 开一个 partition 参数，插件这一侧才谈得上「记住登录」；在那之前，任何「登录一次以后都记得」的文案都是谎报覆盖面。
+
+### 不改宿主的可用缓解（按场景三选一）
+
+| 做法 | 代价（如实） |
+|---|---|
+| 先用系统浏览器（用户自己已登录的那个）打开视频，想留档再回抽屉 | 少了「在插件里看完」的沉浸感，但登录态是用户自己的，不受分区影响 |
+| 就接受「侧栏浏览器每次重启清空登录态」：B 站完整页在无登录态下**也能播**，只是约 30 秒后弹一次登录浮层（2026-10-28 已实测） | 看一眼封面 / 前 30 秒够用，长视频会被浮层打断 |
+| 抽屉维持现状：内嵌 iframe（同一分区、同样无登录态）+ 一颗「浏览器打开」按钮，文案明说边界 | 已经是现在落地的样子；不新增承诺，只把边界写在脸上 |
+
+### 同轮验收记录（另两项，本节只记录，未改代码）
+
+#### 1. 正文抽取：RSS 路径过去只存 feed 摘要，现在有零依赖的正文抽取
+
+- 基线（写本节前只读查库 `~/.dsh/baleen/baleen.sqlite`）：`kind='article'` 共 11 条，`body_state` **全部 `summary_only`**，`body_text` 长度 33–77 字符（最长一条 77，其次 76 / 75 / 71 / 65）。也就是说筛选那一步读的其实是摘要，不是正文。
+- 新增 `lib/fulltext.js`：`FULLTEXT_MIN_CHARS = 400`（:12）、`extractFulltext(html, url = '')`（:151）、`fetchFulltext(url, { signal, fetchImpl, timeoutMs = 15000 })`（:165）。零依赖（不引 readability / cheerio），只用正则加内置 `fetch`。
+- 接进数据流两处：`lib/normalize.js:37` `if (raw.fulltext_text) return 'full'`、`:99` `const bodyText = stripTags(raw.fulltext_text ?? raw.body_html ?? raw.summary_html ?? '')`；开关 `lib/preference.js:24` `fulltext: true`（:269-270 有布尔校验），`preference.example.yaml` 同步。
+- 面板侧已就位：`src/client/view-api.js:129` `fulltext: (itemId) => post('/fulltext', { item_id: itemId })`、`src/client/views/article.js` 的「抓取正文」按钮与 `HAS_BODY = new Set(['full','subtitle','transcribed'])` 门控、`src/client/_footer.txt` 的 `runFulltext` 与 `fetchingId` 忙态。
+- 测试：`node --test "test/fulltext.test.js"` **8/8 绿**（真实形态博客页只留 article 正文，评论区 / 相关推荐 / 脚本 / 页脚全丢；朴素 `<p>` 页面能抽且相邻重复段只留一次；不足 400 字返回空串；成功请求带 UA `baleen/0.1.0 (+local; fulltext)`；HTTP 500 抛带 status；content-type 非 HTML 抛 parse；抽不出抛 empty；超时抛 `name=TimeoutError` 并 abort）。
+- 运行时接线（收尾，已落地）：`index.js:7` 引入 `fetchFulltext`；`index.js:316` 包一层 `runOnceWithFulltext` 交给 scheduler（scheduler 只传六个键，fetch 必须在这一层注入）；`index.js:545` 起是 `POST /api/dsh-baleen/fulltext`（`fulltext` 也已进 `index.js:30` 的 `PREF_SECTIONS`，设置页才写得进这个键）。
+- runner 侧（`lib/runner.js:151-181`）：源循环之后、记账之前补抓，每轮最多 8 条（`FULLTEXT_PER_RUN`）、同一条失败满 2 次记进 meta 不再试（`FULLTEXT_MAX_TRIES`）、复用 `runJobs`（并发 2、单条 15s、**retries 0**，守「重试上限 1 次」）。候选由 `lib/store.js:189` `fulltextCandidates` 挑：`status='new' AND body_state='summary_only' AND kind='article'`。
+- 两条防浪费的规矩（不写就会每轮重抓）：① `lib/dedup.js:11` `HAS_BODY = new Set(['full','subtitle','transcribed'])`，`:62-67` 里 key 命中 update 分支时，**库里已是全文而 feed 这次只给摘要，就不覆盖 `body_text`/`body_state`**；② 路由对已有正文的条目直接回 `200 {already:true}`，重复点击不产生第二个网络请求。
+- 抓不到一律 **502**（不是 200+ok:false）：客户端 `view-api.send` 靠非 2xx 把按钮状态收回来，回 200 会让面板以为成功而白刷新一次。
+- 端到端实跑（本机，2026-11-06）：起一个本地 HTTP 服务吐带 `nav`/`article`/`footer`/`aside.related` 的页面，库里插一条 `summary_only` 的 article，走真实链路 `runOnce({ fetchFulltextImpl: fetchFulltext })` → `STATS {"tried":1,"ok":1,"failed":0}`、`body_state=full`、`body_text` **1390 字符**，且正文里 `导航` / `相关推荐` / `版权页脚` **全部不在**（噪音块真的被丢了），日志事件 `run_start,source_ok,fulltext_ok,run_end`。
+- 测试：`test/fulltext.test.js` 8 条；runner 新增 5 条（不注入实现就一条请求都不发 / 注入后抓成功抬到 full / 失败只记次数且满 2 次不再试 / `pref.fulltext===false` 时即便注入了也不抓 / 补到全文后下一轮不被摘要覆盖回退）；dedup 新增 2 条（全文不被摘要覆盖、摘要遇到完整正文照常刷新）；host-surface 新增 4 条（`/fulltext` 200 / already 200 零请求 / 502 且库里一个字不改 / 载荷坏·条目没了·scheme 出白名单）；views-settings 新增 1 条（开关默认开、缺省键也画成开）。
+
+#### 2. 抽屉播放器裁推荐区（bl-stage-crop）
+
+2026-11-02 那条留的未验是「B 站完整页 iframe 自带的相关推荐是沉迷风险的残留通道」。本轮不换播放器（官方 player.html 仍是空壳），改成**把 iframe 窗口裁到一屏视频高度**，让下面的推荐流物理上落在可视区外。
+
+- 实现：`src/client/views/drawer.js:193-208` 把内嵌播放改成 `vnode('div', { className: 'bl-stage bl-stage-crop' }, [vnode('iframe', { className: 'bl-player', src: embed.src, allow: 'autoplay; fullscreen', allowfullscreen: true })])`；注释（:196-197）写的是产品意图「完整页 iframe 往下会带出平台的推荐流，裁掉窗口高度是产品意图——不让人顺着推荐一路刷下去」。
+- 样式与侧栏播放器同源：`src/client/css.js:112-115`（`.bl-stage` / `.bl-stage > .bl-player` / `.bl-stage-crop { height: var(--bl-window) }` / `.bl-stage:not(.bl-stage-crop) > .bl-player { height: 640px }`）；`src/client/views/player-tab.js:19` 用同一对类名 `crop ? 'bl-stage bl-stage-crop' : 'bl-stage'`；设置页开关 `src/client/views/settings.js:323` 的 `flag('sidebar_crop', ...)`。
+- 测试：`test/views-drawer.test.js:72-84`「内嵌播放的 iframe 外面包着 `bl-stage.bl-stage-crop`，样式与侧栏播放器同源」；`test/views-player-tab.test.js` 4/4、`test/views-drawer.test.js` 37/37 绿。
+- **未验（如实）**：裁剪只在单测与预览门里验过，**真机还没点开看过**——与 2026-11-02 那条同一个缺口，要等 DSH 重启后从抽屉里点播放，确认推荐区确实被裁在窗口外。
+
+全量回归（本轮全部改动落地后跑）：`node --test "test/*.test.js"` → tests **652** / pass **652** / fail 0，duration 5870ms，exit 0；`node tools/build-client.mjs --check` → `client.js 是最新的`（exit 0）。
+
+另记：这三项都**只在本机单测 + 本地 HTTP 端到端里验过**，真机（DSH 重启后从抽屉点播放、从面板点「抓取正文」）仍未验——需要一次重启后的手动确认，别把"单测绿"读成"真机已验收"。

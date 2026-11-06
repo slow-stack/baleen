@@ -69,6 +69,20 @@ test('视频抽屉带内嵌播放 iframe（可嵌入时），文章抽屉不带'
   assert.equal(findAll(short, 'bl-player').length, 0)
 })
 
+// 抽屉里的完整页 iframe 会带出平台的推荐流：裁掉窗口高度是产品意图（不让人顺着刷下去），
+// 复用侧栏播放器那一套 .bl-stage / .bl-stage-crop 样式，不另写一份 CSS。
+test('内嵌播放的 iframe 外面包着 bl-stage.bl-stage-crop，样式与侧栏播放器同源', () => {
+  const tree = Drawer({ item: item({ kind: 'video', source_id: 'bili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {} })
+  const stage = findAll(tree, 'bl-stage')[0]
+  assert.ok(stage, 'iframe 必须有个容器，裸 iframe 没法裁推荐区')
+  assert.equal(stage.type, 'div')
+  assert.equal(findAll(tree, 'bl-stage-crop').length, 1, '不带 crop 的话下面半截推荐流就露出来了')
+  assert.equal(findAll(tree, 'bl-player').length, 1, '包一层不该多出一个播放器')
+  assert.equal(stage.children.length, 1)
+  assert.equal(stage.children[0].type, 'iframe')
+  assert.equal(stage.children[0].props.className, 'bl-player', 'iframe 只留自己的类，容器类挂在外层')
+})
+
 test('视频条目的抽屉带时长（fmtDuration 同一写法，缺时长就整段不显示）', () => {
   assert.match(text(Drawer({ item: item(), api: {} })), /时长 18:22/)
   assert.doesNotMatch(text(Drawer({ item: item({ duration_sec: null }), api: {} })), /时长/)

@@ -100,6 +100,33 @@ test('已因别的理由归档过的条目，再次抓到不重开', () => {
   db.close()
 })
 
+test('已补抓到全文的条目，再被 feed 的摘要覆盖时正文保住', () => {
+  // RSS 每轮只搬 feed 给的摘要；正文补抓（fulltext）把 body_state 抬到 full 之后，
+  // 若 update 分支照搬 body_text/body_state，全文会被打回 summary_only，等于每轮重抓。
+  const db = dbOf()
+  const a = putDraft(db, draft({ body_text: '全文一大段', body_state: 'full' }), () => 2000)
+  const b = putDraft(db, draft({ body_text: '一句摘要', body_state: 'summary_only', fetched_at: 3000 }), () => 3000)
+  assert.equal(b.action, 'update')
+  assert.equal(b.id, a.id)
+  const row = getItemByKey(db, 's1', 'g1')
+  assert.equal(row.body_text, '全文一大段')
+  assert.equal(row.body_state, 'full')
+  assert.equal(row.fetched_at, 3000)   // 其余列照旧刷新，只有正文这两列受保护
+  db.close()
+})
+
+test('反过来：库里还是摘要、这次 feed 给了完整正文 → 正文照常刷新', () => {
+  const db = dbOf()
+  const a = putDraft(db, draft({ body_text: '一句摘要', body_state: 'summary_only' }), () => 2000)
+  const b = putDraft(db, draft({ body_text: '全文一大段', body_state: 'full' }), () => 3000)
+  assert.equal(b.action, 'update')
+  assert.equal(b.id, a.id)
+  const row = getItemByKey(db, 's1', 'g1')
+  assert.equal(row.body_text, '全文一大段')
+  assert.equal(row.body_state, 'full')
+  db.close()
+})
+
 test('因为 duplicate 归档的那条，同键再抓时可以复活成 new', () => {
   const db = dbOf()
   const a = putDraft(db, draft(), () => 2000)

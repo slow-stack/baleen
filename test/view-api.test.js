@@ -137,6 +137,29 @@ test('folder_gone 的 410 要带着是哪几个夹回来——这是收藏唯一
   assert.deepEqual(out.missing, [3, 5])
 })
 
+test('fulltext 走 POST /fulltext，载荷只有 item_id（抓哪条由宿主定）', async () => {
+  const { calls, fetchImpl } = recorder({ '/fulltext': { code: 200, json: { ok: true, body_state: 'full' } } })
+  const api = createApi({ fetch: fetchImpl, storage: memStorage() })
+  const out = await api.fulltext(7)
+  assert.equal(calls[0].url, '/api/dsh-baleen/fulltext')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.equal(calls[0].init.headers['content-type'], 'application/json')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { item_id: 7 })
+  assert.equal(out.ok, true)
+  assert.equal(out.data.body_state, 'full')
+})
+
+test('fulltext 抓不到时把失败带回面板，不抛也不假装成功', async () => {
+  const { fetchImpl } = recorder({ '/fulltext': { code: 502, json: { ok: false, error: 'fetch_failed' } } })
+  const api = createApi({ fetch: fetchImpl, storage: memStorage() })
+  const out = await api.fulltext(7)
+  assert.equal(out.ok, false)
+  assert.equal(out.error, 'fetch_failed', '面板要按这句说人话，不能只说"没记上"')
+  // 路由整个缺席（宿主没起来）也一样是失败，不是无事发生
+  const dead = createApi({ fetch: async () => { throw new Error('fetch failed') }, storage: memStorage() })
+  assert.equal((await dead.fulltext(7)).ok, false)
+})
+
 test('folderOp 三种动作都发对载荷', async () => {
   const { calls, fetchImpl } = recorder()
   const api = createApi({ fetch: fetchImpl, storage: memStorage() })

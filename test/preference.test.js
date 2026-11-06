@@ -180,3 +180,10 @@ test('侧栏两个开关（M7）：默认都开，只收布尔', () => {
   assert.ok(validate({ sidebar_crop: 0 }).some((e) => e.startsWith('sidebar_crop')), '数字必须拒')
   assert.deepEqual(validate({ sidebar_takeover: false, sidebar_crop: false }), [], '合法的假值要收')
 })
+
+test('fulltext 开关（M8）：默认开，只收布尔', () => {
+  assert.equal(DEFAULTS.fulltext, true)
+  assert.ok(validate({ fulltext: 'yes' }).some((e) => e.startsWith('fulltext')), '字符串必须拒')
+  assert.ok(validate({ fulltext: 0 }).some((e) => e.startsWith('fulltext')), '数字必须拒')
+  assert.deepEqual(validate({ fulltext: false }), [], '合法的假值要收')
+})

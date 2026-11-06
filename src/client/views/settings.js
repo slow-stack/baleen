@@ -315,6 +315,9 @@ export function PrefsTab({ pref, themesDraft, onThemesDraft, redlinesDraft, onRe
     vnode('h4', {}, ['判断开关']),
     flag('require_theme_hit', '没有命中任何主题组的条目直接丢弃', '关掉后全靠预筛分与源权重，条目会多很多', pref?.require_theme_hit),
     flag('inject_prompt', '每轮把待判清单注入会话（判断轮的触发器）', '关掉能省一点上下文', pref?.inject_prompt),
+    // 正文补抓（M8）：RSS 只给摘要，开着就会回原文抓正文。关掉 = 文章永远只有 feed 给的那一句话，
+    // 面板里的「抓取正文」按钮仍能手动点（那是按条目单次触发，不受这个开关管）。
+    flag('fulltext', '文章只有摘要时，回原文抓一次正文', '关掉就不抓：文章只剩 feed 给的那一句，且不会有任何额外请求', pref?.fulltext),
 
     // 侧栏播放（M7）：这两个开关只在装了 dsh-better-sidebar 的机器上有实际效果，
     // 没装就是不注册侧栏 tab、面板照旧——界面上要说清，别让人以为关了它就能装出功能。

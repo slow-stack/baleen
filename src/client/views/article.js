@@ -14,6 +14,8 @@ export const STATE_HINT = {
   missing: '读不到内容（没有语音，也没抓到正文）',
   burned_in: '硬字幕读不到（字烧在画面上，不是插件偷懒）'
 }
+/** 已经有正文的那几种：再摆一颗「抓取正文」就是假动作——点了也不会变，反倒让人怀疑是没生效 */
+const HAS_BODY = new Set(['full', 'subtitle', 'transcribed'])
 const STATE_OPTIONS = [
   ['full', '全文'], ['summary_only', '仅摘要'], ['subtitle', '字幕'],
   ['transcribed', '转写'], ['missing', '读不到'], ['burned_in', '硬字幕']
@@ -34,9 +36,16 @@ export function readableBody(item) {
   return typeof t === 'string' ? t.trim() : ''
 }
 
-export function ArticleView({ items = [], filters = {}, selectedId, onFilter, onSelect, onOpen }) {
+/** 右栏当前是哪一条：选中项被筛掉时回落第一条。视图与装配层共用这一条规则，
+ *  否则「正在抓的是哪条」会跟右栏画的那条各算一遍，忙态就贴到别人身上。 */
+export function currentArticle(items, filters = {}, selectedId) {
   const list = visibleArticles(items, filters)
-  const cur = list.find((i) => i.id === selectedId) ?? list[0] ?? null
+  return list.find((i) => i.id === selectedId) ?? list[0] ?? null
+}
+
+export function ArticleView({ items = [], filters = {}, selectedId, onFilter, onSelect, onOpen, onFulltext, fetching = false }) {
+  const list = visibleArticles(items, filters)
+  const cur = currentArticle(items, filters, selectedId)
   const body = cur ? readableBody(cur) : ''
   const sources = [...new Set(items.filter((i) => i.kind !== 'video').map((i) => i.source_id))]
 
@@ -75,6 +84,17 @@ export function ArticleView({ items = [], filters = {}, selectedId, onFilter, on
         STATE_HINT[cur.body_state] ? vnode('p', { className: 'bl-reader-hint' }, [STATE_HINT[cur.body_state]]) : null,
         vnode('div', { className: 'bl-reader-body' }, [body || '（没有正文，只能看原文）']),
         vnode('p', { className: 'bl-reader-link' }, ['读原文：' + (cur.url || '（这条没带链接）')]),
+        // 已经有正文的（full/subtitle/transcribed）不画这颗按钮：点了也不会有新东西，
+        // 摆在那儿只会让人把手里已经有的正文再怀疑一遍。
+        HAS_BODY.has(cur.body_state) ? null : vnode('button', {
+          type: 'button', className: 'bl-fetch', disabled: Boolean(fetching),
+          onClick: () => onFulltext?.(cur.id)
+        }, [fetching ? '正在抓取…' : '抓取正文']),
+        // 这句不是内容说明（那句在 STATE_HINT 里），是这颗按钮的预期管理：抓不到是常态，
+        // 别让人点完一次就以为插件坏了。
+        cur.body_state === 'summary_only'
+          ? vnode('p', { className: 'bl-reader-hint' }, ['只拿到摘要。点上面的按钮去原文抓一次正文；抓不到就还是看原文。'])
+          : null,
         vnode('button', { type: 'button', className: 'bl-detail', onClick: () => onOpen?.(cur.id) }, ['详情与反馈'])
       ].filter(Boolean) : [
         vnode('p', { className: 'bl-empty' }, ['左边没有条目。多半是这个筛选太窄，或者这一轮还没抓到东西。'])

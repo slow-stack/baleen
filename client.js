@@ -237,6 +237,9 @@ window.__ModuleLoader__.load({
         // 「浏览器打开」走宿主侧 /open：面板只报条目 id，URL 由宿主从库里取（终审真修——
         // 本宿主把客户端页面的弹窗与外链全部静默拦下，window.open 与 <a target=_blank> 都到不了系统浏览器）。
         openItem: (itemId) => post('/open', { item_id: itemId }),
+        // 「抓取正文」：面板→宿主的补抓路由（只报条目 id，抓哪条、抓成什么样由宿主定），
+        // 不是 agent 工具——判断那一轮的只读面里没有它。
+        fulltext: (itemId) => post('/fulltext', { item_id: itemId }),
         // 小红书（M6）：登录态探活与扫码登录。都是面板→宿主路由，不进 agent 工具面。
         // 状态探活会按需拉起 MCP 子进程，所以是手动按钮触发而非挂载即打。
         xhsStatus: () => plainGet('/xhs-status'),
@@ -369,9 +372,11 @@ window.__ModuleLoader__.load({
     .bl-issues{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dsw-alias-state-error-primary)}
     .bl-pending{font-size:12px;color:var(--dsw-alias-label-secondary)}
     .bl-actions{display:flex;gap:8px;margin:10px 0 2px}
-    .bl-actions button,.bl-detail{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
-    .bl-actions button:hover,.bl-detail:hover{background:var(--dsw-alias-interactive-bg-hover)}
-    .bl-actions button:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
+    .bl-actions button,.bl-detail,.bl-fetch{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
+    .bl-actions button:hover,.bl-detail:hover,.bl-fetch:hover{background:var(--dsw-alias-interactive-bg-hover)}
+    .bl-actions button:disabled,.bl-fetch:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
+    /* 「抓取正文」是这一屏唯一会出去抓东西的按钮，给个品牌色边框让它站得出来（仍走宿主 token） */
+    .bl-fetch{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);align-self:flex-start}
     .bl-today,.bl-video,.bl-article,.bl-digest{display:flex;flex-direction:column;gap:8px;min-width:0}
     .bl-rail{margin-top:18px;min-width:0}
     .bl-rail h3{font-size:13px;font-weight:500;margin:0 0 8px;color:var(--dsw-alias-label-primary)}
@@ -758,6 +763,8 @@ window.__ModuleLoader__.load({
       missing: '读不到内容（没有语音，也没抓到正文）',
       burned_in: '硬字幕读不到（字烧在画面上，不是插件偷懒）'
     }
+    /** 已经有正文的那几种：再摆一颗「抓取正文」就是假动作——点了也不会变，反倒让人怀疑是没生效 */
+    const HAS_BODY = new Set(['full', 'subtitle', 'transcribed'])
     const STATE_OPTIONS = [
       ['full', '全文'], ['summary_only', '仅摘要'], ['subtitle', '字幕'],
       ['transcribed', '转写'], ['missing', '读不到'], ['burned_in', '硬字幕']
@@ -778,9 +785,16 @@ window.__ModuleLoader__.load({
       return typeof t === 'string' ? t.trim() : ''
     }
 
-    function ArticleView({ items = [], filters = {}, selectedId, onFilter, onSelect, onOpen }) {
+    /** 右栏当前是哪一条：选中项被筛掉时回落第一条。视图与装配层共用这一条规则，
+     *  否则「正在抓的是哪条」会跟右栏画的那条各算一遍，忙态就贴到别人身上。 */
+    function currentArticle(items, filters = {}, selectedId) {
       const list = visibleArticles(items, filters)
-      const cur = list.find((i) => i.id === selectedId) ?? list[0] ?? null
+      return list.find((i) => i.id === selectedId) ?? list[0] ?? null
+    }
+
+    function ArticleView({ items = [], filters = {}, selectedId, onFilter, onSelect, onOpen, onFulltext, fetching = false }) {
+      const list = visibleArticles(items, filters)
+      const cur = currentArticle(items, filters, selectedId)
       const body = cur ? readableBody(cur) : ''
       const sources = [...new Set(items.filter((i) => i.kind !== 'video').map((i) => i.source_id))]
 
@@ -819,6 +833,17 @@ window.__ModuleLoader__.load({
             STATE_HINT[cur.body_state] ? vnode('p', { className: 'bl-reader-hint' }, [STATE_HINT[cur.body_state]]) : null,
             vnode('div', { className: 'bl-reader-body' }, [body || '（没有正文，只能看原文）']),
             vnode('p', { className: 'bl-reader-link' }, ['读原文：' + (cur.url || '（这条没带链接）')]),
+            // 已经有正文的（full/subtitle/transcribed）不画这颗按钮：点了也不会有新东西，
+            // 摆在那儿只会让人把手里已经有的正文再怀疑一遍。
+            HAS_BODY.has(cur.body_state) ? null : vnode('button', {
+              type: 'button', className: 'bl-fetch', disabled: Boolean(fetching),
+              onClick: () => onFulltext?.(cur.id)
+            }, [fetching ? '正在抓取…' : '抓取正文']),
+            // 这句不是内容说明（那句在 STATE_HINT 里），是这颗按钮的预期管理：抓不到是常态，
+            // 别让人点完一次就以为插件坏了。
+            cur.body_state === 'summary_only'
+              ? vnode('p', { className: 'bl-reader-hint' }, ['只拿到摘要。点上面的按钮去原文抓一次正文；抓不到就还是看原文。'])
+              : null,
             vnode('button', { type: 'button', className: 'bl-detail', onClick: () => onOpen?.(cur.id) }, ['详情与反馈'])
           ].filter(Boolean) : [
             vnode('p', { className: 'bl-empty' }, ['左边没有条目。多半是这个筛选太窄，或者这一轮还没抓到东西。'])
@@ -1136,14 +1161,18 @@ window.__ModuleLoader__.load({
           item.verdict_why ? Section({ title: '会话的判断', children: [vnode('p', {}, [`为什么判成「${item.verdict_tier}」：${item.verdict_why}`])] }) : null,
           // 内嵌播放（V5 实证可行）：视频且能解析出嵌入形态就直接在抽屉里放，
           // 不把人跳去平台——须鲸的初衷是"在你待着的地方看"。
+          // 外面那层舞台容器是照抄侧栏播放器（player-tab.js）的同一套样式：完整页 iframe 往下会带出
+          // 平台的推荐流，裁掉窗口高度是产品意图——不让人顺着推荐一路刷下去。
           embed ? Section({
             title: '内嵌播放',
-            children: [vnode('iframe', {
-              className: 'bl-player',
-              src: embed.src,
-              allow: 'autoplay; fullscreen',
-              allowfullscreen: true
-            })]
+            children: [vnode('div', { className: 'bl-stage bl-stage-crop' }, [
+              vnode('iframe', {
+                className: 'bl-player',
+                src: embed.src,
+                allow: 'autoplay; fullscreen',
+                allowfullscreen: true
+              })
+            ])]
           }) : null,
           boundaryNote(item) ? Section({ title: '能力边界', children: [vnode('p', {}, [boundaryNote(item)])] }) : null,
           Section({
@@ -1651,6 +1680,9 @@ window.__ModuleLoader__.load({
         vnode('h4', {}, ['判断开关']),
         flag('require_theme_hit', '没有命中任何主题组的条目直接丢弃', '关掉后全靠预筛分与源权重，条目会多很多', pref?.require_theme_hit),
         flag('inject_prompt', '每轮把待判清单注入会话（判断轮的触发器）', '关掉能省一点上下文', pref?.inject_prompt),
+        // 正文补抓（M8）：RSS 只给摘要，开着就会回原文抓正文。关掉 = 文章永远只有 feed 给的那一句话，
+        // 面板里的「抓取正文」按钮仍能手动点（那是按条目单次触发，不受这个开关管）。
+        flag('fulltext', '文章只有摘要时，回原文抓一次正文', '关掉就不抓：文章只剩 feed 给的那一句，且不会有任何额外请求', pref?.fulltext),
 
         // 侧栏播放（M7）：这两个开关只在装了 dsh-better-sidebar 的机器上有实际效果，
         // 没装就是不注册侧栏 tab、面板照旧——界面上要说清，别让人以为关了它就能装出功能。
@@ -2006,6 +2038,9 @@ window.__ModuleLoader__.load({
       // 第二次会拿到 name_taken，回显对着刚建好的夹说"已经有这个夹了"。
       const [folderBusy, setFolderBusy] = React.useState(false)
       const [knownFolders, setKnownFolders] = React.useState(null)
+      // 「抓取正文」的在途条目（照抄 collecting 的规矩：没有它，连点会叠请求，
+      // 也说不清"正在抓的到底是哪一条"）。null = 没在抓。
+      const [fetchingId, setFetchingId] = React.useState(null)
       // 收藏页的瞬时态（一律不进 reducer：刷新就没的输入草稿 + 一次二次确认 + 一行回显）。
       // renameId 记着"这份草稿是改哪个夹的"，换夹就丢掉，不许把上一个夹的半截名字带过去。
       const [pendingDelete, setPendingDelete] = React.useState(null)
@@ -2134,7 +2169,12 @@ window.__ModuleLoader__.load({
         onFacet: dispatch,
         onSelect: (id) => dispatch({ type: 'select', id }),
         onOpen: (id) => dispatch({ type: 'open-drawer', id }),
-        onPickView: pickView
+        onPickView: pickView,
+        // 「抓取正文」只归文章区认领。忙态按"正在抓的是不是右栏这一条"算——
+        // 拿 fetchingId 一刀切会让右栏换了条之后，忙态贴在一条没在抓的正文上。
+        onFulltext: runFulltext,
+        fetching: view === 'article' && fetchingId != null &&
+          currentArticle(data.items, snap.filters.article || {}, snap.selectedId)?.id === fetchingId
       }
       const body = render(view === 'collections' ? { ...baseProps, ...collectionsProps } : baseProps)
       const drawerOpen = snap.drawerItemId != null
@@ -2158,6 +2198,31 @@ window.__ModuleLoader__.load({
         return api.collect(...args).then(
           (r) => { setCollecting(false); return r },
           (e) => { setCollecting(false); throw e }
+        )
+      }
+      /**
+       * 「抓取正文」：面板只报条目 id，抓哪条、抓成什么样由宿主定（/fulltext）。
+       * 成败都要收口：成功就重读当前视图，让右栏换成新正文；失败给一句人话并指回原文——
+       * 静默失败会让人以为"点了没反应"，而这颗按钮恰恰是摘要条目唯一的出路。
+       * 在途标记按"是不是这一条"清，不吃掉别人后来点的那一次。
+       */
+      function runFulltext(itemId) {
+        if (!Number.isInteger(itemId)) return Promise.resolve()
+        setFetchingId(itemId)
+        return api.fulltext(itemId).then(
+          (r) => {
+            setFetchingId((cur) => (cur === itemId ? null : cur))
+            if (!r.ok) {
+              setFeedbackMsg('这次没抓到正文，还是只有摘要——原文链接在上面')
+              return undefined
+            }
+            return refresh()
+          },
+          (e) => {
+            setFetchingId((cur) => (cur === itemId ? null : cur))
+            setFeedbackMsg(`这次没抓到正文，还是只有摘要——原文链接在上面（${(e && e.message) || '宿主接口没应答'}）`)
+            return undefined
+          }
         )
       }
       // 「浏览器打开」：成功不需要说什么——浏览器自己会弹到前头；失败要说明白，

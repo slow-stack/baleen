@@ -539,6 +539,20 @@ test('偏好页有侧栏两个开关（M7），默认开（flag 的形状是 che
   assert.equal(byLabel(t, 'sidebar_crop').props.checked, true)
 })
 
+test('偏好页有正文补抓开关（M8）：默认开，缺省键也画成开', () => {
+  const t = PrefsTab({ pref: { ...PREF, fulltext: true }, onSave: () => {} })
+  const labels = controls(t).map((c) => c.props['aria-label'])
+  assert.ok(labels.includes('fulltext'), labels.join('|'))
+  assert.equal(byLabel(t, 'fulltext').props.checked, true)
+  // 老配置文件里没有这个键：undefined 不等于 false，照样是开（行为与 DEFAULTS.fulltext=true 对齐）
+  const t2 = PrefsTab({ pref: PREF, onSave: () => {} })
+  assert.equal(byLabel(t2, 'fulltext').props.checked, true)
+  // hint 要说清关掉会怎样，别让人以为关了只是"少一点正文"
+  assert.match(text(t), /不会有任何额外请求/)
+  const t3 = PrefsTab({ pref: { ...PREF, fulltext: false }, onSave: () => {} })
+  assert.equal(byLabel(t3, 'fulltext').props.checked, false)
+})
+
 test('关掉的侧栏开关画成未勾选，hint 里要说清"关掉会怎样"', () => {
   const t = PrefsTab({ pref: { ...PREF, sidebar_takeover: false }, onSave: () => {} })
   assert.equal(byLabel(t, 'sidebar_takeover').props.checked, false)

@@ -132,3 +132,26 @@ test('normalize 的产出正好是 items 表的列，不带私货', () => {
   assert.deepEqual(Object.keys(d).sort(), [...cols].sort())
   assert.equal(d.body_text.includes('内容内容'), true)
 })
+
+test('fulltext_text 让 body_state 变 full，且 body_text 优先取它', () => {
+  // 现取到的正文就是"全文"：不必再去跟摘要比长度，摘要比正文长也只是摘要短
+  const withFull = { ...base, body_html: '<p>只有一段摘要</p>', summary_html: '<p>只有一段摘要</p>', fulltext_text: '现取到的正文' }
+  assert.equal(inferBodyState(withFull), 'full')
+  assert.equal(normalize(withFull, src, pref, () => 9000).body_state, 'full')
+  const d = normalize(withFull, src, pref, () => 9000)
+  assert.equal(d.body_text, '现取到的正文', 'body_text 没有优先取 fulltext_text')
+  // 优先级 fulltext > body_html > summary_html
+  const both = { ...base, body_html: '<p>feed 里的正文</p>', summary_html: '<p>摘要</p>', fulltext_text: '<p>现取的正文</p>' }
+  assert.equal(normalize(both, src, pref, () => 9000).body_text, '现取的正文')
+  // 没有 fulltext 时行为不变
+  assert.equal(normalize(base, src, pref, () => 9000).body_text, '内容'.repeat(220))
+  assert.equal(inferBodyState({ ...base, fulltext_text: '' }), 'full', '空串不算有正文，但原逻辑仍按 body 判')
+})
+
+test('fulltext_text 参与主题命中（haystack），不是只进正文', () => {
+  // 正文里才有主题词、feed 的标题与摘要都没有——不把 fulltext 算进 haystack 就会漏判
+  const raw = { ...base, title: '一篇没有主题词的文章', tags: [], body_html: '<p>摘要里也没有</p>', summary_html: '<p>摘要里也没有</p>', fulltext_text: '正文里提到了 MCP 的接法' }
+  const m = JSON.parse(normalize(raw, src, pref, () => 9000).match_json)
+  assert.ok(m.hitKeywords.includes('MCP'), `fulltext_text 没进 haystack：${JSON.stringify(m)}`)
+  assert.deepEqual(m.groups, ['AI 工具'])
+})

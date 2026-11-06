@@ -80,6 +80,12 @@ sidebar_takeover: true
 # 平台改版导致裁切错位、把播放控制条也遮住了，就用这个还原完整页。
 sidebar_crop: true
 
+# 正文补抓（M8）：RSS 只给摘要时，回原文抓一次正文（纯 HTML 抽段落，零依赖）。
+# 每轮最多补 8 条、单条最多试 2 轮，抓不到就留着摘要、不覆盖已有正文。
+# 关掉 = 文章永远只有 feed 给的那一句，且不会有任何额外请求；
+# 面板里那条「抓取正文」按钮是手动单次触发，不受这个开关管。
+fulltext: true
+
 # B 站字幕增强（可选）：credentials/bili-cookie.txt 放纯 Cookie 头文本（SESSDATA 等），
 # 不放也能跑（视频按无字幕抓取，baleen_subtitle 现取走匿名）。
 

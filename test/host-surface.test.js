@@ -619,7 +619,8 @@ test('PUT /preference 每个白名单节的合法值都落盘，新 loadPreferen
     require_theme_hit: false,
     inject_prompt: false,
     sidebar_takeover: false,
-    sidebar_crop: false
+    sidebar_crop: false,
+    fulltext: false
   }
   for (const [section, value] of Object.entries(sections)) {
     const res = fakeRes()
@@ -1290,4 +1291,89 @@ test('POST /open 的 opener 抛错：如实 500 open_failed 并进诊断日志�
   assert.equal(JSON.parse(res.body).error, 'open_failed')
   const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
   assert.match(blob, /"event":"open_external_failed"/, '失败要进诊断日志')
+})
+
+// ── POST /fulltext：面板里那条「抓取正文」按条目单次触发（不是 agent 工具）────────
+// 语义契约：抓到了回 200 {ok:true}（面板 refresh 才看得到新正文）；抓不到回 502（非 2xx，
+// 客户端 view-api 靠它把按钮收回来）；已经有正文就什么都不做，一次网络请求都不发。
+
+const fakePage = (chars = 800) => ({
+  ok: true,
+  status: 200,
+  headers: { get: () => 'text/html; charset=utf-8' },
+  text: async () => '<article>' + ('<p>' + '正文'.repeat(chars / 2) + '</p>').repeat(1) + '</article>'
+})
+const seedArticle = (baleen, { url = 'https://e.com/a', state = 'summary_only', text = '一句摘要' } = {}) => {
+  baleen.db.prepare(`INSERT INTO items (source_id, external_id, kind, title, url, body_state, body_text, fetched_at, status)
+    VALUES ('s1', @eid, 'article', 't', @url, @state, @text, 1000, 'new')`).run({ eid: 'e' + Math.random(), url, state, text })
+  return baleen.db.prepare('SELECT id FROM items ORDER BY id DESC LIMIT 1').get().id
+}
+
+test('POST /fulltext 抓到正文：回 200，库里 body_state 抬到 full、body_text 换成长文', async () => {
+  const urls = []
+  const { h, baleen } = await apiOf(freshHome(), {
+    fetchImpl: async (url) => { urls.push(url); return fakePage() }
+  })
+  const id = seedArticle(baleen)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/fulltext', method: 'POST', ...bodyOf({ item_id: id }) }, res)
+  assert.equal(res.code, 200)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, true)
+  assert.equal(body.body_state, 'full')
+  assert.deepEqual(urls, ['https://e.com/a'], '回源用的是库里那条的 url')
+  const row = baleen.db.prepare('SELECT body_state, body_text FROM items WHERE id = ?').get(id)
+  assert.equal(row.body_state, 'full')
+  assert.match(row.body_text, /正文/)
+  assert.ok(row.body_text.length > 400, '存进去的是抽出来的正文，不是那句摘要')
+})
+
+test('POST /fulltext 已有正文：直接 200 already，不发第二个网络请求（重复点击不该重抓）', async () => {
+  let calls = 0
+  const { h, baleen } = await apiOf(freshHome(), { fetchImpl: async () => { calls++; return fakePage() } })
+  const id = seedArticle(baleen, { state: 'full', text: '已有的全文' })
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/fulltext', method: 'POST', ...bodyOf({ item_id: id }) }, res)
+  assert.equal(res.code, 200)
+  assert.deepEqual(JSON.parse(res.body), { ok: true, body_state: 'full', already: true })
+  assert.equal(calls, 0)
+  assert.equal(baleen.db.prepare('SELECT body_text FROM items WHERE id = ?').get(id).body_text, '已有的全文')
+})
+
+test('POST /fulltext 抓不到：如实 502 + error_class，库里一个字不改（不谎报 full）', async () => {
+  const home = freshHome()
+  const { h, baleen } = await apiOf(home, {
+    fetchImpl: async () => { throw Object.assign(new Error('HTTP 403'), { status: 403 }) }
+  })
+  const id = seedArticle(baleen)
+  const res = fakeRes()
+  await h({ url: '/api/dsh-baleen/fulltext', method: 'POST', ...bodyOf({ item_id: id }) }, res)
+  assert.equal(res.code, 502)
+  const body = JSON.parse(res.body)
+  assert.equal(body.ok, false)
+  assert.equal(body.error, 'fetch_failed')
+  assert.equal(body.error_class, 'http', '403 该被分类成 http，不是 unknown')
+  const row = baleen.db.prepare('SELECT body_state, body_text FROM items WHERE id = ?').get(id)
+  assert.equal(row.body_state, 'summary_only')
+  assert.equal(row.body_text, '一句摘要')
+  const blob = fs.readFileSync(path.join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+  assert.match(blob, /"event":"fulltext_failed"/, '抓不到要进诊断日志')
+})
+
+test('POST /fulltext 的拒绝路径：载荷坏、条目没了、scheme 出白名单各说各话', async () => {
+  const { h, baleen } = await apiOf(freshHome(), { fetchImpl: async () => fakePage() })
+  const cases = [
+    [{ rawBody: '{坏' }, 400, 'bad_payload'],
+    [{ ...bodyOf({ item_id: '7' }) }, 400, 'bad_payload'],
+    [{ ...bodyOf({}) }, 400, 'bad_payload'],
+    [{ ...bodyOf({ item_id: 99999 }) }, 404, 'no_item'],
+    [{ ...bodyOf({ item_id: seedArticle(baleen, { url: 'ftp://e.com/x' }) }) }, 400, 'unsupported_scheme'],
+    [{ ...bodyOf({ item_id: seedArticle(baleen, { url: 'https://user:pw@e.com/x' }) }) }, 400, 'unsupported_scheme']
+  ]
+  for (const [payload, code, err] of cases) {
+    const res = fakeRes()
+    await h({ url: '/api/dsh-baleen/fulltext', method: 'POST', ...payload }, res)
+    assert.equal(res.code, code, JSON.stringify(payload.rawBody || payload.body))
+    assert.equal(JSON.parse(res.body).error, err)
+  }
 })

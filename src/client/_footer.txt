@@ -112,6 +112,9 @@
       // 第二次会拿到 name_taken，回显对着刚建好的夹说"已经有这个夹了"。
       const [folderBusy, setFolderBusy] = React.useState(false)
       const [knownFolders, setKnownFolders] = React.useState(null)
+      // 「抓取正文」的在途条目（照抄 collecting 的规矩：没有它，连点会叠请求，
+      // 也说不清"正在抓的到底是哪一条"）。null = 没在抓。
+      const [fetchingId, setFetchingId] = React.useState(null)
       // 收藏页的瞬时态（一律不进 reducer：刷新就没的输入草稿 + 一次二次确认 + 一行回显）。
       // renameId 记着"这份草稿是改哪个夹的"，换夹就丢掉，不许把上一个夹的半截名字带过去。
       const [pendingDelete, setPendingDelete] = React.useState(null)
@@ -240,7 +243,12 @@
         onFacet: dispatch,
         onSelect: (id) => dispatch({ type: 'select', id }),
         onOpen: (id) => dispatch({ type: 'open-drawer', id }),
-        onPickView: pickView
+        onPickView: pickView,
+        // 「抓取正文」只归文章区认领。忙态按"正在抓的是不是右栏这一条"算——
+        // 拿 fetchingId 一刀切会让右栏换了条之后，忙态贴在一条没在抓的正文上。
+        onFulltext: runFulltext,
+        fetching: view === 'article' && fetchingId != null &&
+          currentArticle(data.items, snap.filters.article || {}, snap.selectedId)?.id === fetchingId
       }
       const body = render(view === 'collections' ? { ...baseProps, ...collectionsProps } : baseProps)
       const drawerOpen = snap.drawerItemId != null
@@ -264,6 +272,31 @@
         return api.collect(...args).then(
           (r) => { setCollecting(false); return r },
           (e) => { setCollecting(false); throw e }
+        )
+      }
+      /**
+       * 「抓取正文」：面板只报条目 id，抓哪条、抓成什么样由宿主定（/fulltext）。
+       * 成败都要收口：成功就重读当前视图，让右栏换成新正文；失败给一句人话并指回原文——
+       * 静默失败会让人以为"点了没反应"，而这颗按钮恰恰是摘要条目唯一的出路。
+       * 在途标记按"是不是这一条"清，不吃掉别人后来点的那一次。
+       */
+      function runFulltext(itemId) {
+        if (!Number.isInteger(itemId)) return Promise.resolve()
+        setFetchingId(itemId)
+        return api.fulltext(itemId).then(
+          (r) => {
+            setFetchingId((cur) => (cur === itemId ? null : cur))
+            if (!r.ok) {
+              setFeedbackMsg('这次没抓到正文，还是只有摘要——原文链接在上面')
+              return undefined
+            }
+            return refresh()
+          },
+          (e) => {
+            setFetchingId((cur) => (cur === itemId ? null : cur))
+            setFeedbackMsg(`这次没抓到正文，还是只有摘要——原文链接在上面（${(e && e.message) || '宿主接口没应答'}）`)
+            return undefined
+          }
         )
       }
       // 「浏览器打开」：成功不需要说什么——浏览器自己会弹到前头；失败要说明白，

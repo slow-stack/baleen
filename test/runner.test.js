@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import os from 'node:os'
 import {
   openStore, migrate, listSources, getCursor, candidates, counts, createFolder, setItemFolders,
-  setSourceResult, upsertSource
+  setSourceResult, upsertSource, getMeta
 } from '../lib/store.js'
 import { runOnce, syncSources, planJobs } from '../lib/runner.js'
 import { fakeAdapter, rawOf, timeoutError } from './helpers/fake-adapter.js'
@@ -314,6 +314,97 @@ test('fetch 选项带 knownIds：该源已入库 external_id 的 Set（bili/yt �
   assert.ok(ok.knownIds instanceof Set, 'knownIds 必须是 Set（适配器用 .has 跳过）')
   assert.deepEqual([...ok.knownIds].sort(), ['a', 'b', 'c'], '第一轮入库的 external_id 全在集合里（含被预筛归档的——归档 ≠ 没抓过）')
   assert.equal(seen.find(s => s.id === 'bad').knownIds.size, 0, '按源隔离：bad 源从没成功入库过')
+})
+
+// ── 正文补抓（M8）────────────────────────────────────────────────────────
+// RSS 只搬 feed 的摘要；补抓是"顺手把摘要补全"，不是另一个抓取系统。
+// 这四条盯的是它最容易越界的地方：默认不出网、抓成功能改正文、失败有上限、开关能关。
+
+/** 造一条"只有摘要"的 article：body_html 空、summary_html 有一句 → body_state=summary_only */
+const summaryOnly = (over = {}) => rawOf('ok', { body_html: null, summary_html: '<p>一句摘要，正文在原文里。</p>', ...over })
+const stateOf = (db, ext) => db.prepare('SELECT body_state, body_text FROM items WHERE external_id = ?').get(ext)
+
+test('没注入补抓实现时一条都不抓（默认路径零网络副作用，stats 里也不编 fulltext 计数）', async () => {
+  const db = dbOf()
+  const r = await runOnce({
+    db, pref, now: () => 5000,
+    adapters: { rss: fakeAdapter('rss', { ok: { items: [summaryOnly({ external_id: 'a' })] } }) }
+  })
+  assert.equal(r.stats.fulltext, undefined, '没传实现就不该出现 fulltext 记账')
+  assert.equal(stateOf(db, 'a').body_state, 'summary_only')
+})
+
+test('注入了实现就补抓：正文换成抽到的全文，body_state 抬到 full', async () => {
+  const db = dbOf()
+  const urls = []
+  const r = await runOnce({
+    db, pref, now: () => 5000,
+    adapters: { rss: fakeAdapter('rss', { ok: { items: [summaryOnly({ external_id: 'a' })] } }) },
+    fetchFulltextImpl: async (url) => { urls.push(url); return { text: '抓到的正文'.repeat(120), chars: 600 } }
+  })
+  assert.equal(urls.length, 1, '一条候选就一次请求')
+  assert.equal(urls[0], 'https://e.com/a', '回源用的是条目自己的 url')
+  assert.deepEqual(r.stats.fulltext, { tried: 1, ok: 1, failed: 0 })
+  const row = stateOf(db, 'a')
+  assert.equal(row.body_state, 'full')
+  assert.match(row.body_text, /^抓到的正文/)
+  assert.equal(Number(getMeta(db, `fulltext:fail:${db.prepare("SELECT id FROM items WHERE external_id='a'").get().id}`) ?? 0), 0, '成功后失败计数清零')
+})
+
+test('补抓失败只记次数，正文保持摘要；满 2 次后不再试（付费墙不会因为我们坚持而打开）', async () => {
+  const db = dbOf()
+  let calls = 0
+  const boom = async () => { calls++; throw Object.assign(new Error('403'), { status: 403 }) }
+  const one = { ...pref, sources: [pref.sources[0]] }
+  const A = () => fakeAdapter('rss', { ok: { items: [summaryOnly({ external_id: 'a' })] } })
+
+  const r1 = await runOnce({ db, pref: one, now: () => 5000, adapters: { rss: A() }, fetchFulltextImpl: boom })
+  assert.equal(calls, 1)
+  assert.deepEqual(r1.stats.fulltext, { tried: 1, ok: 0, failed: 1 })
+  assert.equal(stateOf(db, 'a').body_state, 'summary_only', '抓不到就还是摘要，不谎报 full')
+
+  const r2 = await runOnce({ db, pref: one, now: () => NEXT, adapters: { rss: A() }, fetchFulltextImpl: boom })
+  assert.equal(calls, 2, '第 2 次失败之前还会再试一轮')
+  assert.deepEqual(r2.stats.fulltext, { tried: 1, ok: 0, failed: 1 })
+
+  const r3 = await runOnce({ db, pref: one, now: () => NEXT + 60 * 60000, adapters: { rss: A() }, fetchFulltextImpl: boom })
+  assert.equal(calls, 2, '记满 2 次之后不再发请求')
+  assert.deepEqual(r3.stats.fulltext, { tried: 0, ok: 0, failed: 0 })
+})
+
+test('pref.fulltext === false 时即便注入了实现也不抓（设置里的开关是真开关）', async () => {
+  const db = dbOf()
+  let calls = 0
+  const impl = async () => { calls++; return { text: '正文'.repeat(300), chars: 600 } }
+  const off = { ...pref, fulltext: false }
+  const r = await runOnce({
+    db, pref: off, now: () => 5000,
+    adapters: { rss: fakeAdapter('rss', { ok: { items: [summaryOnly({ external_id: 'a' })] } }) },
+    fetchFulltextImpl: impl
+  })
+  assert.equal(calls, 0)
+  assert.equal(r.stats.fulltext, undefined)
+  assert.equal(stateOf(db, 'a').body_state, 'summary_only')
+})
+
+test('补到全文之后，下一轮 feed 再只给摘要也不会把全文覆盖回去（否则等于每轮重抓）', async () => {
+  const db = dbOf()
+  let calls = 0
+  const impl = async () => { calls++; return { text: '抓到的正文'.repeat(120), chars: 600 } }
+  const one = { ...pref, sources: [pref.sources[0]] }
+  const A = () => fakeAdapter('rss', { ok: { items: [summaryOnly({ external_id: 'a' })] } })
+
+  await runOnce({ db, pref: one, now: () => 5000, adapters: { rss: A() }, fetchFulltextImpl: impl })
+  assert.equal(calls, 1)
+  const before = stateOf(db, 'a')
+  assert.equal(before.body_state, 'full')
+
+  const r2 = await runOnce({ db, pref: one, now: () => NEXT, adapters: { rss: A() }, fetchFulltextImpl: impl })
+  assert.equal(calls, 1, '已经是 full 的条目不再出现在候选里，一条请求都不发')
+  assert.deepEqual(r2.stats.fulltext, { tried: 0, ok: 0, failed: 0 })
+  const after = stateOf(db, 'a')
+  assert.equal(after.body_state, 'full', 'feed 的摘要不能把全文打回 summary_only')
+  assert.match(after.body_text, /^抓到的正文/)
 })
 
 test('planJobs：bili 源带 90s 预算（真机 run 17：nav+签名+列表+逐条 view，20s 不够），其他源不带', () => {
