@@ -82,6 +82,7 @@ test('内嵌播放的舞台与侧栏播放器同源：B 站带页头偏移，You
   assert.equal(stage.children.length, 1)
   assert.equal(stage.children[0].type, 'iframe')
   assert.equal(stage.children[0].props.className, 'bl-player', 'iframe 只留自己的类，容器类挂在外层')
+  assert.equal(stage.children[0].props.scrolling, 'no', '裁切模式锁掉 iframe 内部滚动：推荐流连滚出来的机会都没有')
 
   const yt = Drawer({ item: item({ kind: 'video', source_id: 'yt', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }), api: {} })
   const ystage = findAll(yt, 'bl-stage')[0]

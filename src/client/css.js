@@ -114,8 +114,9 @@ export const CSS = `
    B 站是完整页，实测（无头 Edge 量四档宽度，见 docs/verification.md）：视频面恒为
    ~660x371（版心固定；容器再宽只是右侧多出推荐列，更窄则横向溢出），页头到视频顶
    ~170px。所以 iframe 恒定 660 虚拟宽（永不进"播放器+推荐列"的宽版式）、按容器宽
-   等比缩放（tan(atan2()) 是 CSS 做长度除法的既定写法，Chromium 111+；引擎不支持时
-   退化成不缩放，不比旧版更坏），页头偏移同比上移——任何宽度下视频都精确 16:9 填满
+   等比缩放（tan(atan2()) 是 CSS 做长度除法的既定写法，Chromium 111+；宿主是 2026 年
+   的 Electron，Chromium 远新于此，不支持的老引擎会退化成"页头占掉窗口"的坏样子，
+   那不是可支持的配置），页头偏移同比上移——任何宽度下视频都精确 16:9 填满
    窗口、控制条（音量）完整在窗内、页头/推荐流/弹幕侧栏都推出窗外。两个常数是真机
    待校值，平台改版错位的退路仍是设置页「裁掉推荐区」开关。 */
 .bl-stage{--bl-nav:170px;--bl-frame:660px;container-type:inline-size;width:100%;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}

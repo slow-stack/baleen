@@ -462,8 +462,9 @@ window.__ModuleLoader__.load({
        B 站是完整页，实测（无头 Edge 量四档宽度，见 docs/verification.md）：视频面恒为
        ~660x371（版心固定；容器再宽只是右侧多出推荐列，更窄则横向溢出），页头到视频顶
        ~170px。所以 iframe 恒定 660 虚拟宽（永不进"播放器+推荐列"的宽版式）、按容器宽
-       等比缩放（tan(atan2()) 是 CSS 做长度除法的既定写法，Chromium 111+；引擎不支持时
-       退化成不缩放，不比旧版更坏），页头偏移同比上移——任何宽度下视频都精确 16:9 填满
+       等比缩放（tan(atan2()) 是 CSS 做长度除法的既定写法，Chromium 111+；宿主是 2026 年
+       的 Electron，Chromium 远新于此，不支持的老引擎会退化成"页头占掉窗口"的坏样子，
+       那不是可支持的配置），页头偏移同比上移——任何宽度下视频都精确 16:9 填满
        窗口、控制条（音量）完整在窗内、页头/推荐流/弹幕侧栏都推出窗外。两个常数是真机
        待校值，平台改版错位的退路仍是设置页「裁掉推荐区」开关。 */
     .bl-stage{--bl-nav:170px;--bl-frame:660px;container-type:inline-size;width:100%;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
@@ -805,10 +806,12 @@ window.__ModuleLoader__.load({
     /**
      * 正文分段：空行（\n{2,}）是段界，段内单换行原样保留。一条规则服务两种内容——
      * 文章有真实段距，字幕逐行紧排不被拆散（行间的单换行交给 CSS pre-wrap 折行）。
-     * 空白/非字符串返回空数组，调用方给占位句。
+     * 先把 \r\n / \r 归一成 \n：Windows 作者的 feed 里段界是 \r\n\r\n，两个 \n 被
+     * \r 隔开就永远凑不成"连续两个换行"，分段会静默失效。空白/非字符串返回空数组，
+     * 调用方给占位句。
      */
     function readerParagraphs(text) {
-      const s = typeof text === 'string' ? text : ''
+      const s = typeof text === 'string' ? text.replace(/\r\n?/g, '\n') : ''
       return s.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
     }
 
@@ -1180,6 +1183,7 @@ window.__ModuleLoader__.load({
 
       const m = matchInfo(item)
       const body = typeof item.body_text === 'string' ? item.body_text.trim() : ''
+      const paras = readerParagraphs(body)
       const hasFolders = (folders ?? []).length > 0
       const link = httpUrl(item.url)
       const embed = playerEmbed(item.url)
@@ -1213,7 +1217,7 @@ window.__ModuleLoader__.load({
               // 正文与阅读器同一条分段规则（readerParagraphs）：空行成段、单换行保留，
               // 字幕在抽屉里也逐行可读；排版类 bl-reader-body 与文章页同一份。
               vnode('div', { className: 'bl-reader-body' },
-                readerParagraphs(body).length ? readerParagraphs(body).map((p, i) => vnode('p', { key: i }, [p])) : ['（没有可读内容）']),
+                paras.length ? paras.map((p, i) => vnode('p', { key: i }, [p])) : ['（没有可读内容）']),
               STATE_NOTE[item.body_state] ? vnode('p', { className: 'bl-reader-hint' }, [STATE_NOTE[item.body_state]]) : null
             ]
           }),

@@ -39,10 +39,12 @@ export function readableBody(item) {
 /**
  * 正文分段：空行（\n{2,}）是段界，段内单换行原样保留。一条规则服务两种内容——
  * 文章有真实段距，字幕逐行紧排不被拆散（行间的单换行交给 CSS pre-wrap 折行）。
- * 空白/非字符串返回空数组，调用方给占位句。
+ * 先把 \r\n / \r 归一成 \n：Windows 作者的 feed 里段界是 \r\n\r\n，两个 \n 被
+ * \r 隔开就永远凑不成"连续两个换行"，分段会静默失效。空白/非字符串返回空数组，
+ * 调用方给占位句。
  */
 export function readerParagraphs(text) {
-  const s = typeof text === 'string' ? text : ''
+  const s = typeof text === 'string' ? text.replace(/\r\n?/g, '\n') : ''
   return s.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
 }
 

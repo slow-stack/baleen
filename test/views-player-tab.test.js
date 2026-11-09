@@ -32,6 +32,7 @@ test('关掉裁切：容器不带 bl-stage-crop，文案如实说会看到推荐
   const t = PlayerTab({ url: 'https://youtu.be/dQw4w9WgXcQ', crop: false })
   assert.equal(findAll(t, 'bl-stage-crop').length, 0)
   assert.match(text(t), /推荐流/)
+  assert.equal(findAll(t, 'bl-player')[0].props.scrolling, 'auto', '还原模式保留内部滚动——那本来就是"看完整页"的路')
 })
 
 test('解析不出嵌入形态（含 b23.tv 短链）不画播放器，只说一句真话', () => {

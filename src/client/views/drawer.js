@@ -184,6 +184,7 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
 
   const m = matchInfo(item)
   const body = typeof item.body_text === 'string' ? item.body_text.trim() : ''
+  const paras = readerParagraphs(body)
   const hasFolders = (folders ?? []).length > 0
   const link = httpUrl(item.url)
   const embed = playerEmbed(item.url)
@@ -217,7 +218,7 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
           // 正文与阅读器同一条分段规则（readerParagraphs）：空行成段、单换行保留，
           // 字幕在抽屉里也逐行可读；排版类 bl-reader-body 与文章页同一份。
           vnode('div', { className: 'bl-reader-body' },
-            readerParagraphs(body).length ? readerParagraphs(body).map((p, i) => vnode('p', { key: i }, [p])) : ['（没有可读内容）']),
+            paras.length ? paras.map((p, i) => vnode('p', { key: i }, [p])) : ['（没有可读内容）']),
           STATE_NOTE[item.body_state] ? vnode('p', { className: 'bl-reader-hint' }, [STATE_NOTE[item.body_state]]) : null
         ]
       }),

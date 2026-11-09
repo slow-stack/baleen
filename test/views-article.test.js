@@ -175,3 +175,9 @@ test('正文按段渲染成多个 p，空正文给占位句', () => {
   const empty = findAll(ArticleView({ items: [mk({ body_text: '' })], filters: {}, selectedId: 1 }), 'bl-reader-body')[0]
   assert.match(text(empty), /没有正文/)
 })
+
+test('CRLF 正文照常分段：Windows 作者的 feed 段界是 \r\n\r\n', () => {
+  assert.deepEqual(readerParagraphs('第一段。\r\n\r\n第二段。'), ['第一段。', '第二段。'])
+  assert.deepEqual(readerParagraphs('第一段。\r\r第二段。'), ['第一段。', '第二段。'], '老 Mac 的孤 \r 也归一')
+  assert.deepEqual(readerParagraphs('行一\r\n行二'), ['行一\n行二'], '段内单换行归一后保留，pre-wrap 照常折行')
+})
