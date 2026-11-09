@@ -101,18 +101,31 @@ export const CSS = `
 .bl-newfolder button:disabled{color:var(--dsw-alias-label-dimmed);cursor:progress}
 .bl-kw{font-size:11px;color:var(--dsw-alias-label-secondary)}
 .bl-url{font-size:12px;color:var(--dsw-alias-brand-primary);word-break:break-all;text-decoration:underline}
-/* 内嵌播放器（V5）：16:9 自适应抽屉宽度；宿主不拦 iframe（真机实证），bilibili
-   试图跳出顶层会被 Chromium 自己拦下，无需 sandbox（加了反而杀播放器脚本） */
-.bl-player{width:100%;aspect-ratio:16/9;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
-/* 侧栏播放（M7）：容器比 iframe 矮 + overflow:hidden，iframe 顶对齐，下半截自然被掐掉——
-   不用 position:absolute（那样容器高度会塌成 0），也不往 iframe 里注入 CSS（跨源读不到，也不该读）。
-   --bl-window/--bl-frame 是待真机实测的一对数（见 docs/verification.md 的 M7 验收）。 */
-.bl-tab{padding:8px;display:flex;flex-direction:column;gap:6px}
-.bl-tab-title{margin:0;font-size:12px;color:var(--dsw-alias-label-primary)}
-.bl-stage{--bl-window:360px;--bl-frame:900px;width:100%;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
-.bl-stage>.bl-player{display:block;width:100%;height:var(--bl-frame);aspect-ratio:auto;border:0;border-radius:0}
-.bl-stage-crop{height:var(--bl-window)}
+/* 内嵌播放器（V5）与侧栏播放（M7）共用一套舞台。宿主不拦 iframe（真机实证），
+   bilibili 试图跳出顶层会被 Chromium 自己拦下，无需 sandbox（加了反而杀播放器脚本） */
+.bl-player{display:block;width:100%;border:0;background:var(--dsw-alias-bg-layer-2)}
+/* 舞台：裁切窗与 16:9 视频面等大（aspect-ratio 跟容器宽度走），不再是写死的像素对——
+   早先 360px 窗 + 900px iframe，窄容器漏推荐流、宽容器把 B 站控制条（音量在那）裁出窗外。
+   YouTube embed 本来就是纯 16:9 播放器，窗口精确合围即止。
+   B 站是完整页，实测（无头 Edge 量四档宽度，见 docs/verification.md）：视频面恒为
+   ~660x371（版心固定；容器再宽只是右侧多出推荐列，更窄则横向溢出），页头到视频顶
+   ~170px。所以 iframe 恒定 660 虚拟宽（永不进"播放器+推荐列"的宽版式）、按容器宽
+   等比缩放（tan(atan2()) 是 CSS 做长度除法的既定写法，Chromium 111+；引擎不支持时
+   退化成不缩放，不比旧版更坏），页头偏移同比上移——任何宽度下视频都精确 16:9 填满
+   窗口、控制条（音量）完整在窗内、页头/推荐流/弹幕侧栏都推出窗外。两个常数是真机
+   待校值，平台改版错位的退路仍是设置页「裁掉推荐区」开关。 */
+.bl-stage{--bl-nav:170px;--bl-frame:660px;container-type:inline-size;width:100%;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+.bl-stage-crop{aspect-ratio:16/9}
+.bl-stage>.bl-player{border-radius:0}
 .bl-stage:not(.bl-stage-crop)>.bl-player{height:640px}
+.bl-stage-crop>.bl-player{height:100%}
+.bl-stage-bili>.bl-player{--bl-scale:tan(atan2(100cqw, var(--bl-frame)));width:var(--bl-frame);height:calc(var(--bl-nav) + var(--bl-frame) * 0.5625);margin-top:calc(var(--bl-nav) * var(--bl-scale) * -1);transform:scale(var(--bl-scale));transform-origin:0 0}
+/* 内层全屏（播放器自己的全屏键）把宿主 iframe 提成 :fullscreen——把缩放与偏移还原，
+   不然全屏画面缩在角落 */
+.bl-player:fullscreen{width:100%;height:100%;margin-top:0;transform:none}
+.bl-tab{padding:8px;display:flex;flex-direction:column;gap:6px}
+.bl-tab-head{display:flex;align-items:center;gap:8px;min-width:0;margin:0}
+.bl-tab-title{flex:1;min-width:0;font-size:12px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bl-openbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
 .bl-openbtns button{appearance:none;font-family:inherit;font-size:12px;min-height:32px;padding:5px 11px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
 .bl-openbtns button:hover{background:var(--dsw-alias-interactive-bg-hover)}

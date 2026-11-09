@@ -598,6 +598,24 @@ test("没声明也拿不到 betterSidebar 时：面板三格照注册、侧栏 t
   const ex = exportsOf(s)
   const res = ex.apply(s.makeCtx(["slots", "layout"]))   // 故意少声明：Proxy 上取 betterSidebar 就抛
   assert.equal(res.registeredSlots.length, 3, "侧栏入口/面板/设置页照旧，不多不少")
+  assert.equal(res.sidebarTab.available, false, "服务取不到，侧栏播放能力必须如实说没有")
+  assert.equal(res.sidebarTab.open("https://www.bilibili.com/video/BV1GJ411x7h7", "x"), false)
+})
+
+test("侧栏播放能力：服务在时 open() 发 url seed，短链与缺席都如实返回 false", () => {
+  const opened = []
+  const s = loadClient({
+    services: { betterSidebar: { registerTab: () => () => {}, openTab: (seed) => { opened.push(seed) } } }
+  })
+  const ex = exportsOf(s)
+  const res = ex.apply(s.makeCtx(ex.inject))
+  assert.equal(res.sidebarTab.available, true)
+  assert.equal(res.sidebarTab.open("https://www.bilibili.com/video/BV1GJ411x7h7", "某条视频"), true)
+  assert.deepEqual(opened[0], { type: "dsh-baleen:player", url: "https://www.bilibili.com/video/BV1GJ411x7h7", title: "某条视频" },
+    "手动播放走 url 载荷（原生右侧栏路），与认领同一条路")
+  assert.equal(res.sidebarTab.open("https://b23.tv/x", "x"), false, "短链解析不出嵌入形态，不硬开")
+  assert.equal(res.sidebarTab.open("https://www.bilibili.com/video/BV1GJ411x7h7"), true, "标题缺省也让 seed 自己兜底")
+  assert.equal(opened[1].title, "Baleen 播放")
 })
 
 test("给出 betterSidebar 时：注册播放 tab 的描述符，认领谓词返回布尔", () => {

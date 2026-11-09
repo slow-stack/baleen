@@ -46,11 +46,11 @@ test('playerEmbed：B 站 BV 号与 YouTube 两种嵌入形态，其余平台 nu
   )
   assert.deepEqual(
     playerEmbed('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42'),
-    { kind: 'youtube', src: 'https://www.youtube.com/embed/dQw4w9WgXcQ' }
+    { kind: 'youtube', src: 'https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0' }
   )
   assert.deepEqual(
     playerEmbed('https://youtu.be/dQw4w9WgXcQ'),
-    { kind: 'youtube', src: 'https://www.youtube.com/embed/dQw4w9WgXcQ' }
+    { kind: 'youtube', src: 'https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0' }
   )
   assert.equal(playerEmbed('https://innei.in/notes/221'), null)
   assert.equal(playerEmbed('https://b23.tv/x'), null, '短链解析不出 BV 号，不硬猜')
@@ -69,18 +69,25 @@ test('视频抽屉带内嵌播放 iframe（可嵌入时），文章抽屉不带'
   assert.equal(findAll(short, 'bl-player').length, 0)
 })
 
-// 抽屉里的完整页 iframe 会带出平台的推荐流：裁掉窗口高度是产品意图（不让人顺着刷下去），
-// 复用侧栏播放器那一套 .bl-stage / .bl-stage-crop 样式，不另写一份 CSS。
-test('内嵌播放的 iframe 外面包着 bl-stage.bl-stage-crop，样式与侧栏播放器同源', () => {
+// 抽屉里的完整页 iframe 会带出平台的推荐流：裁掉窗口高度是产品意图（不让人顺着刷下去）。
+// 抽屉与侧栏 tab 共用 playerStage() 同一份标记、同一套 .bl-stage* 样式，不另写一份。
+test('内嵌播放的舞台与侧栏播放器同源：B 站带页头偏移，YouTube 只要精确合围', () => {
   const tree = Drawer({ item: item({ kind: 'video', source_id: 'bili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {} })
   const stage = findAll(tree, 'bl-stage')[0]
   assert.ok(stage, 'iframe 必须有个容器，裸 iframe 没法裁推荐区')
   assert.equal(stage.type, 'div')
-  assert.equal(findAll(tree, 'bl-stage-crop').length, 1, '不带 crop 的话下面半截推荐流就露出来了')
+  assert.equal(stage.props.className, 'bl-stage bl-stage-crop bl-stage-bili',
+    'B 站是完整页 iframe：裁切窗之外还要页头偏移，视频面才正好填满窗口（控制条/音量不被裁掉）')
   assert.equal(findAll(tree, 'bl-player').length, 1, '包一层不该多出一个播放器')
   assert.equal(stage.children.length, 1)
   assert.equal(stage.children[0].type, 'iframe')
   assert.equal(stage.children[0].props.className, 'bl-player', 'iframe 只留自己的类，容器类挂在外层')
+
+  const yt = Drawer({ item: item({ kind: 'video', source_id: 'yt', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }), api: {} })
+  const ystage = findAll(yt, 'bl-stage')[0]
+  assert.equal(ystage.props.className, 'bl-stage bl-stage-crop',
+    'YouTube embed 本来就是纯 16:9 播放器，不需要页头偏移')
+  assert.match(text(yt), /音量/, '音量归画面里的原播放器控件，这句话要在界面上说清')
 })
 
 test('视频条目的抽屉带时长（fmtDuration 同一写法，缺时长就整段不显示）', () => {
@@ -157,12 +164,40 @@ test('地址不是 http/https 时整段不画：没有链接也没有打开按�
   }
 })
 
-test('打开路只有系统浏览器一颗按钮，且明说侧栏为什么不在（2026-10-31 真机验收后撤）', () => {
-  const tree = Drawer({ item: item(), api: {}, onOpenUrl: () => {} })
-  const btns = findAll(tree, 'bl-openbtns')[0].children.map((b) => text(b))
-  assert.deepEqual(btns, ['浏览器打开'])
-  assert.match(text(tree), /侧栏[^。]*排队/, '撤掉侧栏按钮要说清原因，不是悄悄少了一颗（M7：面板在前台时只会排队）')
-  assert.doesNotMatch(text(tree), /侧栏浏览器这次没开起来/, '旧文案（页签不在）已不成立：页签在也开不出来')
+// 「侧栏播放」回归（0.30.1 语义）：面板在前台时 openTab 进 pending 队列、会话回到前台
+// 自动落进右侧栏（better-sidebar surface.js 的 flushPending）——不再是 10-31 那种死按钮，
+// 前提是把"切回会话就开"写在界面上。可嵌入 + 侧栏可用两个条件缺一个就不画。
+test('侧栏播放按钮：可嵌入 + 侧栏可用才画，缺一个条件就不摆死按钮', () => {
+  const embeddable = item({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' })
+  const yes = { available: true, open: () => true }
+  const exits = (tree) => findAll(tree, 'bl-openbtns')[0].children.map((b) => text(b))
+  assert.deepEqual(exits(Drawer({ item: embeddable, api: {} })), ['浏览器打开'], '没传侧栏能力对象时不画')
+  assert.deepEqual(exits(Drawer({ item: embeddable, api: {}, sidebar: { available: false, open: () => false } })), ['浏览器打开'], '侧栏不可用时不画')
+  assert.deepEqual(exits(Drawer({ item: item(), api: {}, sidebar: yes })), ['浏览器打开'], 'b23.tv 解析不出嵌入形态，侧栏也播不了')
+  assert.deepEqual(exits(Drawer({ item: embeddable, api: {}, sidebar: yes })), ['浏览器打开', '侧栏播放'])
+})
+
+test('点「侧栏播放」交给侧栏的是条目原始 url 与标题，成败都有回显', () => {
+  const calls = []
+  const done = []
+  const ok = Drawer({
+    item: item({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {},
+    sidebar: { available: true, open: (u, t) => { calls.push([u, t]); return true } },
+    onDone: (r) => done.push(r.message)
+  })
+  findAll(ok, 'bl-openbtns')[0].children.find((b) => text(b).includes('侧栏播放')).props.onClick()
+  assert.deepEqual(calls, [['https://www.bilibili.com/video/BV1GJ411x7h7', 'DSH 插件怎么写']],
+    '交给侧栏的是条目原 url，不是 embed 形态')
+  assert.match(done.join('|'), /侧栏/, '成功也要回显：排队语义在回显里讲清楚，不是无声成功')
+  assert.match(done.join('|'), /会话/, '回显要讲"切回会话页签它会自动开"')
+
+  const fail = Drawer({
+    item: item({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {},
+    sidebar: { available: true, open: () => false },
+    onDone: (r) => done.push(r.message)
+  })
+  findAll(fail, 'bl-openbtns')[0].children.find((b) => text(b).includes('侧栏播放')).props.onClick()
+  assert.match(done.join('|'), /没接住/, '点了没开成不许静默')
 })
 
 test('浏览器打开把真地址与条目 id 一起交给回调（id 是宿主查库取 URL 的钥匙）', () => {
@@ -345,13 +380,13 @@ test('改名后的按钮仍然只写 tuning：提示文案里出现「这源多�
   assert.doesNotMatch(feedbackHint('save'), /^收藏/)
 })
 
-test('原文段那句侧栏说明要按嵌入形态分别说真话（M7：面板里点侧栏只会排队）', () => {
-  const can = text(Drawer({ item: item({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {} }))
-  assert.match(can, /会话里点|排队/)
-  assert.match(can, /上面的播放器|内嵌播放/, '能内嵌的要指回播放器，别把人推向系统浏览器')
-  const exits = findAll(Drawer({ item: item({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' }), api: {} }), 'bl-openbtns')[0].children.map((b) => text(b))
-  assert.deepEqual(exits, ['浏览器打开'], '原文段只留这一个出口：侧栏按钮在面板里点了没反应（M7 实测排队），不许再摆')
+test('原文段那句侧栏说明按嵌入形态分别说真话：按钮回来了，排队语义写在界面上', () => {
+  const embeddable = item({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7' })
+  const can = text(Drawer({ item: embeddable, api: {}, sidebar: { available: true, open: () => true } }))
+  assert.match(can, /排队/, '面板在前台时侧栏页签先排队、切回会话自动开——这句话必须在界面上')
+  const exits = findAll(Drawer({ item: embeddable, api: {}, sidebar: { available: true, open: () => true } }), 'bl-openbtns')[0].children.map((b) => text(b))
+  assert.deepEqual(exits, ['浏览器打开', '侧栏播放'])
   const cant = text(Drawer({ item: item({ url: 'https://b23.tv/x' }), api: {} }))
-  assert.match(cant, /排队|侧栏播不了/)
+  assert.match(cant, /侧栏播不了|解析不出/, '短链这条要明说侧栏也播不了')
   assert.doesNotMatch(cant, /上面的播放器/, '这条压根播不了，不许指一个不存在的播放器')
 })

@@ -130,21 +130,26 @@ export function renderPreview({ outDir = path.join(ROOT, 'out'), empty = false }
   const items = empty ? [] : previewItems
   const live = items.filter((i) => i.status !== 'archived')
   const drawerItem = items[0] ?? null
+  // 抽屉页专门换一条可嵌入的 B 站地址：内嵌播放器、「侧栏播放」按钮、原文段的排队说明
+  // 都只有可嵌入形态才出场——预览要看的就是它们的真实长相。
+  const drawerVideo = drawerItem ? { ...drawerItem, kind: 'video', source_id: 'bili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7', duration_sec: 1102 } : null
   // 空态传空夹表：抽屉走"没有夹列表"那一支，收藏页走"读不到夹"那一支——诚实的缺席也要演一遍。
   const folders = empty ? [] : previewFolders
-  const drawer = drawerItem
-    ? Drawer({ item: drawerItem, api: {}, folders, note: empty ? '' : 'demo-longform 权重 +0.1——只改 tuning，你的 themes 一个字没动', onOpenUrl: () => {} })
+  const drawer = drawerVideo
+    ? Drawer({ item: drawerVideo, api: {}, folders, note: empty ? '' : 'demo-longform 权重 +0.1——只改 tuning，你的 themes 一个字没动', onOpenUrl: () => {}, sidebar: { available: true, open: () => true } })
     : Drawer({ item: null, api: {}, folders })
   const pages = {
     today: both(shell({ view: 'today', state, body: TodayView({ state, items: live, onRun: () => {}, onOpen: () => {}, onPickView: () => {} }) })),
     video: both(shell({ view: 'video', state, body: VideoView({ state, items, filters: empty ? {} : { tier: '' } }) })),
     // 侧栏播放（M7）：裁切默认、关掉裁切、解析不出嵌入形态三种状态同屏对比。
-    // 这里给的是真 URL——侧栏里露出多少、控制条会不会被遮，只能靠眼睛看，不能靠想。
+    // 这里给的是真 URL——裁切窗跟容器宽度走（aspect-ratio），B 站页头偏移是否对齐、
+    // 控制条（音量）完不完整，只能靠眼睛看，不能靠想。第三个容器故意给窄宽度演侧栏实况。
     player: both(shell({
       view: 'video',
       state,
       body: vnode('div', {}, [
-        PlayerTab({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7', title: 'B 站完整页 · 默认裁掉推荐区', crop: true }),
+        PlayerTab({ url: 'https://www.bilibili.com/video/BV1GJ411x7h7', title: 'B 站完整页 · 版心缩放 + 页头偏移，窗口只剩视频面', crop: true }),
+        PlayerTab({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'YouTube embed · 裁切（rel=0，播完不出相关视频）', crop: true }),
         PlayerTab({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'YouTube embed · 关掉裁切的样子', crop: false }),
         PlayerTab({ url: 'https://b23.tv/abc', title: '短链 · 解析不出嵌入形态那一支' })
       ])

@@ -75,8 +75,11 @@ test('预览用的是真视图函数：渲染结果里能找到视图自己的�
   assert.match(read('preview-video.html'), /class="bl-thumb"/, '缩略图占位要画出来')
   assert.match(read('preview-video.html'), /<img[^>]+src="https:\/\/example\.invalid\/pic\/9\.jpg"/, '有 thumb 的条目要画出真封面')
   assert.equal([...read('preview-video.html').matchAll(/<img/g)].length, 2, '只有 id 9 那条带 thumb，明暗两块各一张')
-  assert.match(read('preview-drawer.html'), /<a class="bl-url" href="https:\/\/example\.invalid\/video"/, '原文地址必须是真链接')
-  assert.match(read('preview-drawer.html'), /侧栏打开|浏览器打开/, '抽屉要把两条打开的路摆出来')
+  // 抽屉页换演可嵌入的 B 站视频：内嵌播放器、「侧栏播放」按钮、排队说明都要出场
+  assert.match(read('preview-drawer.html'), /<a class="bl-url" href="https:\/\/www\.bilibili\.com\/video\/BV1GJ411x7h7"/, '原文地址必须是真链接')
+  assert.match(read('preview-drawer.html'), /侧栏播放/, '抽屉要摆出侧栏播放按钮（可嵌入 + 侧栏可用才画）')
+  assert.match(read('preview-drawer.html'), /先排队/, '面板前台点侧栏会先排队、切回会话自动开——预览里也要看得见这句话')
+  assert.match(read('preview-drawer.html'), /内嵌播放/, '可嵌入形态要演出内嵌播放器一节')
   assert.match(read('preview-today.html'), /视频区 · 4/, '夹具加进 bili 视频后今天页的视频区不再是三条')
   assert.match(read('preview-article.html'), /左边没有条目|读原文/)
   assert.match(read('preview-library.html'), /状态|形态|档位|来源/)

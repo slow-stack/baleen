@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseVideoUrl, buildTabDescriptor, registerSidebarTab, TAB_ID } from '../src/client/sidebar-tab.js'
+import { parseVideoUrl, buildTabDescriptor, registerSidebarTab, videoTabSeed, TAB_ID } from '../src/client/sidebar-tab.js'
 
 test('parseVideoUrl：可嵌入才认，b23.tv 短链和别的站点一律不认（抢了播不了更糟）', () => {
   assert.equal(parseVideoUrl('https://www.bilibili.com/video/BV1GJ411x7h7?p=3').kind, 'bili')
@@ -49,4 +49,15 @@ test('registerSidebarTab：service 缺席返回空 disposer 且不抛；注册�
   assert.equal(called, 1)
   ok()
   assert.equal(called, 0, 'disposer 必须转交 service 给的那个，注册才算可回收')
+})
+
+test('videoTabSeed：url 载荷进 seed（原生右侧栏路），标题缺省给「Baleen 播放」', () => {
+  assert.deepEqual(
+    videoTabSeed('https://www.bilibili.com/video/BV1GJ411x7h7', '某条视频'),
+    { type: TAB_ID, url: 'https://www.bilibili.com/video/BV1GJ411x7h7', title: '某条视频' }
+  )
+  assert.deepEqual(
+    videoTabSeed('https://youtu.be/dQw4w9WgXcQ'),
+    { type: TAB_ID, url: 'https://youtu.be/dQw4w9WgXcQ', title: 'Baleen 播放' }
+  )
 })

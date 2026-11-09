@@ -40,6 +40,28 @@
     let takeoverOn = true      // 偏好读回来之前按默认值，与 DEFAULTS.sidebar_takeover 一致
     let cropOn = true
 
+    /**
+     * 侧栏播放能力（抽屉「侧栏播放」按钮的落点）。available 与 open 都在调用时现取服务：
+     * better-sidebar 可能被禁用或根本没装，取不到就如实返回 false（按钮压根不画、点了明说
+     * 没接住），面板其余功能不牵连。手动 open 与认领（urlTarget）互不挂钩——关掉
+     * 「侧栏接管链接」只是不抢会话里的链接，按钮照样能用。
+     */
+    const sidebarTab = {
+      get available() {
+        const bs = safeGet('betterSidebar')
+        return Boolean(bs && typeof bs.openTab === 'function')
+      },
+      open(url, title) {
+        const bs = safeGet('betterSidebar')
+        if (!bs || typeof bs.openTab !== 'function' || !parseVideoUrl(url)) return false
+        try { bs.openTab(videoTabSeed(url, title)); return true }
+        catch (e) {
+          console.error('[dsh-baleen] 侧栏没接住这条：' + ((e && e.message) || e))
+          return false
+        }
+      }
+    }
+
     /** 打开原链接只剩一条路：宿主侧 /open 路由。2026-10-31 真机验收实证，本宿主把
      *  客户端页面的弹窗与外链全部静默拦下（webview 客体的 window-open 处理），window.open
      *  与 <a target=_blank> 都到不了系统浏览器。
@@ -324,6 +346,7 @@
             newFolderName,
             onNewFolderName: setNewFolderName,
             onOpenUrl: (url, itemId) => runOpenExternal(itemId),
+            sidebar: sidebarTab,
             onClose: () => { setFeedbackMsg(''); setNewFolderName(''); dispatch({ type: 'close-drawer' }) },
             onDone: (r) => {
               setFeedbackMsg(r.message)
@@ -564,7 +587,7 @@
       const slots = safeGet('slots')
       if (!slots) {
         console.error('[dsh-baleen] 拿不到 slots 服务，界面不注册')
-        return { registeredSlots: [] }
+        return { registeredSlots: [], sidebarTab }
       }
       const registered = []
 
@@ -618,7 +641,7 @@
         }).catch(() => {})
       }
 
-      return { registeredSlots: registered }
+      return { registeredSlots: registered, sidebarTab }
     }
 
     exports.apply = apply

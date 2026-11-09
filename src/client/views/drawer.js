@@ -35,16 +35,43 @@ export function feedbackHint(action) {
 /**
  * 内嵌播放器（V5 真机实证 2026-11-01：面板页 iframe 不被宿主 CSP 拦）。
  * B 站=完整页 iframe（bilibili 试图跳出顶层会被 Chromium 自动拦，实测无害；
- * 官方 player.html 反而是空壳）；YouTube=官方 embed（作者关了嵌入的视频会显示
- * YouTube 自己的提示，此时走「浏览器打开」）。其余平台返回 null。
+ * 官方 player.html 反而是空壳）；YouTube=官方 embed，带 rel=0——播完不出
+ * 相关视频网格，跟"不让你顺着推荐刷下去"是同一条产品意图。作者关了嵌入的
+ * 视频会显示 YouTube 自己的提示，此时走「浏览器打开」。其余平台返回 null。
  */
 export function playerEmbed(url) {
   const s = String(url ?? '')
   const bili = /bilibili\.com\/video\/(BV[0-9A-Za-z]+)/.exec(s)
   if (bili) return { kind: 'bili', src: 'https://www.bilibili.com/video/' + bili[1] }
   const yt = /[?&]v=([0-9A-Za-z_-]{11})/.exec(s) || /youtu\.be\/([0-9A-Za-z_-]{11})/.exec(s)
-  if (yt && /youtube\.com|youtu\.be/.test(s)) return { kind: 'youtube', src: 'https://www.youtube.com/embed/' + yt[1] }
+  if (yt && /youtube\.com|youtu\.be/.test(s)) return { kind: 'youtube', src: 'https://www.youtube.com/embed/' + yt[1] + '?rel=0' }
   return null
+}
+
+/**
+ * 播放器舞台：抽屉与侧栏 tab 共用这一份标记、同一套 .bl-stage* 样式。
+ * 裁切窗跟着容器宽度走（aspect-ratio 16:9 = 视频面本来的形状），不再是写死的
+ * 像素对——窄容器漏推荐流、宽容器把 B 站控制条（音量在那）裁出窗外，都是固定值惹的。
+ * B 站是完整页，多带一个 bl-stage-bili 让 CSS 做版心缩放 + 页头偏移（css.js 的
+ * --bl-frame/--bl-nav）；YouTube embed 本来就是纯 16:9 播放器，精确合围即止。
+ * 裁切模式给 iframe 加 scrolling=no：内页滚不动，推荐流连滚出来的机会都没有；
+ * 还原模式（crop=false）保留滚动——那本来就是"看完整页"的路。
+ * 音量/倍速这些控件在跨源 iframe 里面，我们够不着，也不打算假装够得着——界面上明说用原播放器的。
+ */
+export function playerStage(embed, crop) {
+  const cls = ['bl-stage']
+  if (crop) cls.push('bl-stage-crop')
+  if (crop && embed.kind === 'bili') cls.push('bl-stage-bili')
+  return vnode('div', { className: cls.join(' ') }, [
+    vnode('iframe', {
+      className: 'bl-player',
+      src: embed.src,
+      title: '视频播放器',
+      allow: 'autoplay; fullscreen',
+      allowfullscreen: true,
+      scrolling: crop ? 'no' : 'auto'
+    })
+  ])
 }
 
 export function boundaryNote(item) {
@@ -95,7 +122,7 @@ export function drawerItemWithFolders(found, knownFolders) {
 const namesOf = (item, folders, ids) => (ids ?? []).map((id) =>
   (folders ?? []).find((f) => f.id === id)?.name ?? `#${id}（这个夹已经没了）`).join(' / ') || '（现在不在任何夹里）'
 
-export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {}, onOpenUrl }) {
+export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], collecting = false, newFolderName = '', onNewFolderName = () => {}, onOpenUrl, sidebar = null }) {
   async function fire(action) {
     let res = null
     try {
@@ -192,19 +219,14 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
       }),
       item.verdict_why ? Section({ title: '会话的判断', children: [vnode('p', {}, [`为什么判成「${item.verdict_tier}」：${item.verdict_why}`])] }) : null,
       // 内嵌播放（V5 实证可行）：视频且能解析出嵌入形态就直接在抽屉里放，
-      // 不把人跳去平台——须鲸的初衷是"在你待着的地方看"。
-      // 外面那层舞台容器是照抄侧栏播放器（player-tab.js）的同一套样式：完整页 iframe 往下会带出
-      // 平台的推荐流，裁掉窗口高度是产品意图——不让人顺着推荐一路刷下去。
+      // 不把人跳去平台——须鲸的初衷是"在你待着的地方看"。舞台用与侧栏 tab 同一份
+      // playerStage()：完整页 iframe 往下会带出平台的推荐流，裁掉是产品意图。
       embed ? Section({
         title: '内嵌播放',
-        children: [vnode('div', { className: 'bl-stage bl-stage-crop' }, [
-          vnode('iframe', {
-            className: 'bl-player',
-            src: embed.src,
-            allow: 'autoplay; fullscreen',
-            allowfullscreen: true
-          })
-        ])]
+        children: [
+          playerStage(embed, true),
+          vnode('p', { className: 'bl-note' }, ['只露播放器本体，推荐流被裁掉是不想让你刷下去；音量、倍速用画面里的原播放器控件。'])
+        ]
       }) : null,
       boundaryNote(item) ? Section({ title: '能力边界', children: [vnode('p', {}, [boundaryNote(item)])] }) : null,
       Section({
@@ -243,19 +265,32 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
       // （2026-10-31 真机验收：本宿主把客户端页面的弹窗与外链全部静默拦下，<a> 与
       // window.open 都到不了系统浏览器——「浏览器打开」改走宿主侧 /open 路由，面板
       // 只报条目 id、URL 由宿主从库里取。
-      // 「侧栏播放」按钮 M7 也没加：dsh-better-sidebar 的原生挂载按
-      // mountedSessionId 决定放不放行，面板在前台时 openTab 只进 pending 队列，
-      // 点了什么都不出现（docs/verification.md 的 M7 探针）——还是那个死按钮。）
+      // 「侧栏播放」在 0.30.1 语义下回归：面板在前台时 openTab 进 pending 队列，
+      // 会话回到前台由 better-sidebar 的 flushPending 落进右侧栏——不是死按钮，
+      // 是异步开；前提是排队语义写在按钮提示与回显里，不让人点了没反应。）
       link ? Section({
         title: '原文',
         children: [
           vnode('p', {}, [vnode('a', { className: 'bl-url', href: link, target: '_blank', rel: 'noopener noreferrer' }, [link])]),
           vnode('div', { className: 'bl-openbtns' }, [
-            vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link, item.id) }, ['浏览器打开'])
-          ]),
+            vnode('button', { type: 'button', onClick: () => onOpenUrl?.(link, item.id) }, ['浏览器打开']),
+            item.kind === 'video' && embed && sidebar?.available
+              ? vnode('button', {
+                  type: 'button',
+                  title: '在侧栏里播这条，不去平台。面板在前台时它会先排队，切回会话页签自动出现',
+                  onClick: () => {
+                    if (sidebar.open(item.url, item.title)) {
+                      onDone?.({ message: '已请求侧栏播放——右侧栏没立刻出现的话，切回会话页签它会自动开。' })
+                    } else {
+                      onDone?.({ message: '侧栏没接住这条——先在抽屉里播，或者去浏览器打开。' })
+                    }
+                  }
+                }, ['侧栏播放'])
+              : null
+          ].filter(Boolean)),
           vnode('p', { className: 'bl-note' }, [embed
-            ? '侧栏播放只在会话里点这条链接时生效——面板在前台时页签只会排队（M7 实测）。现在就看完用上面的播放器。'
-            : '这里没有侧栏按钮：面板在前台时侧栏页签只会排队（M7 实测），而这条又解析不出嵌入形态，侧栏本来也播不了。要去系统浏览器，只有上面那一个按钮。'])
+            ? '侧栏要是有会话在前台就当场开，否则先排队——切回会话页签它自动出现。'
+            : '这条解析不出嵌入形态，侧栏也播不了；要去系统浏览器就用上面的按钮。'])
         ]
       }) : null,
       vnode('p', { className: 'bl-note' }, ['下面两个按钮只调来源权重，不改你的主题词；当前偏移在设置页能看到也能一键归零。'])
