@@ -1,0 +1,10 @@
+# V2 人判演示（choro 车道 2026-11-05 写入，可改可删——本文件归你所有，机器只读）
+# 正面包住代码面：会话产物目录（superpowers/、.qoder-credits/）与 docs 不建页。
+include:
+  - src
+  - lib
+  - test
+  - test-helpers
+  - test-fixtures
+  - package.json
+max_files_per_page: 40

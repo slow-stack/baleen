@@ -41,6 +41,8 @@ Baleen 是一个 DSH（DeepSeek Harness 桌面版）插件：定时把信息源�
 - **`client.js` 是生成产物，别手改**：源在 `src/client/`，改完跑 `node tools/build-client.mjs`（`npm run build:check` 只验证新旧）。`test/build.test.js` 有两条守卫：产物逐字节比对、以及"`src/client` 下每个 `.js` 都在 `PARTS` 里"——新加视图忘了登记 `PARTS`，面板不会有任何变化，也不会报错。
 - 生成方式是把多个源文件**内联进同一个 factory 作用域**（只剥 `import`/`export` 行），所以**两个源文件里的同名 `const` 会直接 `SyntaxError`**。节点工厂统一用 `src/client/vnode.js` 的 `vnode()`，别在视图里再造同名局部函数。
 - 视图返回的是纯对象 `{type, props, children}`，不是 React 元素；装配层用 `toElement()` 桥给 `createElement`。测试桩的 `flattenText` 会**调用函数组件**（桩不 reconcile），所以面板断言看得见内容——但也因此看不见真 React 的键/形状问题，那一层只能在预览门和真机上看。
+- **重启 DSH 前先看两件事**：会话树里有没有"进行中"的任务、插件页有没有"正在安装 / 排队中"。宿主在装卸插件期间会重写 profile 的 `cordis.patch.yml`，这时候重启等于拿装配条目赌运气（2026-11-04 实测撞上"安装 dsh-openwiki + 一条 Issue #557 的 agent 正在跑"，探针因此改成不重启的那条路）。
+- **真机探针的三个坑**（侧栏落点这类看不见的效果）：① 停靠的 DevTools 正压在窗口底部，而 `openTab` 不带 `path`/`url` 时的落点恰恰是底部工作台——先关 DevTools 再判有没有开出来；② console 求值的 document 与应用 UI 不是同一棵渲染树（`document.body.innerText` 在几百到几千字符之间乱跳、`querySelectorAll('iframe')` 恒为 0），**DOM 判据不可信，只能看截图**；③ `document.title` 会被应用的标题同步覆写，回读结果用 `position:fixed` 覆盖层；**别照旧的无障碍序号点 DevTools 的元素**——一次渲染后序号会漂到应用自己的导航上，实测把宿主界面导到了「插件」页。
 
 ## 界面协作约定
 

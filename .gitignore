@@ -20,3 +20,10 @@ preference.live.yaml
 # SDD 过程台账与本地工具缓存，只留本机
 .superpowers/
 .v2c/
+.qoder-credits/
+# chorography 生成物：T0/T1 重写的 index.md / modules/*.md / evidence/*.json /
+# state.json 都是派生物，只有 plan.yaml 是人工正面控制表、须入库。
+# 忽略目录内容而不是整个目录——忽略整个目录会让下面的白名单失效。
+# 代价：页内 CHORO:HUMAN 保留区只在本机存活，git clean -fdX 会连它一起删。
+.chorography/*
+!.chorography/plan.yaml
