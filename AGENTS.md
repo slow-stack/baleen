@@ -44,6 +44,8 @@ Baleen 是一个 DSH（DeepSeek Harness 桌面版）插件：定时把信息源�
 - **重启 DSH 前先看两件事**：会话树里有没有"进行中"的任务、插件页有没有"正在安装 / 排队中"。宿主在装卸插件期间会重写 profile 的 `cordis.patch.yml`，这时候重启等于拿装配条目赌运气（2026-11-04 实测撞上"安装 dsh-openwiki + 一条 Issue #557 的 agent 正在跑"，探针因此改成不重启的那条路）。
 - **真机探针的三个坑**（侧栏落点这类看不见的效果）：① 停靠的 DevTools 正压在窗口底部，而 `openTab` 不带 `path`/`url` 时的落点恰恰是底部工作台——先关 DevTools 再判有没有开出来；② console 求值的 document 与应用 UI 不是同一棵渲染树（`document.body.innerText` 在几百到几千字符之间乱跳、`querySelectorAll('iframe')` 恒为 0），**DOM 判据不可信，只能看截图**；③ `document.title` 会被应用的标题同步覆写，回读结果用 `position:fixed` 覆盖层；**别照旧的无障碍序号点 DevTools 的元素**——一次渲染后序号会漂到应用自己的导航上，实测把宿主界面导到了「插件」页。
 
+- **宿主 web boot 对插件 slot 回调的抛错零容忍**：任何插件注册进 slot 的回调（如 `sidebar.panellist` 的 `label`）一抛错，宿主自家的 `dsh-client-ui-sidebar` 会卡在 loading，web boot 直接 abort——窗口永远出不来，但进程全活着。日志在 `%APPDATA%@deepseek-ai/dsh-desktop/logs/crash-*-web-boot.log`（文件头有 "N entries did not activate"）。诊断手法：关掉后用 `DeepSeek Harness.exe --remote-debugging-port=9222` 重启，CDP（`/json` 拿 target → Runtime.exceptionThrown 的结构化 callFrames）能看到抛错函数与 bundle 内行号；bundle 是按批拼接的第三方 client.js，用 scriptParsed 时的**当前 rev** 在页面内 fetch 原文即可逐行定位是哪个插件哪一行。（2026-11-10 实证：dsh-artifacts 0.1.0 的 `label: () => t('panel')` 引用了不存在的 `t`，一行修复。）
+
 ## 界面协作约定
 
 - 新建 UI 元素前先看有没有现成参照（`D:/dsh-study-desk` 是本机已验证的写法）。
