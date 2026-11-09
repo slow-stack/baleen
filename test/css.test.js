@@ -58,10 +58,17 @@ test('网格用 auto-fill minmax(260px,1fr)，容器不许自己限宽', () => {
   assert.doesNotMatch(noMedia, /\.bl-(?:root|body|grid|two|library)[^}]*max-width/, '容器限宽=两侧大空白')
 })
 
-test('字号只有 13/12/11，字重只有 400/500', () => {
+test('字号分级：仪表盘只许 11/12/13，阅读区（bl-reader）额外允许 14/15；字重只有 400/500', () => {
   const sizes = [...CSS.matchAll(/font-size:\s*(\d+)px/g)].map((m) => Number(m[1]))
   assert.ok(sizes.length > 10)
-  assert.deepEqual([...new Set(sizes)].sort((a, b) => a - b), [11, 12, 13])
+  assert.ok(sizes.every((s) => s >= 11 && s <= 15), '出现 11-15 之外的字号：' + [...new Set(sizes)].join(','))
+  // ≥14 的字号只许出现在阅读区规则里——仪表盘的信息密度是刻意的，别顺手放大；
+  // 阅读正文是唯一例外：长文 14px/1.8 是护眼底线（13px 的中文长文读着费劲）。
+  const offenders = []
+  for (const m of CSS.matchAll(/([^{}]+)\{[^}]*font-size:\s*1[45]px[^}]*\}/g)) {
+    if (!/bl-reader/.test(m[1])) offenders.push(m[1].trim() + ' 用了 ≥14px')
+  }
+  assert.deepEqual(offenders, [], '14/15px 只许给阅读正文与标题：' + offenders.join('; '))
   const weights = [...CSS.matchAll(/font-weight:\s*(\d{3})/g)].map((m) => m[1])
   assert.deepEqual([...new Set(weights)].sort(), ['400', '500'])
 })

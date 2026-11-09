@@ -36,6 +36,16 @@ export function readableBody(item) {
   return typeof t === 'string' ? t.trim() : ''
 }
 
+/**
+ * 正文分段：空行（\n{2,}）是段界，段内单换行原样保留。一条规则服务两种内容——
+ * 文章有真实段距，字幕逐行紧排不被拆散（行间的单换行交给 CSS pre-wrap 折行）。
+ * 空白/非字符串返回空数组，调用方给占位句。
+ */
+export function readerParagraphs(text) {
+  const s = typeof text === 'string' ? text : ''
+  return s.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+}
+
 /** 右栏当前是哪一条：选中项被筛掉时回落第一条。视图与装配层共用这一条规则，
  *  否则「正在抓的是哪条」会跟右栏画的那条各算一遍，忙态就贴到别人身上。 */
 export function currentArticle(items, filters = {}, selectedId) {
@@ -47,6 +57,7 @@ export function ArticleView({ items = [], filters = {}, selectedId, onFilter, on
   const list = visibleArticles(items, filters)
   const cur = currentArticle(items, filters, selectedId)
   const body = cur ? readableBody(cur) : ''
+  const paras = readerParagraphs(body)
   const sources = [...new Set(items.filter((i) => i.kind !== 'video').map((i) => i.source_id))]
 
   return vnode('div', { className: 'bl-article' }, [
@@ -82,7 +93,8 @@ export function ArticleView({ items = [], filters = {}, selectedId, onFilter, on
           Number(cur.time_estimated) > 0 ? `约 ${Math.round(Number(cur.time_estimated))} 分钟` : ''
         ]),
         STATE_HINT[cur.body_state] ? vnode('p', { className: 'bl-reader-hint' }, [STATE_HINT[cur.body_state]]) : null,
-        vnode('div', { className: 'bl-reader-body' }, [body || '（没有正文，只能看原文）']),
+        vnode('div', { className: 'bl-reader-body' },
+          paras.length ? paras.map((p, i) => vnode('p', { key: i }, [p])) : ['（没有正文，只能看原文）']),
         vnode('p', { className: 'bl-reader-link' }, ['读原文：' + (cur.url || '（这条没带链接）')]),
         // 已经有正文的（full/subtitle/transcribed）不画这颗按钮：点了也不会有新东西，
         // 摆在那儿只会让人把手里已经有的正文再怀疑一遍。

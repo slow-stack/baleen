@@ -51,10 +51,14 @@ export const CSS = `
 .bl-dur{position:absolute;right:5px;bottom:5px;font-size:11px;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
 .bl-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start;min-width:0}
 .bl-list{display:flex;flex-direction:column;gap:8px;min-width:0}
-.bl-reader{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:13px 15px;min-height:200px;min-width:0;display:flex;flex-direction:column;gap:8px}
-.bl-reader h4{margin:0;font-size:13px;font-weight:500;line-height:1.4;color:var(--dsw-alias-label-primary)}
+.bl-reader{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:16px 18px;min-height:200px;min-width:0;display:flex;flex-direction:column;gap:9px}
+.bl-reader h4{margin:0;font-size:15px;font-weight:500;line-height:1.45;color:var(--dsw-alias-label-primary)}
 .bl-reader-by,.bl-reader-hint,.bl-reader-link{font-size:11px;color:var(--dsw-alias-label-secondary);margin:0}
-.bl-reader-body{font-size:13px;white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary)}
+/* 阅读排版（护眼三件事）：14px/1.8 的中文长文才读得动；行长封顶 42em（约 42 个汉字，
+   超过就得转头）；空行成段、段间 0.75em，段内单换行原样保留（字幕逐行紧排靠它）。
+   限宽只落在文字本身，阅读卡照常填满栏宽——不碰「容器不许限宽」的那条规矩。 */
+.bl-reader-body{font-size:14px;line-height:1.8;white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary);max-width:42em;display:flex;flex-direction:column;gap:0.75em}
+.bl-reader-body p{margin:0}
 .bl-library{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;align-items:start;min-width:0}
 .bl-library-body{display:flex;flex-direction:column;gap:10px;min-width:0}
 .bl-facets{display:flex;flex-direction:column;gap:12px;font-size:12px;min-width:0}
@@ -86,7 +90,7 @@ export const CSS = `
 .bl-dmain{padding:12px 14px;display:flex;flex-direction:column;gap:11px;overflow-y:auto;font-size:12px;min-width:0}
 .bl-dmain section{display:flex;flex-direction:column;gap:4px}
 .bl-dmain h5{margin:0 0 3px;font-size:11px;font-weight:500;color:var(--dsw-alias-label-tertiary)}
-.bl-dmain p{margin:0;word-break:break-word;color:var(--dsw-alias-label-primary)}
+.bl-dmain p{margin:0;word-break:break-word;color:var(--dsw-alias-label-primary);line-height:1.65}
 .bl-kv{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--dsw-alias-label-secondary)}
 .bl-missing{color:var(--dsw-alias-state-error-primary)}
 .bl-collect{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px}

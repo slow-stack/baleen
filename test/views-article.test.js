@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ArticleView, currentArticle, visibleArticles, readableBody, STATE_HINT } from '../src/client/views/article.js'
+import { ArticleView, currentArticle, visibleArticles, readableBody, readerParagraphs, STATE_HINT } from '../src/client/views/article.js'
 import { text, findAll } from './helpers/tree.mjs'
 
 const mk = (over = {}) => ({
@@ -153,4 +153,25 @@ test('阅读时长按分钟说，缺这个数就不写', () => {
   assert.match(text(findAll(tree, 'bl-reader')[0]), /约 12 分钟/)
   const none = ArticleView({ items: [mk({ time_estimated: 0 })], filters: {}, selectedId: 1 })
   assert.doesNotMatch(text(findAll(none, 'bl-reader')[0]), /约 \d+ 分钟/)
+})
+
+// 阅读排版（护眼）：空行成段、段内单换行保留——文章有段距，字幕逐行紧排，一条规则两边用
+test('readerParagraphs 按空行分段，段内单换行原样保留', () => {
+  const article = ['第一段。', '', '第二段第一行', '第二段第二行', '', '第三段。'].join('\n')
+  assert.deepEqual(readerParagraphs(article), ['第一段。', '第二段第一行\n第二段第二行', '第三段。'],
+    '空行才是段界，段内折行交给 pre-wrap')
+  assert.deepEqual(readerParagraphs('00:01 你好\n00:04 世界'), ['00:01 你好\n00:04 世界'],
+    '字幕行间只有单换行：整块一段，逐行紧排不拆散')
+  assert.deepEqual(readerParagraphs('  \n\n  '), [], '纯空白不成段')
+  assert.deepEqual(readerParagraphs(''), [])
+  assert.deepEqual(readerParagraphs(null), [], '非字符串按空处理')
+})
+
+test('正文按段渲染成多个 p，空正文给占位句', () => {
+  const tree = ArticleView({ items: [mk({ body_text: '第一段。\n\n第二段。' })], filters: {}, selectedId: 1 })
+  const bodyNode = findAll(tree, 'bl-reader-body')[0]
+  assert.equal(bodyNode.children.length, 2, '两个空行分段')
+  assert.deepEqual(bodyNode.children.map((p) => p.children[0]), ['第一段。', '第二段。'])
+  const empty = findAll(ArticleView({ items: [mk({ body_text: '' })], filters: {}, selectedId: 1 }), 'bl-reader-body')[0]
+  assert.match(text(empty), /没有正文/)
 })

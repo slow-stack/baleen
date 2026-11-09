@@ -7,6 +7,7 @@
 import { vnode } from '../vnode.js'
 import { matchInfo } from '../match.js'
 import { fmtDuration, readbackMiss, foldersUnreadNote, httpUrl } from '../format.js'
+import { readerParagraphs } from './article.js'
 
 const DELTA = { dismiss: '-0.1', save: '+0.1' }
 /** 每种 body_state 一句说法：正文区与能力边界共用，别两处各写一遍再各自漂移 */
@@ -213,7 +214,10 @@ export function Drawer({ item, api = {}, onClose, onDone, note, folders = [], co
       Section({
         title: item.kind === 'video' ? '字幕原文' : '正文',
         children: [
-          vnode('p', {}, [body || '（没有可读内容）']),
+          // 正文与阅读器同一条分段规则（readerParagraphs）：空行成段、单换行保留，
+          // 字幕在抽屉里也逐行可读；排版类 bl-reader-body 与文章页同一份。
+          vnode('div', { className: 'bl-reader-body' },
+            readerParagraphs(body).length ? readerParagraphs(body).map((p, i) => vnode('p', { key: i }, [p])) : ['（没有可读内容）']),
           STATE_NOTE[item.body_state] ? vnode('p', { className: 'bl-reader-hint' }, [STATE_NOTE[item.body_state]]) : null
         ]
       }),

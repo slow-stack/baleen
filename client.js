@@ -399,10 +399,14 @@ window.__ModuleLoader__.load({
     .bl-dur{position:absolute;right:5px;bottom:5px;font-size:11px;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
     .bl-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start;min-width:0}
     .bl-list{display:flex;flex-direction:column;gap:8px;min-width:0}
-    .bl-reader{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:13px 15px;min-height:200px;min-width:0;display:flex;flex-direction:column;gap:8px}
-    .bl-reader h4{margin:0;font-size:13px;font-weight:500;line-height:1.4;color:var(--dsw-alias-label-primary)}
+    .bl-reader{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:16px 18px;min-height:200px;min-width:0;display:flex;flex-direction:column;gap:9px}
+    .bl-reader h4{margin:0;font-size:15px;font-weight:500;line-height:1.45;color:var(--dsw-alias-label-primary)}
     .bl-reader-by,.bl-reader-hint,.bl-reader-link{font-size:11px;color:var(--dsw-alias-label-secondary);margin:0}
-    .bl-reader-body{font-size:13px;white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary)}
+    /* 阅读排版（护眼三件事）：14px/1.8 的中文长文才读得动；行长封顶 42em（约 42 个汉字，
+       超过就得转头）；空行成段、段间 0.75em，段内单换行原样保留（字幕逐行紧排靠它）。
+       限宽只落在文字本身，阅读卡照常填满栏宽——不碰「容器不许限宽」的那条规矩。 */
+    .bl-reader-body{font-size:14px;line-height:1.8;white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary);max-width:42em;display:flex;flex-direction:column;gap:0.75em}
+    .bl-reader-body p{margin:0}
     .bl-library{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;align-items:start;min-width:0}
     .bl-library-body{display:flex;flex-direction:column;gap:10px;min-width:0}
     .bl-facets{display:flex;flex-direction:column;gap:12px;font-size:12px;min-width:0}
@@ -434,7 +438,7 @@ window.__ModuleLoader__.load({
     .bl-dmain{padding:12px 14px;display:flex;flex-direction:column;gap:11px;overflow-y:auto;font-size:12px;min-width:0}
     .bl-dmain section{display:flex;flex-direction:column;gap:4px}
     .bl-dmain h5{margin:0 0 3px;font-size:11px;font-weight:500;color:var(--dsw-alias-label-tertiary)}
-    .bl-dmain p{margin:0;word-break:break-word;color:var(--dsw-alias-label-primary)}
+    .bl-dmain p{margin:0;word-break:break-word;color:var(--dsw-alias-label-primary);line-height:1.65}
     .bl-kv{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--dsw-alias-label-secondary)}
     .bl-missing{color:var(--dsw-alias-state-error-primary)}
     .bl-collect{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px}
@@ -798,6 +802,16 @@ window.__ModuleLoader__.load({
       return typeof t === 'string' ? t.trim() : ''
     }
 
+    /**
+     * 正文分段：空行（\n{2,}）是段界，段内单换行原样保留。一条规则服务两种内容——
+     * 文章有真实段距，字幕逐行紧排不被拆散（行间的单换行交给 CSS pre-wrap 折行）。
+     * 空白/非字符串返回空数组，调用方给占位句。
+     */
+    function readerParagraphs(text) {
+      const s = typeof text === 'string' ? text : ''
+      return s.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+    }
+
     /** 右栏当前是哪一条：选中项被筛掉时回落第一条。视图与装配层共用这一条规则，
      *  否则「正在抓的是哪条」会跟右栏画的那条各算一遍，忙态就贴到别人身上。 */
     function currentArticle(items, filters = {}, selectedId) {
@@ -809,6 +823,7 @@ window.__ModuleLoader__.load({
       const list = visibleArticles(items, filters)
       const cur = currentArticle(items, filters, selectedId)
       const body = cur ? readableBody(cur) : ''
+      const paras = readerParagraphs(body)
       const sources = [...new Set(items.filter((i) => i.kind !== 'video').map((i) => i.source_id))]
 
       return vnode('div', { className: 'bl-article' }, [
@@ -844,7 +859,8 @@ window.__ModuleLoader__.load({
               Number(cur.time_estimated) > 0 ? `约 ${Math.round(Number(cur.time_estimated))} 分钟` : ''
             ]),
             STATE_HINT[cur.body_state] ? vnode('p', { className: 'bl-reader-hint' }, [STATE_HINT[cur.body_state]]) : null,
-            vnode('div', { className: 'bl-reader-body' }, [body || '（没有正文，只能看原文）']),
+            vnode('div', { className: 'bl-reader-body' },
+              paras.length ? paras.map((p, i) => vnode('p', { key: i }, [p])) : ['（没有正文，只能看原文）']),
             vnode('p', { className: 'bl-reader-link' }, ['读原文：' + (cur.url || '（这条没带链接）')]),
             // 已经有正文的（full/subtitle/transcribed）不画这颗按钮：点了也不会有新东西，
             // 摆在那儿只会让人把手里已经有的正文再怀疑一遍。
@@ -1194,7 +1210,10 @@ window.__ModuleLoader__.load({
           Section({
             title: item.kind === 'video' ? '字幕原文' : '正文',
             children: [
-              vnode('p', {}, [body || '（没有可读内容）']),
+              // 正文与阅读器同一条分段规则（readerParagraphs）：空行成段、单换行保留，
+              // 字幕在抽屉里也逐行可读；排版类 bl-reader-body 与文章页同一份。
+              vnode('div', { className: 'bl-reader-body' },
+                readerParagraphs(body).length ? readerParagraphs(body).map((p, i) => vnode('p', { key: i }, [p])) : ['（没有可读内容）']),
               STATE_NOTE[item.body_state] ? vnode('p', { className: 'bl-reader-hint' }, [STATE_NOTE[item.body_state]]) : null
             ]
           }),
