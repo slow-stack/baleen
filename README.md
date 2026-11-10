@@ -4,7 +4,7 @@
 >
 > 名字来自鲸须——须鲸的滤食结构。这个产品做的同一件事。
 
-**当前状态：M0–M5 全部完成并已装载进 DSH 真机验收。** 摄取（RSS / B 站 / YouTube 三通道，读正文与字幕）→ 本地预筛 → 面板六格导航与收藏页 → 判断轮（五个只读工具 + 唯一写工具 save_verdicts，三档枚举锁死）→ 每轮增量汇报 → 设置页四页签，全链路真机跑过。小红书通道未做（需先做代码审查）。
+**当前状态：M0–M7 全部完成并已装载进 DSH 真机验收。** 摄取（RSS / B 站 / YouTube / 小红书四通道，读正文与字幕；RSS 摘要之外还有零依赖的正文补抓）→ 本地预筛 → 面板六格导航与收藏页 → 判断轮（五个只读工具 + 唯一写工具 save_verdicts，三档枚举锁死）→ 每轮增量汇报 → 设置页四页签，全链路真机跑过。视频在面板里直接看：抽屉内嵌播放（B 站完整页 / YouTube embed，裁掉推荐流），或送到 dsh-better-sidebar 的右侧栏页签；文章有护眼排版。
 
 ## 看面板长什么样（不装 DSH、不联网）
 
@@ -20,7 +20,7 @@ open out/preview-today.html # 浏览器直接打开即可
 
 ```bash
 npm install            # 唯一依赖：yaml（纯 JS，无 install 脚本）
-npm test               # 586 个测试，node --test，不需要网络
+npm test               # 661 个测试，node --test，不需要网络
 cp preference.example.yaml ~/baleen-trial/preference.yaml   # 先自己建目录
 BALEEN_HOME=~/baleen-trial node tools/live-ingest.mjs --reset   # 真抓一轮公开 feed
 ```
@@ -47,7 +47,7 @@ dsh plugin --profile desktop add dsh-baleen
 - **首轮收存货**：某个源还没有游标时不看发布日期——低频作者的 feed 里全是几个月的旧文，而刚订阅的你没读过，那正是首轮最值钱的部分。之后才用 `max_age_days`，且**可以按源覆盖**（慢更源 365 天，高频源 14 天）。
 - **成本三道闸**：本地预筛在前 → `max_per_run` → `max_per_day`；工具失败两次就记跳过，不许反复重跑。
 - **默认按偏好过滤**：`require_theme_hit: true` 时，没命中任何主题且不是关注 feed 的内容不进候选。关掉它就退回"启用一个源=它全部内容都进候选"。
-- **封面与原文都是真链接**：卡片上的封面图直接读库里 `items.thumb`（平台原样地址，只认 http/https，坏值退回灰占位而不是空 `src` 的裂图标）；抽屉里视频直接内嵌播放（V5），「侧栏播放」把它送到 dsh-better-sidebar 的右侧栏页签（面板在前台时先排队、切回会话自动出现），「浏览器打开」走你自己的系统浏览器。侧栏浏览器每次启动都是全新分区（没有登录态），内嵌 iframe 同样无登录态——B 站不登录也能播，约 30 秒后弹一次登录浮层。
+- **封面与原文都是真链接**：卡片上的封面图直接读库里 `items.thumb`（平台原样地址，只认 http/https，坏值退回灰占位而不是空 `src` 的裂图标）；抽屉里视频直接内嵌播放（V5，裁切窗把 B 站的推荐流和页头推出可视区，原生控制条完整可见），「侧栏播放」把它送到 dsh-better-sidebar 的右侧栏页签（面板在前台时先排队——排队落地时序在 better-sidebar 0.30.1 上有上游缺口，不保证立刻出现），「浏览器打开」走你自己的系统浏览器。侧栏浏览器每次启动都是全新分区（没有登录态），内嵌 iframe 同样无登录态——B 站不登录也能播，约 30 秒后弹一次登录浮层。
 
 完整约束见 [AGENTS.md](AGENTS.md)，设计见 [docs/superpowers/specs/2026-10-23-baleen-design.md](docs/superpowers/specs/2026-10-23-baleen-design.md)，实测记录见 [docs/verification.md](docs/verification.md)。
 
@@ -73,6 +73,8 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 | `lib/adapters/rss.js` | RSS/Atom 适配器；失败时抛 `status` / `empty` 供上层分类 |
 | `lib/adapters/bili.js` `lib/adapters/bili-wbi.js` | B 站：纯 fetch 直连 + 自研 wbi 签名 + 风控指纹；字幕走 player/wbi/v2 |
 | `lib/adapters/yt.js` `lib/adapters/yt-captions.js` | YouTube：yt-dlp 直连取列表与字幕轨（轨间回退），已入库的 external_id 跳过重抓 |
+| `lib/adapters/xhs.js` `lib/mcp/xhs-client.js` | 小红书：官方 MCP 子进程 + 只读白名单，搜索关键词 → 笔记列表 → 逐条详情 |
+| `lib/fulltext.js` | 零依赖正文抽取：RSS 只给摘要时回原文抓正文，宁可抽不到也不把评论区当正文 |
 | `lib/feed.js` | RSS2 + Atom 容错解析（CDATA、坏日期、双重转义、时长三种写法） |
 | `lib/pool.js` | 并发 4、单 job 超时 20s、**重试固定 1 次**、错误分类 |
 | `lib/normalize.js` | RawItem → items 行：`kind` / `body_state` / 命中理由与得分 |
@@ -87,7 +89,7 @@ run.lock            单实例锁（带 pid，进程被强杀后陈旧锁会被�
 
 - 汇报的图文排版（当前是 Markdown，图片位留白）
 - 播放器自绘控制条（音量/进度在跨源 iframe 里面够不着，现在是明说"用画面里的原播放器控件"）
-- 视频在侧栏播放器里的真机验收（--bl-nav/--bl-frame 两个常数是无头量得的待校值）
+- 侧栏播放页签的排队落地时序：better-sidebar 0.30.1 上排队路径不保证落地（0.28.2 同路径可用），是上游升级引入的集成缺口，待上游排查或降级验证——tab 一旦落地渲染全对
 
 ## 名字提示
 
